@@ -1,108 +1,98 @@
-# ARTKITv2
+# ARTKITv2 — BabyTrack
 
-A video art gallery — upload art videos, browse and watch them.
+A browser-based motion detection art tool. Load a video or open your camera — it detects moving regions in real time and draws overlays on them. No account, no server, no upload. Everything runs in your browser.
 
 ---
 
-## How It Works (Big Picture)
-
-Think of it like YouTube, but just for this art community.
+## What It Does
 
 ```
-YOU (browser)
-    |
-    |  1. Open the website
-    v
-WEBSITE (frontend)
-    |
-    |  2. Want to upload a video?
-    v
-CLOUDINARY (video storage)
-    |
-    |  3. Video gets stored + compressed automatically
-    |  4. Cloudinary gives back a link to the video
-    v
-DATABASE (stores info about the video)
-    |  title, who uploaded it, the Cloudinary link, upload date
-    |
-    |  5. Someone visits the gallery
-    v
-WEBSITE (frontend)
-    |  fetches video list from database
-    |  plays videos directly from Cloudinary
-    v
-VIEWER (browser)
+Your video / webcam
+        ↓
+ Compares each frame to the previous one
+        ↓
+ Finds regions that changed (motion blobs)
+        ↓
+ Draws shapes around those regions
+        ↓
+ Applies art filters to only those regions
+        ↓
+ You see the result live on screen
 ```
 
----
-
-## Where Does the Video Actually Live?
-
-**Cloudinary** — a service that stores and serves videos over the internet.
-
-- You upload once → they handle the rest
-- Videos are served from servers close to the viewer (fast loading)
-- Free tier: 25 GB storage, 25 GB monthly bandwidth
-- You never need to manage a server for video storage
-
-The **database** only stores *information about* the video (title, link, uploader) — not the video file itself.
+Nothing leaves your computer. No data is sent anywhere.
 
 ---
 
-## Data Flow Step by Step
-
-| Step | What happens | Where |
-|------|-------------|-------|
-| 1 | User picks a video file | Browser |
-| 2 | App sends file to Cloudinary | Browser → Cloudinary |
-| 3 | Cloudinary stores & compresses it | Cloudinary servers |
-| 4 | Cloudinary returns a URL | Cloudinary → App |
-| 5 | App saves title + URL + metadata | App → Database |
-| 6 | Gallery page loads video list | Database → App |
-| 7 | Videos stream to viewer | Cloudinary → Viewer |
-
----
-
-## Components
+## How the Code Is Organized
 
 ```
 ARTKITv2/
-├── frontend/        # What users see (website UI)
-├── backend/         # Server that talks to database
-└── README.md        # This file
+├── index.html          ← the page (sidebar + canvas layout)
+├── src/
+│   ├── main.js         ← wires everything together, runs the render loop
+│   ├── blobDetector.js ← finds moving regions in the video frame
+│   ├── filters.js      ← applies color effects (invert, thermal) to blobs
+│   ├── overlays.js     ← draws shapes and lines on the canvas
+│   └── style.css       ← all styling
+├── dist/               ← built/compiled output (auto-generated, ignore this)
+└── package.json        ← project config
 ```
 
-- **Frontend** — the gallery website (buttons, video player, upload form)
-- **Backend** — handles logins, saves video info, talks to the database
-- **Cloudinary** — external service that stores and streams videos
-- **Database** — stores video titles, links, user info
+---
+
+## How It Works (Technical)
+
+| File | Job |
+|------|-----|
+| `blobDetector.js` | Compares brightness of each pixel between frames. Pixels that changed a lot get flagged. Groups nearby flagged pixels into "blobs" using connected-component labeling. |
+| `filters.js` | Takes the pixel data inside each blob's bounding box and recolors it — invert flips colors, thermal maps brightness to a heat-map palette. |
+| `overlays.js` | Draws the chosen shape (rect / circle / rounded / diamond) around each blob. Also draws lines connecting blobs if connection rate > 0. |
+| `main.js` | Reads the video frame 60× per second, sends it to the detector, scales blob coords back to display size, applies filters, calls overlays. |
+
+Detection runs at **50% resolution** for performance, then scales blob positions back up to full display size.
+
+---
+
+## Controls
+
+| Control | What it does |
+|---------|-------------|
+| Upload Video | Load a local video file |
+| Open Camera | Use your webcam as live input |
+| Video Speed | 1×–4× playback speed |
+| Shape | Bounding box shape: rectangle, circle, rounded rect, diamond |
+| Region Style | Basic (score number) / Label (Object 1, 2…) / Frame (handles) |
+| Filter | None / Invert / Thermal — applied only inside blob regions |
+| Connection Rate | How many lines to draw between blob centers (0 = none, 1 = all) |
+| Sensitivity | How much a pixel must change to be flagged (lower = more sensitive) |
+| Max Blobs | Cap on how many blobs to track at once |
+| Update Interval | Detect blobs every N frames (higher = cheaper but slower response) |
 
 ---
 
 ## How to Run This Project (No coding experience needed!)
 
-Follow these steps exactly. If anything goes wrong, read the error message and check the **Troubleshooting** section at the bottom.
-
 ### Step 1 — Install Node.js
 
-1. Go to https://nodejs.org
+1. Go to [https://nodejs.org](https://nodejs.org)
 2. Click the big **LTS** button to download
-3. Open the downloaded file and follow the installer (just keep clicking Next/Continue)
+3. Open the downloaded file and follow the installer — just keep clicking Next / Continue
 4. When done, open **Terminal** (Mac) or **Command Prompt** (Windows)
-5. Type this and press Enter to confirm it worked:
+5. Check it worked by typing this and pressing Enter:
    ```
    node --version
    ```
-   You should see a number like `v20.x.x`
+   You should see something like `v20.x.x`
 
-### Step 2 — Download this project
+### Step 2 — Get the project
 
-If you got this as a ZIP file:
+If you received a ZIP file:
 1. Unzip it
 2. Open Terminal / Command Prompt
-3. Type `cd ` (with a space after), then drag the unzipped folder into the terminal window, then press Enter
+3. Type `cd ` (with a space), drag the unzipped folder into the window, press Enter
 
-If you have Git installed:
+If you have Git:
 ```
 git clone https://github.com/sourikduttanyu/ARTKITv2.git
 cd ARTKITv2
@@ -110,28 +100,30 @@ cd ARTKITv2
 
 ### Step 3 — Install dependencies
 
-In your terminal, run:
 ```
 npm install
 ```
-Wait for it to finish (may take a minute).
 
-### Step 4 — Start the project
+Wait for it to finish (about a minute).
+
+### Step 4 — Start the app
 
 ```
-npm start
+npm run dev
 ```
 
-Then open your browser and go to: **http://localhost:3000**
+Then open your browser and go to the address shown in the terminal — usually **http://localhost:5173**
 
 ---
 
 ## Troubleshooting
 
-**"command not found: node"** — Node.js didn't install correctly. Redo Step 1.
+**"command not found: node"** — Node.js didn't install. Redo Step 1.
 
-**"command not found: npm"** — Same fix as above.
+**"command not found: npm"** — Same fix.
 
-**Port already in use** — Something else is running on port 3000. Restart your computer and try again.
+**Camera won't open** — Browser needs permission. Click "Allow" when it asks. If you already denied it, go to browser settings → Site permissions → Camera → Allow.
 
-**Anything else** — Take a screenshot of the error and send it to Sourik.
+**Nothing detected on video** — Try lowering the Sensitivity slider. Some videos with slow or subtle motion need a lower threshold.
+
+**Anything else** — Screenshot the error and send it to Sourik.
