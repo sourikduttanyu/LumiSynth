@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BabyTrack — ARTKIT</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Hidden video element -->
+      <video id="video" playsinline muted loop style="display:none;"></video>
+
+      <!-- Sidebar -->
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          <span class="logo">ARTKIT</span>
+          <span class="logo-sub">BabyTrack</span>
+        </div>
+
+        <!-- Input -->
+        <section class="control-section">
+          <div class="section-label">Input</div>
+          <button id="btn-upload" class="action-btn">Upload Video</button>
+          <button id="btn-camera" class="action-btn">Open Camera</button>
+          <input type="file" id="file-input" accept="video/*" style="display:none;" />
+        </section>
+
+        <!-- Video Speed -->
+        <section class="control-section">
+          <div class="section-label">Video Speed</div>
+          <div class="toggle-group" id="speed-group">
+            <button class="toggle-btn active" data-value="1">1X</button>
+            <button class="toggle-btn" data-value="2">2X</button>
+            <button class="toggle-btn" data-value="3">3X</button>
+            <button class="toggle-btn" data-value="4">4X</button>
+          </div>
+        </section>
+
+        <!-- Shape -->
+        <section class="control-section">
+          <div class="section-label">Shape</div>
+          <div class="toggle-group" id="shape-group">
+            <button class="toggle-btn active" data-value="rect" title="Rectangle">&#9633;</button>
+            <button class="toggle-btn" data-value="circle" title="Circle">&#9675;</button>
+            <button class="toggle-btn" data-value="rounded" title="Rounded Rect">&#9645;</button>
+            <button class="toggle-btn" data-value="diamond" title="Diamond">&#9671;</button>
+          </div>
+        </section>
+
+        <!-- Region Style -->
+        <section class="control-section">
+          <div class="section-label">Region Style</div>
+          <div class="toggle-group" id="style-group">
+            <button class="toggle-btn active" data-value="basic">Basic</button>
+            <button class="toggle-btn" data-value="label">Label</button>
+            <button class="toggle-btn" data-value="frame">Frame</button>
+          </div>
+        </section>
+
+        <!-- Filter Effects -->
+        <section class="control-section">
+          <div class="section-label">Filter</div>
+          <div class="toggle-group" id="filter-group">
+            <button class="toggle-btn active" data-value="none">None</button>
+            <button class="toggle-btn" data-value="inv">Inv</button>
+            <button class="toggle-btn" data-value="thermal">Thermal</button>
+          </div>
+        </section>
+
+        <!-- Connection -->
+        <section class="control-section">
+          <div class="section-label">Connection Rate</div>
+          <div class="slider-row">
+            <input type="range" id="connection-rate" min="0" max="1" step="0.25" value="0.25" />
+            <span class="slider-val" id="connection-rate-val">0.25</span>
+          </div>
+          <div class="slider-ticks">
+            <span>0</span><span>0.25</span><span>0.5</span><span>0.75</span><span>1</span>
+          </div>
+        </section>
+
+        <!-- Sensitivity -->
+        <section class="control-section">
+          <div class="section-label">Sensitivity</div>
+          <div class="slider-row">
+            <input type="range" id="sensitivity" min="10" max="100" step="1" value="30" />
+            <span class="slider-val" id="sensitivity-val">30</span>
+          </div>
+        </section>
+
+        <!-- Max Blobs -->
+        <section class="control-section">
+          <div class="section-label">Max Blobs</div>
+          <div class="slider-row">
+            <input type="range" id="max-blobs" min="5" max="30" step="1" value="12" />
+            <span class="slider-val" id="max-blobs-val">12</span>
+          </div>
+        </section>
+
+        <!-- Update Interval -->
+        <section class="control-section">
+          <div class="section-label">Update Interval</div>
+          <div class="slider-row">
+            <input type="range" id="update-interval" min="1" max="30" step="1" value="1" />
+            <span class="slider-val" id="update-interval-val">1</span>
+          </div>
+        </section>
+
+        <div class="sidebar-footer">
+          <span>artkit.cc</span>
+        </div>
+      </aside>
+
+      <!-- Canvas area -->
+      <main id="canvas-area">
+        <canvas id="main-canvas"></canvas>
+        <div id="placeholder">
+          <div class="placeholder-text">
+            <div class="placeholder-icon">&#9632;</div>
+            <div>Upload a video or open camera to begin</div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
