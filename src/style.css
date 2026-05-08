@@ -932,6 +932,38 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
 #help-close:hover { color: var(--text-key); background: var(--surface-hover); }
 
 /* ============================================================
+   Help tooltip — cursor-following description popup.
+   Distinct from .knob-val (anchored under knob, shows current value).
+   This one explains what the control DOES, appears 350ms after hover.
+   z-index 50: above all UI chrome (knob-val=10, topbar=12, drop=20),
+   below modals (help-panel=500) and toasts (1000) so it never covers
+   blocking dialogs or status notifications.
+   ============================================================ */
+.help-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  max-width: 240px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: 4px;
+  color: var(--text-body);
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+  z-index: 50;
+  white-space: normal;
+  will-change: transform;
+}
+.help-tooltip.visible { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .help-tooltip { transition: none; }
+}
+
+/* ============================================================
    TOAST — bottom-center, full border (NO side-stripe), flat.
    Tone variants tint the entire border, not just one edge.
    ============================================================ */

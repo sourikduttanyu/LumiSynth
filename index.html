@@ -57,21 +57,21 @@
         <section class="control-section">
           <div class="section-label" id="lbl-detect">Detect Mode</div>
           <div class="toggle-group" id="detect-mode-group" role="radiogroup" aria-labelledby="lbl-detect">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="motion" title="Frame-to-frame difference (anything moving)">Motion</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="luma"   title="Bright regions above threshold (subjects on dark bg)">Luma</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dark"   title="Dark regions below threshold (silhouettes on bright bg)">Dark</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sat"    title="Vivid color regions (high chroma)">Sat</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edge"   title="Sobel gradient (edges, corners, text — works on paused frames)">Edge</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sharp"  title="Laplacian magnitude (high-frequency detail, focused regions)">Sharp</button>
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="motion" data-tip="Detects regions changing between frames. Goes blind on paused or static video — switch to Luma, Edge, or Sharp for stills.">Motion</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="luma"   data-tip="Detects bright regions above the Sensitivity threshold. Good for tracking subjects against dark backgrounds.">Luma</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dark"   data-tip="Detects dark regions below the Sensitivity threshold. Mirror of Luma — good for silhouettes against bright backgrounds.">Dark</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sat"    data-tip="Detects vivid color regions (high chroma) ignoring brightness. Good for tracking colored objects on monochrome backgrounds.">Sat</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edge"   data-tip="Detects boundaries, corners, and text using a Sobel gradient. Works on paused frames since it doesn't need motion.">Edge</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sharp"  data-tip="Detects high-frequency detail using a Laplacian. Tends to favor focused regions over blurred ones — useful for shallow depth-of-field footage.">Sharp</button>
           </div>
         </section>
 
         <section class="control-section">
           <div class="knob-grid">
-            <div class="knob" id="sensitivity"     data-knob data-state="threshold" data-min="10" data-max="100" data-step="1"    data-default="30" aria-label="Sensitivity (detection threshold)" tabindex="0"><span class="knob-label">Sensitivity</span><span class="knob-val" id="sensitivity-val">30</span></div>
-            <div class="knob" id="max-blobs"       data-knob data-min="5"  data-max="30"  data-step="1"    data-default="12" aria-label="Max Blobs" tabindex="0"><span class="knob-label">Max Blobs</span><span class="knob-val" id="max-blobs-val">12</span></div>
-            <div class="knob" id="update-interval" data-knob data-min="1"  data-max="30"  data-step="1"    data-default="1"  aria-label="Update Interval (frames)" tabindex="0"><span class="knob-label">Interval</span><span class="knob-val" id="update-interval-val">1</span></div>
-            <div class="knob" id="blob-smooth"     data-knob data-min="0"  data-max="1"   data-step="0.01" data-default="0"  aria-label="Blob smoothing — lerps tracked blob positions toward detections each render frame" tabindex="0"><span class="knob-label">Smooth</span><span class="knob-val" id="blob-smooth-val">0</span></div>
+            <div class="knob" id="sensitivity"     data-knob data-state="threshold" data-min="10" data-max="100" data-step="1"    data-default="30" aria-label="Sensitivity (detection threshold)" data-tip="Detection threshold. Lower = more sensitive (more / weaker blobs). Higher = stricter (fewer / stronger blobs). Meaning depends on Detect Mode (frame-diff for Motion, brightness for Luma, etc.)." tabindex="0"><span class="knob-label">Sensitivity</span><span class="knob-val" id="sensitivity-val">30</span></div>
+            <div class="knob" id="max-blobs"       data-knob data-min="5"  data-max="30"  data-step="1"    data-default="12" aria-label="Max Blobs" data-tip="Maximum number of blobs to detect and track at once. Higher = more visual density but more CPU per frame." tabindex="0"><span class="knob-label">Max Blobs</span><span class="knob-val" id="max-blobs-val">12</span></div>
+            <div class="knob" id="update-interval" data-knob data-min="1"  data-max="30"  data-step="1"    data-default="1"  aria-label="Update Interval (frames)" data-tip="Run detection every N render frames. 1 = every frame (smoothest tracking). Higher = less CPU but jerkier movement; pair with Smooth to soften." tabindex="0"><span class="knob-label">Interval</span><span class="knob-val" id="update-interval-val">1</span></div>
+            <div class="knob" id="blob-smooth"     data-knob data-min="0"  data-max="1"   data-step="0.01" data-default="0"  aria-label="Blob smoothing — lerps tracked blob positions toward detections each render frame" data-tip="Smooths blob movement between detections. 0 = snap to detected positions (responsive but jittery). 1 = max smoothing (~14-frame half-life, soft but laggy)." tabindex="0"><span class="knob-label">Smooth</span><span class="knob-val" id="blob-smooth-val">0</span></div>
           </div>
         </section>
 
@@ -225,19 +225,19 @@
         <section class="control-section">
           <div class="section-label" id="lbl-style">Region Style</div>
           <div class="toggle-group" id="style-group" role="radiogroup" aria-labelledby="lbl-style">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="basic">Basic</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="label">Label</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="frame">Frame</button>
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="basic" data-tip="Outline plus the detection score (0-1) printed above each blob.">Basic</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="label" data-tip="Outline plus an 'Object N' tab label above each blob.">Label</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="frame" data-tip="Outline plus 8 corner / edge handles plus the score — looks like a selection box from a video editor.">Frame</button>
           </div>
         </section>
 
         <section class="control-section">
           <div class="section-label" id="lbl-shape">Shape</div>
           <div class="toggle-group" id="shape-group" role="radiogroup" aria-labelledby="lbl-shape">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="rect"    aria-label="Rectangle">&#9633;</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="circle"  aria-label="Circle">&#9675;</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="rounded" aria-label="Rounded rectangle">&#9645;</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="diamond" aria-label="Diamond">&#9671;</button>
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="rect"    aria-label="Rectangle"         data-tip="Rectangular outline. Per-blob filter region (Inv / Thermal) is also rectangular.">&#9633;</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="circle"  aria-label="Circle"            data-tip="Elliptical outline. Per-blob filter region is clipped to fit the ellipse.">&#9675;</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="rounded" aria-label="Rounded rectangle" data-tip="Rounded rectangle outline (6px corner radius). Per-blob filter clipped to match.">&#9645;</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="diamond" aria-label="Diamond"           data-tip="Diamond (rotated square) outline. Per-blob filter clipped to the diamond shape.">&#9671;</button>
           </div>
         </section>
 
@@ -246,7 +246,7 @@
             Overlay Color
             <span class="section-sub">— boxes &amp; lines</span>
           </div>
-          <div class="swatch-grid" id="swatch-grid">
+          <div class="swatch-grid" id="swatch-grid" data-tip="Color for blob outlines, labels, and connection lines. Does NOT affect the per-blob Inv / Thermal filter regions.">
             <button class="swatch-btn" type="button" data-swatch="#ffffff" style="background:#ffffff" aria-label="White"></button>
             <button class="swatch-btn" type="button" data-swatch="#f72585" style="background:#f72585" aria-label="Pink"></button>
             <button class="swatch-btn" type="button" data-swatch="#5be7a6" style="background:#5be7a6" aria-label="Mint"></button>
@@ -256,7 +256,7 @@
             <button class="swatch-btn" type="button" data-swatch="#b5179e" style="background:#b5179e" aria-label="Purple"></button>
             <button class="swatch-btn" type="button" data-swatch="#000000" style="background:#000000" aria-label="Black"></button>
           </div>
-          <div class="color-row">
+          <div class="color-row" data-tip="Pick any color for blob outlines, labels, and connection lines.">
             <input type="color" id="overlay-color" value="#ffffff" aria-label="Custom overlay color" />
             <span class="color-label" id="overlay-color-val">#ffffff</span>
           </div>
@@ -264,20 +264,20 @@
 
         <section class="control-section">
           <div class="knob-grid">
-            <div class="knob" id="connection-rate" data-knob data-min="0" data-max="1" data-step="0.25" data-default="0.25" aria-label="Connection Rate" tabindex="0"><span class="knob-label">Connect</span><span class="knob-val" id="connection-rate-val">0.25</span></div>
-            <div class="knob" id="stroke-width"    data-knob data-min="0" data-max="4" data-step="0.5"  data-default="1"    aria-label="Stroke Width (px)" tabindex="0"><span class="knob-label">Stroke</span><span class="knob-val" id="stroke-width-val">1</span></div>
-            <div class="knob" id="font-size"       data-knob data-min="8" data-max="32" data-step="1"   data-default="11"   aria-label="Font Size (px)" tabindex="0"><span class="knob-label">Font</span><span class="knob-val" id="font-size-val">11</span></div>
+            <div class="knob" id="connection-rate" data-knob data-min="0" data-max="1" data-step="0.25" data-default="0.25" aria-label="Connection Rate" data-tip="Density of lines drawn between tracked blobs. 0 = no lines. 1 = every pair connected (dense network)." tabindex="0"><span class="knob-label">Connect</span><span class="knob-val" id="connection-rate-val">0.25</span></div>
+            <div class="knob" id="stroke-width"    data-knob data-min="0" data-max="4" data-step="0.5"  data-default="1"    aria-label="Stroke Width (px)" data-tip="Line thickness in pixels for blob outlines and connection lines. 0 hides them entirely." tabindex="0"><span class="knob-label">Stroke</span><span class="knob-val" id="stroke-width-val">1</span></div>
+            <div class="knob" id="font-size"       data-knob data-min="8" data-max="32" data-step="1"   data-default="11"   aria-label="Font Size (px)" data-tip="Text size in pixels for the score numbers (Basic / Frame styles) and Object N labels (Label style)." tabindex="0"><span class="knob-label">Font</span><span class="knob-val" id="font-size-val">11</span></div>
           </div>
         </section>
 
         <section class="control-section">
           <div class="section-label" id="lbl-blobsize">Blob Size</div>
           <div class="toggle-group" id="blob-size-group" role="radiogroup" aria-labelledby="lbl-blobsize">
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="0">0</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="32">32</button>
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="64">64</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="128">128</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="256">256</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="0"   data-tip="Hide blob outlines and skip the per-blob filter pass entirely. Saves CPU.">0</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="32"  data-tip="Half-size: outlines and per-blob filter regions are 0.5× the detected blob size, anchored at the blob center.">32</button>
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="64"  data-tip="Native size: outlines and per-blob filter regions match the detected blob size exactly.">64</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="128" data-tip="Double-size: outlines and per-blob filter regions are 2× the detected blob size, anchored at the blob center.">128</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="256" data-tip="Quadruple-size: outlines and per-blob filter regions are 4× the detected blob size. Large overlapping shapes; great with circle / diamond.">256</button>
           </div>
         </section>
 

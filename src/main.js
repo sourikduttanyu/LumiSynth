@@ -840,6 +840,81 @@ function renderFrame() {
   if (fpsEnabled) updateFps(blobs.length);
 }
 
+// ---- Help tooltip ----
+// Single body-level tooltip element that follows the cursor and shows the
+// `data-tip` text of whatever interactive control the cursor is over. Distinct
+// from the per-knob `.knob-val` (anchored below the knob, shows current value):
+//   - knob-val:    immediate, anchored, numeric
+//   - help-tooltip: 350ms-delayed, follows cursor, descriptive
+// Suppressed while a knob is being dragged so the value tooltip isn't competed
+// with. Position-flipped if it would overflow the viewport edges.
+const helpTip = document.createElement('div');
+helpTip.className = 'help-tooltip';
+helpTip.setAttribute('aria-hidden', 'true');
+document.body.appendChild(helpTip);
+
+let _helpTipShowTimer = 0;
+let _helpTipCurrentEl = null;
+const HELP_TIP_DELAY = 350;
+const HELP_TIP_OFFSET_X = 14;
+const HELP_TIP_OFFSET_Y = 18;
+
+function findTipAncestor(el) {
+  while (el && el !== document.body) {
+    if (el.dataset && el.dataset.tip) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+function positionHelpTip(cursorX, cursorY) {
+  const rect = helpTip.getBoundingClientRect();
+  let x = cursorX + HELP_TIP_OFFSET_X;
+  let y = cursorY + HELP_TIP_OFFSET_Y;
+  if (x + rect.width > window.innerWidth - 8) x = cursorX - rect.width - HELP_TIP_OFFSET_X;
+  if (y + rect.height > window.innerHeight - 8) y = cursorY - rect.height - HELP_TIP_OFFSET_Y;
+  if (x < 8) x = 8;
+  if (y < 8) y = 8;
+  helpTip.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function hideHelpTip() {
+  clearTimeout(_helpTipShowTimer);
+  _helpTipShowTimer = 0;
+  _helpTipCurrentEl = null;
+  helpTip.classList.remove('visible');
+}
+
+document.addEventListener('mousemove', (e) => {
+  // Don't fight the knob-val tooltip during a drag.
+  if (document.querySelector('.knob.dragging')) {
+    if (_helpTipCurrentEl) hideHelpTip();
+    return;
+  }
+  const el = findTipAncestor(e.target);
+  if (!el) {
+    if (_helpTipCurrentEl) hideHelpTip();
+    return;
+  }
+  positionHelpTip(e.clientX, e.clientY);
+  if (el !== _helpTipCurrentEl) {
+    _helpTipCurrentEl = el;
+    helpTip.textContent = el.dataset.tip;
+    if (helpTip.classList.contains('visible')) {
+      // Already visible — just swap content, no re-delay.
+    } else {
+      clearTimeout(_helpTipShowTimer);
+      _helpTipShowTimer = setTimeout(() => {
+        if (_helpTipCurrentEl === el) helpTip.classList.add('visible');
+      }, HELP_TIP_DELAY);
+    }
+  }
+}, { passive: true });
+
+document.addEventListener('mouseleave', hideHelpTip);
+document.addEventListener('mousedown', hideHelpTip);
+window.addEventListener('blur', hideHelpTip);
+
 // ---- Init ----
 loadPersistedState();
 applyStateToUI();
