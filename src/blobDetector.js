@@ -3,8 +3,24 @@
  * Divides the frame into cells, picks the strongest pixel per cell.
  * Works on any video — no connectivity issues, always produces distributed blobs.
  *
- * Luma mode:  peaks in absolute brightness  (bright subjects on dark bg)
- * Motion mode: peaks in frame-to-frame diff (moving regions on any bg)
+ * Modes (each builds the per-pixel `strength` field that feeds the same
+ * grid + top-N pipeline; nothing else changes per mode):
+ *
+ *   motion  peaks in |current - previous| luma frame diff
+ *           (anything moving; goes blind on paused / static video)
+ *   luma    peaks in absolute brightness above threshold
+ *           (bright subjects on dark bg; static-friendly)
+ *   dark    peaks in absolute darkness  (255 - lum) above threshold
+ *           (silhouettes against bright bg; mirror of luma)
+ *   sat     peaks in chroma (max(r,g,b) - min(r,g,b)) above threshold
+ *           (vivid color regions; ignores brightness)
+ *   edge    peaks in Sobel gradient magnitude (L1: |gx|+|gy|)
+ *           (boundaries / corners / text; static-friendly)
+ *   sharp   peaks in 3x3 Laplacian magnitude
+ *           (high-frequency detail / focused regions)
+ *
+ * Modes that don't need previous-frame data (everything except motion)
+ * keep producing blobs while video is paused.
  */
 
 let prevLum = null;
@@ -14,31 +30,86 @@ export function resetFrameHistory() {
 }
 
 /**
- * @param {ImageData}          imageData
- * @param {number}             threshold  luma mode: brightness cutoff (0-255); motion: change delta
- * @param {number}             maxBlobs   max blobs to return
- * @param {'motion'|'luma'}    mode
+ * @param {ImageData}                                             imageData
+ * @param {number}                                                threshold  per-mode cutoff:
+ *                                                                  motion=diff delta, luma/dark/sharp/edge=raw, sat=chroma
+ * @param {number}                                                maxBlobs   max blobs to return
+ * @param {'motion'|'luma'|'dark'|'sat'|'edge'|'sharp'}           mode
  * @returns {Array<{x,y,w,h,cx,cy,area,score,index}>}
  */
 export function detectBlobs(imageData, threshold, maxBlobs, mode = 'motion') {
   const { width, height, data } = imageData;
   const total = width * height;
 
-  // Compute current luminance
+  // Always compute luma — every mode either uses it directly or as the basis
+  // for a derived field (Sobel / Laplacian / motion diff).
   const curLum = new Float32Array(total);
   for (let i = 0; i < total; i++) {
     const p = i * 4;
     curLum[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
   }
 
-  // Build strength map
   const strength = new Float32Array(total);
+
   if (mode === 'luma') {
     for (let i = 0; i < total; i++) {
       strength[i] = curLum[i] > threshold ? curLum[i] : 0;
     }
+  } else if (mode === 'dark') {
+    // Inverse of luma: tracks silhouettes against bright backgrounds.
+    for (let i = 0; i < total; i++) {
+      const inv = 255 - curLum[i];
+      strength[i] = inv > threshold ? inv : 0;
+    }
+  } else if (mode === 'sat') {
+    // Absolute chroma (HSV-ish saturation in 0-255 absolute units).
+    // Avoids the dark-pixel noise problem of relative saturation
+    // ((max-min)/max blows up for tiny max). Inline min/max instead of
+    // Math.max(...) to skip the function-call overhead in the hot loop.
+    for (let i = 0; i < total; i++) {
+      const p = i * 4;
+      const r = data[p], g = data[p + 1], b = data[p + 2];
+      const max = r > g ? (r > b ? r : b) : (g > b ? g : b);
+      const min = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      const chroma = max - min;
+      strength[i] = chroma > threshold ? chroma : 0;
+    }
+  } else if (mode === 'edge') {
+    // Sobel 3x3 gradient on luma. L1 norm (|gx|+|gy|) instead of sqrt — the
+    // grid local-maxima step only needs a ranking, not exact magnitudes,
+    // and L1 is ~3x cheaper. Skip the 1-pixel border to avoid bounds checks.
+    for (let y = 1; y < height - 1; y++) {
+      const rowOff = y * width;
+      for (let x = 1; x < width - 1; x++) {
+        const i = rowOff + x;
+        const tl = curLum[i - width - 1], t = curLum[i - width], tr = curLum[i - width + 1];
+        const l  = curLum[i - 1],                                r  = curLum[i + 1];
+        const bl = curLum[i + width - 1], b = curLum[i + width], br = curLum[i + width + 1];
+        const gx = -tl - 2 * l - bl + tr + 2 * r + br;
+        const gy = -tl - 2 * t - tr + bl + 2 * b + br;
+        const mag = (gx < 0 ? -gx : gx) + (gy < 0 ? -gy : gy);
+        strength[i] = mag > threshold ? mag : 0;
+      }
+    }
+  } else if (mode === 'sharp') {
+    // Discrete 3x3 Laplacian (4-neighbor): |4·c - n - s - e - w|. Highlights
+    // high-frequency content; tends to favor focused regions over blurred
+    // ones because focus = sharper second-derivative response. Visually
+    // distinct from Sobel on real footage even though they overlap on hard
+    // edges (Sharp picks up texture detail Sobel mutes).
+    for (let y = 1; y < height - 1; y++) {
+      const rowOff = y * width;
+      for (let x = 1; x < width - 1; x++) {
+        const i = rowOff + x;
+        const lap = 4 * curLum[i] - curLum[i - width] - curLum[i + width] - curLum[i - 1] - curLum[i + 1];
+        const mag = lap < 0 ? -lap : lap;
+        strength[i] = mag > threshold ? mag : 0;
+      }
+    }
   } else {
-    // motion: frame difference
+    // motion (default): |current - previous| frame diff. Requires a
+    // previous-frame buffer; first frame after a mode change or source
+    // switch produces zero blobs until prevLum primes on the next frame.
     if (prevLum && prevLum.length === total) {
       for (let i = 0; i < total; i++) {
         const diff = Math.abs(curLum[i] - prevLum[i]);

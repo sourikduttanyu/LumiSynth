@@ -57,8 +57,12 @@
         <section class="control-section">
           <div class="section-label" id="lbl-detect">Detect Mode</div>
           <div class="toggle-group" id="detect-mode-group" role="radiogroup" aria-labelledby="lbl-detect">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="motion">Motion</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="luma">Luma</button>
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="motion" title="Frame-to-frame difference (anything moving)">Motion</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="luma"   title="Bright regions above threshold (subjects on dark bg)">Luma</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dark"   title="Dark regions below threshold (silhouettes on bright bg)">Dark</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sat"    title="Vivid color regions (high chroma)">Sat</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edge"   title="Sobel gradient (edges, corners, text — works on paused frames)">Edge</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sharp"  title="Laplacian magnitude (high-frequency detail, focused regions)">Sharp</button>
           </div>
         </section>
 

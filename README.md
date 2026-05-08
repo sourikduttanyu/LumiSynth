@@ -51,7 +51,7 @@ FluxKit/
 ├── index.html          ← sidebar + canvas layout
 ├── src/
 │   ├── main.js         ← render loop, state, control wiring
-│   ├── blobDetector.js ← grid-based local-maxima detection (luma + motion modes)
+│   ├── blobDetector.js ← grid-based local-maxima detection (motion / luma / dark / sat / edge / sharp modes)
 │   ├── kalman.js       ← 1D Kalman filter, blob tracker, nearest-neighbour association
 │   ├── filters.js      ← CPU per-blob filters (inv, thermal)
 │   ├── overlays.js     ← shapes, labels, connection lines
@@ -78,7 +78,7 @@ FluxKit/
 | Region Style | Basic (score) / Label (Object N) / Frame (handles) |
 | Filter | Effect to apply (see table above) |
 | Connection Rate | Fraction of inter-blob lines to draw |
-| Detect Mode | Motion (frame diff) or Luma (absolute brightness) |
+| Detect Mode | Motion (frame diff) · Luma (bright) · Dark (silhouettes) · Sat (vivid color) · Edge (Sobel boundaries) · Sharp (Laplacian detail). All except Motion keep detecting on paused frames. |
 | Sensitivity | Change threshold for motion / brightness cutoff |
 | Max Blobs | Cap on tracked blobs |
 | Update Interval | Detect every N frames |
@@ -125,6 +125,6 @@ Open the URL shown in the terminal — usually **http://localhost:5173**
 
 **Camera won't open** — Click Allow when the browser asks. If already denied: browser Settings → Site permissions → Camera → Allow.
 
-**Nothing detected** — Lower the Sensitivity slider. Try switching Detect Mode to Luma for videos without movement.
+**Nothing detected** — Lower the Sensitivity slider. For videos without movement, try Luma (bright subjects), Dark (silhouettes), Sat (colored objects), Edge (any structure), or Sharp (focused detail) — they all work on static frames.
 
 **WebGL effect not showing** — Check browser console for shader errors. WebGL2 is required (all modern browsers support it).

@@ -359,6 +359,16 @@ label.section-label { cursor: pointer; }
   gap: var(--space-xs);
   flex-wrap: wrap;
 }
+/* Detect-mode picker: 6 modes (motion, luma, dark, sat, edge, sharp).
+   3-column grid keeps two clean rows of three at the 240px sidebar width;
+   mirrors the id-scoped pattern #filter-group uses for its 14-button grid. */
+#detect-mode-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-xs);
+  flex-wrap: initial;
+}
+#detect-mode-group .toggle-btn { flex: initial; }
 .toggle-btn {
   background: var(--surface-raised);
   border: 1px solid var(--border-hairline);
