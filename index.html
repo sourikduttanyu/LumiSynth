@@ -188,59 +188,12 @@
           <button type="button" class="color-pick" data-pick-color="falsecolor" data-tip="False-color palette swap. Cross-fades between four palettes.">FalseClr</button>
         </div>
 
-        <section class="effect-card hidden" id="oxide-controls" data-card-effect="oxide" aria-label="Oxide parameters">
-          <div class="effect-card-header"><div class="effect-card-title">Oxide</div><button class="card-reset-btn" type="button" data-reset-card="oxide" title="Reset Oxide knobs" aria-label="Reset Oxide knobs">×</button></div>
-          <div class="knob-grid">
-            <div class="knob" id="oxide-corr"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Oxide Corrosion"                  data-tip="Corrosion blend. 0 = fresh polished metal. 1 = fully aged patina (dark, mottled)." tabindex="0"><span class="knob-label">Corrosion</span><span class="knob-val" id="oxide-corr-val">0.5</span></div>
-            <div class="knob" id="oxide-metal" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0"   aria-label="Oxide Metal type (copper to silver)" data-tip="Metal type. 0 = copper / verdigris. 0.5 = iron / rust. 1 = silver / tarnish." tabindex="0"><span class="knob-label">Metal</span><span class="knob-val" id="oxide-metal-val">0</span></div>
-            <div class="knob" id="oxide-rough" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Oxide Roughness"                  data-tip="Surface roughness noise. 0 = smooth metal. 1 = pitted, granular surface." tabindex="0"><span class="knob-label">Rough</span><span class="knob-val" id="oxide-rough-val">0.3</span></div>
-            <div class="knob" id="oxide-sheen" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Oxide Sheen"                      data-tip="Edge specular highlight. 0 = matte. 1 = polished metal with bright edges along luma transitions." tabindex="0"><span class="knob-label">Sheen</span><span class="knob-val" id="oxide-sheen-val">0.3</span></div>
-          </div>
-        </section>
-
-        <section class="effect-card hidden" id="synth-controls" data-card-effect="synth" aria-label="Synth parameters">
-          <div class="effect-card-header"><div class="effect-card-title">Synth</div><button class="card-reset-btn" type="button" data-reset-card="synth" title="Reset Synth knobs" aria-label="Reset Synth knobs">×</button></div>
-          <div class="knob-grid">
-            <div class="knob" id="synth-warm" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Synth Warmth"        data-tip="Warm-cool color bias inside each band. Low = cool (blue / teal lean). High = warm (red / orange lean)." tabindex="0"><span class="knob-label">Warmth</span><span class="knob-val" id="synth-warm-val">0.5</span></div>
-            <div class="knob" id="synth-sep"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Synth Separation"    data-tip="Number of discrete color bands (3-12). Off below ~0.1 (smooth ramp). Higher = more posterized banding." tabindex="0"><span class="knob-label">Sep</span><span class="knob-val" id="synth-sep-val">0.3</span></div>
-            <div class="knob" id="synth-res"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Synth Resonance"     data-tip="Resonance modulation inside each band. 0 = clean steps. 1 = strong sinusoidal brightness ripples per band." tabindex="0"><span class="knob-label">Res</span><span class="knob-val" id="synth-res-val">0.4</span></div>
-            <div class="knob" id="synth-dyn"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.7" aria-label="Synth Dynamic Range" data-tip="Dynamic range / gamma. Low = compressed midtones (flat, washed). High = stretched midtones (punchy, contrasty)." tabindex="0"><span class="knob-label">Dyn Range</span><span class="knob-val" id="synth-dyn-val">0.7</span></div>
-          </div>
-        </section>
-
-        <section class="effect-card hidden" id="biolum-controls" data-card-effect="biolum" aria-label="BioLum parameters">
-          <div class="effect-card-header"><div class="effect-card-title">BioLum</div><button class="card-reset-btn" type="button" data-reset-card="biolum" title="Reset BioLum knobs" aria-label="Reset BioLum knobs">×</button></div>
-          <div class="knob-grid">
-            <div class="knob" id="biolum-glow"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.7" aria-label="BioLum Intensity"            data-tip="Glow intensity. Low = subtle deep-sea darkness. High = strong luminous bloom on bright regions." tabindex="0"><span class="knob-label">Glow</span><span class="knob-val" id="biolum-glow-val">0.7</span></div>
-            <div class="knob" id="biolum-color" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0"   aria-label="BioLum Color (cyan to violet)" data-tip="Hue of the glow. 0 = green-cyan. 1 = violet. Smooth interpolation in between." tabindex="0"><span class="knob-label">Color</span><span class="knob-val" id="biolum-color-val">0</span></div>
-            <div class="knob" id="biolum-pulse" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.2" aria-label="BioLum Pulse"                 data-tip="Pulse modulation. 0 = steady glow. 1 = strong sinusoidal pulsing tied to local brightness." tabindex="0"><span class="knob-label">Pulse</span><span class="knob-val" id="biolum-pulse-val">0.2</span></div>
-            <div class="knob" id="biolum-depth" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.7" aria-label="BioLum Depth Fade"            data-tip="Depth fade. 0 = uniform glow regardless of brightness. 1 = darker regions stay deep / unlit (sense of underwater depth)." tabindex="0"><span class="knob-label">Depth</span><span class="knob-val" id="biolum-depth-val">0.7</span></div>
-          </div>
-        </section>
-
-        <section class="effect-card hidden" id="thermo-controls" data-card-effect="thermo" aria-label="Thermo parameters">
-          <div class="effect-card-header"><div class="effect-card-title">Thermo</div><button class="card-reset-btn" type="button" data-reset-card="thermo" title="Reset Thermo knobs" aria-label="Reset Thermo knobs">×</button></div>
-          <div class="knob-grid">
-            <div class="knob" id="thermo-cont"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Thermo Contrast"   data-tip="Thermal map contrast around the midpoint. Higher = sharper hot/cold separation; lower = flatter pseudo-color." tabindex="0"><span class="knob-label">Contrast</span><span class="knob-val" id="thermo-cont-val">0.4</span></div>
-            <div class="knob" id="thermo-hot"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0"   aria-label="Thermo Hot Shift"  data-tip="Bias the entire ramp toward hot. 0 = baseline. 1 = everything reads as yellow / red / white (overheated)." tabindex="0"><span class="knob-label">Hot</span><span class="knob-val" id="thermo-hot-val">0</span></div>
-            <div class="knob" id="thermo-cold"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.1" aria-label="Thermo Cold Floor" data-tip="Cold floor. Lifts the darkest regions toward blue. 0 = pure black floor. 1 = blue-tinted shadows (more visible cold side)." tabindex="0"><span class="knob-label">Cold</span><span class="knob-val" id="thermo-cold-val">0.1</span></div>
-            <div class="knob" id="thermo-white" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Thermo White Point" data-tip="White-hot clipping. Bright peaks above ~0.85 fade to pure white as this rises (simulates sensor saturation)." tabindex="0"><span class="knob-label">White Pt</span><span class="knob-val" id="thermo-white-val">0.5</span></div>
-          </div>
-        </section>
-
-        <section class="effect-card hidden" id="falsecolor-controls" data-card-effect="falsecolor" aria-label="FalseColor parameters">
-          <div class="effect-card-header"><div class="effect-card-title">FalseClr</div><button class="card-reset-btn" type="button" data-reset-card="falsecolor" title="Reset FalseClr controls" aria-label="Reset FalseClr controls">×</button></div>
-          <div class="section-label" id="lbl-false-band">Banding</div>
-          <div class="toggle-group" id="false-band-group" role="radiogroup" aria-labelledby="lbl-false-band">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="0" data-tip="Smooth continuous palette ramp (no banding).">Off</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="1" data-tip="Discrete banded ramp. Use the Bands knob to set how many color steps.">On</button>
-          </div>
-          <div class="knob-grid">
-            <div class="knob" id="false-palette" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.25" aria-label="FalseColor Palette"    data-tip="Cross-fade between four palettes: Thermal (0) → Neon (0.25) → Acid (0.5) → Ice (0.75) → back to Thermal (1)." tabindex="0"><span class="knob-label">Palette</span><span class="knob-val" id="false-palette-val">0.25</span></div>
-            <div class="knob" id="false-bandcnt" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="FalseColor Band Count"  data-tip="Number of discrete color bands when Banding is On (4-20). Smaller = chunkier posterized look. Has no effect when Banding is Off." tabindex="0"><span class="knob-label">Bands</span><span class="knob-val" id="false-bandcnt-val">0.5</span></div>
-            <div class="knob" id="false-bright"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="FalseColor Brightness"  data-tip="Brightness offset added to the input. 0.5 = neutral. Below 0.5 = darker (palette shifts cooler). Above 0.5 = brighter (palette shifts hotter)." tabindex="0"><span class="knob-label">Bright</span><span class="knob-val" id="false-bright-val">0.5</span></div>
-          </div>
-        </section>
+        <!-- COLOR effect cards (Oxide, Synth, BioLum, Thermo, FalseClr)
+             previously lived here as right-panel cards driven by global
+             knob state. They are now per-slot — knobs render inline
+             inside each rack slot when expanded, bound to slot.params.
+             COLOR_PARAM_SCHEMAS in src/main.js is the source of truth
+             for what knobs/toggles each color effect exposes. -->
 
         <!-- ============ FX RACK ============ -->
         <!-- Sequential chain of 0–3 FX, applied AFTER STRUCTURE → COLOR.

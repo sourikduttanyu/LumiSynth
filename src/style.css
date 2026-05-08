@@ -383,12 +383,13 @@ label.section-label { cursor: pointer; }
   flex-direction: column;
   gap: var(--space-xs);
 }
+/* Slot is now a flex column to host both the header row and the optional
+   inline knob panel beneath it. Header row is its own grid (handle, chip,
+   chevron, toggle, ×). Empty slots collapse the row to (handle, chip)
+   only and never grow a panel. */
 .color-rack-slot {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: var(--space-xs);
+  display: flex;
+  flex-direction: column;
   background: var(--bg-stage);
   border: 1px solid var(--border-hairline);
   border-radius: 6px;
@@ -401,6 +402,20 @@ label.section-label { cursor: pointer; }
 }
 .color-rack-slot[data-empty="true"] {
   border-style: dashed;
+}
+.color-rack-slot[data-expanded="true"] {
+  /* Subtle outline when expanded so the user can see which slot owns the
+     panel beneath it (especially helpful when 2+ slots are expanded). */
+  border-color: var(--border-strong);
+}
+.color-rack-slot-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+}
+.color-rack-slot[data-empty="true"] .color-rack-slot-row {
   grid-template-columns: auto 1fr;
 }
 .color-rack-slot.dragging {
@@ -521,6 +536,135 @@ label.section-label { cursor: pointer; }
 .color-rack-remove:hover {
   color: var(--state-danger);
   background: var(--surface-hover);
+}
+
+/* Chevron — toggles the inline knob panel for this slot. Uses the same
+   transparent-icon-button language as the drag handle so the row reads
+   as one cohesive control strip. */
+.color-rack-chevron {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 3px;
+  transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out);
+}
+.color-rack-chevron:hover {
+  color: var(--text-key);
+  background: var(--surface-hover);
+}
+.color-rack-chevron[aria-expanded="true"] {
+  color: var(--orange-signal);
+}
+
+/* Inline knob panel beneath the row when the slot is expanded.
+   Top hairline divider separates it from the row. Tighter padding than
+   right-panel cards because we're in the narrow sidebar. */
+.color-rack-slot-panel {
+  border-top: 1px solid var(--border-hairline);
+  padding: var(--space-sm) var(--space-xs) var(--space-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.color-rack-slot-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.color-rack-slot-panel-title { font-weight: 600; }
+.color-rack-slot-reset {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out);
+}
+.color-rack-slot-reset:hover {
+  color: var(--text-key);
+  background: var(--surface-hover);
+}
+
+/* Knob grid inside a slot panel — 2 columns to stay legible at 240px
+   sidebar width. Tighter than the global .knob-grid which is sized for
+   the right-panel cards. */
+.color-rack-slot-knob-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-xs);
+  padding: 2px;
+}
+.color-rack-slot-knob-grid .knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+}
+.color-rack-slot-knob-grid .knob-label {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-align: center;
+}
+.color-rack-slot-knob-grid .knob-val {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-body);
+}
+
+/* Inline toggle row (e.g. falsecolor's Banding On/Off). Compact label-
+   plus-button-pair laid out horizontally. */
+.color-rack-slot-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 2px 4px;
+}
+.color-rack-slot-toggle-label {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.color-rack-slot-toggle-group { display: flex; gap: 2px; }
+.color-rack-slot-toggle-btn {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-body);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 3px;
+  transition:
+    background   var(--duration-base) var(--ease-out),
+    color        var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
+}
+.color-rack-slot-toggle-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--orange-signal);
+}
+.color-rack-slot-toggle-btn.active {
+  background: var(--orange-signal);
+  border-color: var(--orange-signal);
+  color: var(--knob-cap-black);
 }
 
 /* Disabled slot: chip dims, swatch dims. Slot border stays solid (the

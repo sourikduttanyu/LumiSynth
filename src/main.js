@@ -26,11 +26,8 @@ const DEFAULTS = Object.freeze({
   asciiCellSize: 0.3, asciiContrast: 0.3, asciiBlackThresh: 0.2, asciiGlyphStrength: 0.9,
   shatterCells: 0.3, shatterCrack: 0.2, shatterFill: 0.5, shatterRandom: 0.8,
   erodeMode: 0,      erodeRadius: 0.3,  erodeStrength: 0.7, erodeEdge: 0.0,
-  oxideCorr: 0.5,    oxideMetal: 0.0,   oxideRough: 0.3,    oxideSheen: 0.3,
-  synthWarm: 0.5,    synthSep: 0.3,     synthRes: 0.4,      synthDyn: 0.7,
-  biolumGlow: 0.7,   biolumColor: 0.0,  biolumPulse: 0.2,   biolumDepth: 0.7,
-  thermoCont: 0.4,   thermoHot: 0.0,    thermoCold: 0.1,    thermoWhite: 0.5,
-  falsePalette: 0.25, falseBand: 0,     falseBandCnt: 0.5,  falseBright: 0.5,
+  // COLOR effect knob defaults moved to COLOR_PARAM_SCHEMAS — they're
+  // per-slot now (state.colorRack[i].params), not global state.
   waveSource: 0.5,   waveDamp: 0.3,     waveSpeed: 0.5,     waveContr: 0.5,
   connectionRate: 0.25,
   threshold: 30,
@@ -56,6 +53,91 @@ const STORAGE_KEY = 'fluxkit-state-v2';
 // makes the DOM stable for drag-and-drop and simplifies persistence.
 const RACK_SLOTS = 3;
 
+// Schema for COLOR effect parameters. Source of truth for what knobs/toggles
+// each color effect exposes, their defaults, and human-readable copy. Lives
+// in JS (not in HTML data-attrs as before) because color knobs no longer
+// exist in the right-panel cards — they're rendered inline inside the rack
+// slot when expanded, and each slot owns its OWN copy of these params. So
+// "synth in slot 0" and "synth in slot 2" can have different knob values.
+//
+// Param keys are SHORT names (corr, metal) not the legacy long stateKeys
+// (oxideCorr, oxideMetal). They live under `slot.params[paramKey]` so they
+// can't collide across effect types — the slot always knows what type it is.
+//
+// `order` is the [4]-tuple ordering passed to applyGLFilter (uniform layout
+// in the shader). Must match the shader's expected uniform order exactly.
+const COLOR_PARAM_SCHEMAS = {
+  oxide: {
+    knobs: [
+      { key: 'corr',  label: 'Corrosion', min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Corrosion blend. 0 = fresh polished metal. 1 = fully aged patina (dark, mottled).' },
+      { key: 'metal', label: 'Metal',     min: 0, max: 1, step: 0.01, default: 0,   tip: 'Metal type. 0 = copper / verdigris. 0.5 = iron / rust. 1 = silver / tarnish.' },
+      { key: 'rough', label: 'Rough',     min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Surface roughness noise. 0 = smooth metal. 1 = pitted, granular surface.' },
+      { key: 'sheen', label: 'Sheen',     min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Edge specular highlight. 0 = matte. 1 = polished metal with bright edges along luma transitions.' },
+    ],
+    toggles: [],
+    order: ['corr', 'metal', 'rough', 'sheen'],
+  },
+  synth: {
+    knobs: [
+      { key: 'warm', label: 'Warmth',    min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Warm-cool color bias inside each band. Low = cool (blue / teal lean). High = warm (red / orange lean).' },
+      { key: 'sep',  label: 'Sep',       min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Number of discrete color bands (3-12). Off below ~0.1 (smooth ramp). Higher = more posterized banding.' },
+      { key: 'res',  label: 'Res',       min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Resonance modulation inside each band. 0 = clean steps. 1 = strong sinusoidal brightness ripples per band.' },
+      { key: 'dyn',  label: 'Dyn Range', min: 0, max: 1, step: 0.01, default: 0.7, tip: 'Dynamic range / gamma. Low = compressed midtones (flat, washed). High = stretched midtones (punchy, contrasty).' },
+    ],
+    toggles: [],
+    order: ['warm', 'sep', 'res', 'dyn'],
+  },
+  biolum: {
+    knobs: [
+      { key: 'glow',  label: 'Glow',  min: 0, max: 1, step: 0.01, default: 0.7, tip: 'Glow intensity. Low = subtle deep-sea darkness. High = strong luminous bloom on bright regions.' },
+      { key: 'color', label: 'Color', min: 0, max: 1, step: 0.01, default: 0,   tip: 'Hue of the glow. 0 = green-cyan. 1 = violet. Smooth interpolation in between.' },
+      { key: 'pulse', label: 'Pulse', min: 0, max: 1, step: 0.01, default: 0.2, tip: 'Pulse modulation. 0 = steady glow. 1 = strong sinusoidal pulsing tied to local brightness.' },
+      { key: 'depth', label: 'Depth', min: 0, max: 1, step: 0.01, default: 0.7, tip: 'Depth fade. 0 = uniform glow regardless of brightness. 1 = darker regions stay deep / unlit (sense of underwater depth).' },
+    ],
+    toggles: [],
+    order: ['glow', 'color', 'pulse', 'depth'],
+  },
+  thermo: {
+    knobs: [
+      { key: 'cont',  label: 'Contrast', min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Thermal map contrast around the midpoint. Higher = sharper hot/cold separation; lower = flatter pseudo-color.' },
+      { key: 'hot',   label: 'Hot',      min: 0, max: 1, step: 0.01, default: 0,   tip: 'Bias the entire ramp toward hot. 0 = baseline. 1 = everything reads as yellow / red / white (overheated).' },
+      { key: 'cold',  label: 'Cold',     min: 0, max: 1, step: 0.01, default: 0.1, tip: 'Cold floor. Lifts the darkest regions toward blue. 0 = pure black floor. 1 = blue-tinted shadows (more visible cold side).' },
+      { key: 'white', label: 'White Pt', min: 0, max: 1, step: 0.01, default: 0.5, tip: 'White-hot clipping. Bright peaks above ~0.85 fade to pure white as this rises (simulates sensor saturation).' },
+    ],
+    toggles: [],
+    order: ['cont', 'hot', 'cold', 'white'],
+  },
+  falsecolor: {
+    knobs: [
+      { key: 'palette', label: 'Palette', min: 0, max: 1, step: 0.01, default: 0.25, tip: 'Cross-fade between four palettes: Thermal (0) → Neon (0.25) → Acid (0.5) → Ice (0.75) → back to Thermal (1).' },
+      { key: 'bandcnt', label: 'Bands',   min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Number of discrete color bands when Banding is On (4-20). Smaller = chunkier posterized look. Has no effect when Banding is Off.' },
+      { key: 'bright',  label: 'Bright',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Brightness offset added to the input. 0.5 = neutral. Below 0.5 = darker (palette shifts cooler). Above 0.5 = brighter (palette shifts hotter).' },
+    ],
+    // 0 = smooth ramp, 1 = banded. Discrete toggle, not a continuous knob.
+    toggles: [
+      { key: 'band', label: 'Banding', default: 0, options: [
+        { value: 0, label: 'Off', tip: 'Smooth continuous palette ramp (no banding).' },
+        { value: 1, label: 'On',  tip: 'Discrete banded ramp. Use the Bands knob to set how many color steps.' },
+      ]},
+    ],
+    // Shader uniform order: [palette, band, bandcnt, bright]
+    order: ['palette', 'band', 'bandcnt', 'bright'],
+  },
+};
+
+// Build a fresh factory-defaults params object for an effect type. Every
+// new slot pick goes through this — the user's request was "factory" for
+// every slot (not "inherit current global tweaks"), so this is the only
+// initializer for slot params. There's no "inherit" path.
+function makeFactoryParams(type) {
+  const schema = COLOR_PARAM_SCHEMAS[type];
+  if (!schema) return {};
+  const p = {};
+  for (const k of schema.knobs)   p[k.key] = k.default;
+  for (const t of schema.toggles) p[t.key] = t.default;
+  return p;
+}
+
 // Per-instance slot ids. Used as DOM keys + drag-and-drop identity. Stable
 // across re-renders so dragging a slot doesn't recreate its DOM mid-drag.
 function makeSlotId() {
@@ -68,6 +150,10 @@ function makeColorRack() {
     id: makeSlotId(),
     type: 'none',
     enabled: false,
+    // Per-slot params — factory defaults via makeFactoryParams when the
+    // slot is filled. Empty slots carry an empty {} so the field is always
+    // present (avoids undefined checks throughout the render path).
+    params: {},
   }));
 }
 
@@ -150,7 +236,19 @@ function nearlyEqual(a, b) { return Math.abs(a - b) < 1e-6; }
 // ---- Knob component ----
 const knobRegistry = new Map();   // id -> { setValue, getValue, min, max, step, default, stateKey, el }
 
-function initKnob(el) {
+// initKnob has two modes:
+//   1. Default (no opts): wires the knob to global `state[stateKey]`,
+//      registers in knobRegistry, persists on change. This is the
+//      original behavior used by every knob in the right-panel cards.
+//   2. Slot-bound (opts.writeValue + opts.initialValue): wires the knob
+//      to a custom write callback instead of global state, AND skips the
+//      registry entry (registry is for global-state knobs only — slot
+//      knobs render fresh from slot.params on every renderColorRack).
+//
+// The callback approach keeps the 140-line knob implementation single
+// and avoids two parallel implementations drifting apart. Slot knobs
+// still get full keyboard / wheel / drag / dblclick-reset behavior.
+function initKnob(el, opts = {}) {
   const id      = el.id;
   const min     = parseFloat(el.dataset.min);
   const max     = parseFloat(el.dataset.max);
@@ -159,6 +257,7 @@ function initKnob(el) {
   const stateKey = el.dataset.state || kebabToCamel(id);
   const isInt   = step >= 1 && Number.isInteger(min) && Number.isInteger(max);
   const valEl   = document.getElementById(`${id}-val`);
+  const isSlotKnob = !!opts.writeValue;
 
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', 'knob-svg');
@@ -200,7 +299,11 @@ function initKnob(el) {
   el.setAttribute('aria-valuemin', String(min));
   el.setAttribute('aria-valuemax', String(max));
 
-  let currentValue = clamp(def, min, max);
+  // Slot knobs seed from slot.params (which may be != default if user has
+  // tweaked them previously and it's now being re-rendered). Global knobs
+  // seed from `def` and applyStateToUI re-seeds from persisted state.
+  const seed = (opts.initialValue !== undefined) ? opts.initialValue : def;
+  let currentValue = clamp(seed, min, max);
 
   function paint(v) {
     const t = (v - min) / (max - min);
@@ -218,7 +321,8 @@ function initKnob(el) {
     if (isInt) next = Math.round(next);
     if (next === currentValue) return;
     currentValue = next;
-    state[stateKey] = next;
+    if (isSlotKnob) opts.writeValue(next);
+    else            state[stateKey] = next;
     paint(next);
     if (persist) schedulePersist();
   }
@@ -291,8 +395,16 @@ function initKnob(el) {
   }, { passive: false });
 
   paint(currentValue);
-  state[stateKey] = currentValue;
-  knobRegistry.set(id, { setValue, getValue, min, max, step, default: def, stateKey, el });
+  if (isSlotKnob) {
+    // Slot-bound: do NOT write to global state[stateKey] at init (would
+    // pollute global state with per-slot values), and do NOT register in
+    // the global knobRegistry (registry is for state-restoration of
+    // global knobs; slot knobs re-init from slot.params on every render).
+    opts.writeValue(currentValue);
+  } else {
+    state[stateKey] = currentValue;
+    knobRegistry.set(id, { setValue, getValue, min, max, step, default: def, stateKey, el });
+  }
 }
 
 // Reveal hidden cards while initing so SVGs lay out
@@ -302,22 +414,21 @@ document.querySelectorAll('[data-knob]').forEach(initKnob);
 _hiddenCards.forEach(c => c.classList.add('hidden'));
 
 // ---- Toggle groups ----
-// Pipeline categorization (matches the sidebar STRUCTURE / COLOR sections).
-// GL_SECTIONS is the union, kept for places that ask "is this a full-frame
-// GPU effect?" without caring which stage it belongs to.
+// Pipeline categorization. STRUCTURE effects still have right-panel cards
+// driven by global `state.X` knobs (single-select stage). COLOR effects
+// are per-slot now — their knobs live inline inside the rack slot, and
+// runEffect() does NOT dispatch them (use runColorEffect with slot.params).
 const STRUCTURE_SECTIONS = ['voronoi','cellular','ascii','shatter','erode','wave'];
 const COLOR_SECTIONS     = ['oxide','synth','biolum','thermo','falsecolor'];
-const GL_SECTIONS        = [...STRUCTURE_SECTIONS, ...COLOR_SECTIONS];
 const GL_RESETS          = { voronoi: resetVoronoi, cellular: resetCA, wave: resetWave };
 
-// Centralized effect dispatch: pulls per-effect knob values from `state`
-// and forwards them to the correct module with a uniform call shape.
-// Defined as a single function so the P1 single-effect path AND the P2
-// chain path call the SAME entry point — when P2b lands, the only change
-// at the call site is passing `opts = { inputTex, outputFBO }` in.
+// Centralized STRUCTURE effect dispatch: pulls per-effect knob values
+// from global `state` and forwards them to the correct module with a
+// uniform call shape. COLOR effects are dispatched separately via
+// runColorEffect (each color slot owns its own params).
 //
-// `name` is one of GL_SECTIONS. `opts` (optional) flows straight through
-// to the effect module's chain hooks.
+// `name` is one of STRUCTURE_SECTIONS. `opts` (optional) flows straight
+// through to the effect module's chain hooks.
 function runEffect(name, opts) {
   switch (name) {
     case 'voronoi':
@@ -344,19 +455,31 @@ function runEffect(name, opts) {
       return applyGLFilter('shatter',    canvas.width, canvas.height, [state.shatterCells, state.shatterCrack, state.shatterFill, state.shatterRandom],          opts);
     case 'erode':
       return applyGLFilter('erode',      canvas.width, canvas.height, [state.erodeMode, state.erodeRadius, state.erodeStrength, state.erodeEdge],                opts);
+    // COLOR effects intentionally NOT dispatched here. Colors are
+    // per-slot now and need their slot's params; runColorEffect handles
+    // them. Calling runEffect('synth') without a params source would be
+    // ambiguous (which synth slot?) so it just no-ops with a warn.
     case 'oxide':
-      return applyGLFilter('oxide',      canvas.width, canvas.height, [state.oxideCorr, state.oxideMetal, state.oxideRough, state.oxideSheen],                   opts);
     case 'synth':
-      return applyGLFilter('synth',      canvas.width, canvas.height, [state.synthWarm, state.synthSep, state.synthRes, state.synthDyn],                         opts);
     case 'biolum':
-      return applyGLFilter('biolum',     canvas.width, canvas.height, [state.biolumGlow, state.biolumColor, state.biolumPulse, state.biolumDepth],               opts);
     case 'thermo':
-      return applyGLFilter('thermo',     canvas.width, canvas.height, [state.thermoCont, state.thermoHot, state.thermoCold, state.thermoWhite],                  opts);
     case 'falsecolor':
-      return applyGLFilter('falsecolor', canvas.width, canvas.height, [state.falsePalette, state.falseBand, state.falseBandCnt, state.falseBright],              opts);
+      console.warn(`runEffect: ${name} is a per-slot COLOR effect; use runColorEffect(name, slotParams, opts).`);
+      return;
     default:
       return;
   }
+}
+
+// Dispatch a single COLOR effect using the given slot's params. Same
+// shape as runEffect but takes a params object (one slot's). Schema's
+// `order` array drives the uniform tuple ordering — keeps the schema
+// authoritative about what each shader expects.
+function runColorEffect(name, params, opts) {
+  const schema = COLOR_PARAM_SCHEMAS[name];
+  if (!schema) return;
+  const tuple = schema.order.map((k) => params[k]);
+  return applyGLFilter(name, canvas.width, canvas.height, tuple, opts);
 }
 
 // Per-effect display blend mode used by compositeToCanvas2D when blitting
@@ -390,11 +513,15 @@ const TOGGLE_CONFIG = [
   ['detect-mode-group', 'detectMode',  String,     () => { resetFrameHistory(); }],
   ['blob-size-group',   'blobSize',    parseInt,   null],
   ['erode-mode-group',  'erodeMode',   parseInt,   null],
-  ['false-band-group',  'falseBand',   parseInt,   null],
+  // false-band-group retired — falsecolor's banding toggle is now an
+  // inline per-slot toggle inside the color rack (see COLOR_PARAM_SCHEMAS).
 ];
 
 // Resolve which effects render this frame. STRUCTURE plus 0-3 chained
 // colors from the rack (only enabled, non-none slots, in slot order).
+// Each color carries its slot's per-slot params so the chain renderer
+// doesn't have to look them up by id mid-frame.
+//
 // Per-blob (Inv / Thermal) remains independent — always layers on top
 // of whatever the main chain produced; not part of this resolver.
 function resolveActivePipeline() {
@@ -402,33 +529,23 @@ function resolveActivePipeline() {
     structure: state.structure !== 'none' ? state.structure : null,
     colors:    state.colorRack
       .filter((s) => s.enabled && s.type !== 'none')
-      .map((s) => s.type),
+      .map((s) => ({ type: s.type, params: s.params })),
   };
 }
 
 // Reveal/hide an effect-card based on whether its effect is currently
-// selected somewhere in the pipeline. Cards stay visible while their
-// effect is selected (so the user can keep tweaking knobs), even if
-// their slot is disabled. `active-card` highlight goes on EVERY card
-// whose effect is actually rendering this frame — multiple highlighted
-// cards is the honest visual signal that a chain is running.
-//
-// "Selected" for COLOR effects = present in any rack slot regardless
-// of enabled state; "active" = present in any ENABLED rack slot. This
-// lets a user disable a slot to A/B compare without losing the card.
+// selected. Only STRUCTURE effects still have right-panel cards — COLOR
+// effects render their knobs INLINE inside their rack slot now (no
+// right-panel card to show/hide). So this function only iterates the
+// STRUCTURE set; COLOR is handled by renderColorRack instead.
 function refreshEffectCardVisibility() {
-  const { structure, colors } = resolveActivePipeline();
-  const active   = new Set([structure, ...colors].filter(Boolean));
-  const selected = new Set();
-  if (state.structure !== 'none') selected.add(state.structure);
-  for (const slot of state.colorRack) {
-    if (slot.type !== 'none') selected.add(slot.type);
-  }
-  for (const name of GL_SECTIONS) {
+  const { structure } = resolveActivePipeline();
+  for (const name of STRUCTURE_SECTIONS) {
     const el = document.getElementById(`${name}-controls`);
     if (!el) continue;
-    el.classList.toggle('hidden',     !selected.has(name));
-    el.classList.toggle('active-card', active.has(name));
+    const isSelected = state.structure === name;
+    el.classList.toggle('hidden',     !isSelected);
+    el.classList.toggle('active-card', structure === name);
   }
 }
 
@@ -558,16 +675,29 @@ const RACK_CHIP_TIP = {
 // re-render between open and a pick action.
 let _openPickerSlotId = null;
 
+// Per-session expanded-state for slots. NOT persisted — refreshing the
+// page collapses everything. The user opens the slot they want to tweak;
+// next session they'll open it again. Keeping this in localStorage would
+// mean stale "expanded" UI on a new session, which is more confusing
+// than helpful for a persistent panel.
+const _expandedSlots = new Set();
+
 function renderColorRack() {
   if (!colorRackEl) return;
   // Build/replace exactly RACK_SLOTS DOM nodes. We rebuild rather than
   // mutate-in-place because slot order can change on drag-drop and there
   // are only 3 nodes — performance is irrelevant. The picker popover is
   // separate (lives at body level) so it's never touched here.
+  //
+  // Slot DOM structure:
+  //   .color-rack-slot                 (flex column, drag source)
+  //     .color-rack-slot-row           (grid row: handle, chip, chevron, toggle, ×)
+  //     .color-rack-slot-panel         (only when expanded — inline knobs/toggles)
   colorRackEl.innerHTML = '';
   for (let i = 0; i < state.colorRack.length; i++) {
-    const slot   = state.colorRack[i];
-    const filled = slot.type !== 'none';
+    const slot     = state.colorRack[i];
+    const filled   = slot.type !== 'none';
+    const expanded = filled && _expandedSlots.has(slot.id);
 
     const el = document.createElement('div');
     el.className = 'color-rack-slot';
@@ -576,7 +706,13 @@ function renderColorRack() {
     el.dataset.slotIdx = String(i);
     el.dataset.empty   = filled ? 'false' : 'true';
     el.dataset.enabled = (slot.enabled && filled) ? 'true' : 'false';
+    el.dataset.expanded = expanded ? 'true' : 'false';
     el.draggable = true;
+
+    // Header row — always present.
+    const row = document.createElement('div');
+    row.className = 'color-rack-slot-row';
+    el.appendChild(row);
 
     // Drag handle
     const handle = document.createElement('button');
@@ -585,7 +721,7 @@ function renderColorRack() {
     handle.setAttribute('aria-label', 'Drag to reorder slot');
     handle.dataset.tip = 'Drag to reorder this slot in the chain. Order matters: synth → thermo ≠ thermo → synth.';
     handle.textContent = '≡';
-    el.appendChild(handle);
+    row.appendChild(handle);
 
     // Chip body
     const chip = document.createElement('button');
@@ -611,10 +747,23 @@ function renderColorRack() {
       empty.textContent = '+ add color';
       chip.appendChild(empty);
     }
-    el.appendChild(chip);
+    row.appendChild(chip);
 
-    // Toggle + remove only on filled slots
+    // Chevron (expand/collapse) — filled slots only. Empty slots have
+    // nothing to expand. Keeps the row compact when there's no panel.
     if (filled) {
+      const chev = document.createElement('button');
+      chev.type = 'button';
+      chev.className = 'color-rack-chevron';
+      chev.dataset.action = 'expand';
+      chev.setAttribute('aria-label', expanded ? 'Collapse slot knobs' : 'Expand slot knobs');
+      chev.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      chev.dataset.tip = expanded
+        ? 'Hide this slot\'s knobs.'
+        : 'Show this slot\'s knobs. Each slot has its own copy — tweaking these only affects THIS slot.';
+      chev.textContent = expanded ? '▴' : '▾';
+      row.appendChild(chev);
+
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'color-rack-toggle';
@@ -625,7 +774,7 @@ function renderColorRack() {
         ? 'Disable this slot. Stays in the rack but is skipped in the chain — useful for A/B compare without losing the pick.'
         : 'Enable this slot. Re-includes it in the chain.';
       toggle.textContent = slot.enabled ? '✓' : '⊘';
-      el.appendChild(toggle);
+      row.appendChild(toggle);
 
       const remove = document.createElement('button');
       remove.type = 'button';
@@ -634,11 +783,124 @@ function renderColorRack() {
       remove.setAttribute('aria-label', 'Clear this slot');
       remove.dataset.tip = 'Clear this slot back to empty. Slot stays in the rack so you can pick a new color or drag it elsewhere.';
       remove.textContent = '×';
-      el.appendChild(remove);
+      row.appendChild(remove);
+    }
+
+    // Inline panel — knobs + toggles for the slot's effect, all bound to
+    // slot.params (NOT global state). Built only when expanded so collapsed
+    // slots stay cheap (no extra DOM, no SVG).
+    if (expanded) {
+      const panel = renderSlotPanel(slot);
+      el.appendChild(panel);
     }
 
     colorRackEl.appendChild(el);
   }
+}
+
+// Build the inline knob/toggle panel for an expanded slot. All knobs are
+// slot-bound (writeValue closes over slot.params); the panel's reset
+// button restores factory defaults via resetSlotParams.
+function renderSlotPanel(slot) {
+  const schema = COLOR_PARAM_SCHEMAS[slot.type];
+  const panel = document.createElement('div');
+  panel.className = 'color-rack-slot-panel';
+  if (!schema) return panel;
+
+  // Header row inside the panel: title + reset button.
+  const phead = document.createElement('div');
+  phead.className = 'color-rack-slot-panel-head';
+  const ptitle = document.createElement('span');
+  ptitle.className = 'color-rack-slot-panel-title';
+  ptitle.textContent = `${RACK_LABEL[slot.type] || slot.type} knobs`;
+  phead.appendChild(ptitle);
+  const presetBtn = document.createElement('button');
+  presetBtn.type = 'button';
+  presetBtn.className = 'color-rack-slot-reset';
+  presetBtn.dataset.action = 'reset-params';
+  presetBtn.setAttribute('aria-label', 'Reset this slot\'s knobs to factory');
+  presetBtn.dataset.tip = 'Reset only THIS slot\'s knobs to factory defaults. Other slots untouched.';
+  presetBtn.textContent = '⟲';
+  phead.appendChild(presetBtn);
+  panel.appendChild(phead);
+
+  // Toggles (e.g. falsecolor's banding) — render before knobs since they
+  // tend to be the discrete mode-switch and knobs are continuous tuning.
+  if (schema.toggles && schema.toggles.length) {
+    for (const t of schema.toggles) {
+      const wrap = document.createElement('div');
+      wrap.className = 'color-rack-slot-toggle';
+      const lbl = document.createElement('span');
+      lbl.className = 'color-rack-slot-toggle-label';
+      lbl.textContent = t.label;
+      wrap.appendChild(lbl);
+      const grp = document.createElement('div');
+      grp.className = 'color-rack-slot-toggle-group';
+      grp.setAttribute('role', 'radiogroup');
+      grp.setAttribute('aria-label', t.label);
+      const currentVal = slot.params[t.key];
+      for (const opt of t.options) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'color-rack-slot-toggle-btn';
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(currentVal === opt.value));
+        b.dataset.tip = opt.tip;
+        b.textContent = opt.label;
+        if (currentVal === opt.value) b.classList.add('active');
+        b.addEventListener('click', () => {
+          if (slot.params[t.key] === opt.value) return;
+          slot.params[t.key] = opt.value;
+          schedulePersist();
+          renderColorRack();
+        });
+        grp.appendChild(b);
+      }
+      wrap.appendChild(grp);
+      panel.appendChild(wrap);
+    }
+  }
+
+  // Knob grid — bind each knob to slot.params[k.key].
+  const grid = document.createElement('div');
+  grid.className = 'color-rack-slot-knob-grid';
+  for (const k of schema.knobs) {
+    const knobId = `slot-${slot.id}-${k.key}`;
+    const valId  = `${knobId}-val`;
+    const knobEl = document.createElement('div');
+    knobEl.className = 'knob slot-knob';
+    knobEl.id = knobId;
+    knobEl.dataset.knob = '';
+    knobEl.dataset.min     = String(k.min);
+    knobEl.dataset.max     = String(k.max);
+    knobEl.dataset.step    = String(k.step);
+    knobEl.dataset.default = String(k.default);
+    knobEl.dataset.tip     = k.tip;
+    knobEl.tabIndex = 0;
+    knobEl.setAttribute('aria-label', `${RACK_LABEL[slot.type]} ${k.label}`);
+    const labelEl = document.createElement('span');
+    labelEl.className = 'knob-label';
+    labelEl.textContent = k.label;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'knob-val';
+    valSpan.id = valId;
+    valSpan.textContent = String(slot.params[k.key] ?? k.default);
+    knobEl.appendChild(labelEl);
+    knobEl.appendChild(valSpan);
+    grid.appendChild(knobEl);
+
+    // Slot-bound init: writes go to slot.params[k.key], not global state.
+    // Closes over `slot` (live ref into state.colorRack) so writes hit the
+    // canonical store; renderFrame's resolveActivePipeline picks it up
+    // next frame.
+    initKnob(knobEl, {
+      writeValue:   (v) => { slot.params[k.key] = v; },
+      initialValue: slot.params[k.key] ?? k.default,
+    });
+  }
+  panel.appendChild(grid);
+
+  return panel;
 }
 
 // ---- Picker popover open/close ----
@@ -679,10 +941,20 @@ function setSlotType(slotId, type) {
   if (type === 'none') {
     slot.type = 'none';
     slot.enabled = false;
+    slot.params = {};
   } else {
+    // Even if the slot ALREADY held this type and we re-pick the same
+    // color, params reset to factory. The picker click is the user
+    // explicitly choosing the effect; "I want a fresh synth here" is
+    // the most natural reading. If they wanted to preserve params they
+    // wouldn't have opened the picker. Cheap to re-pick if surprising.
     slot.type = type;
     slot.enabled = true;
+    slot.params = makeFactoryParams(type);
   }
+  // Collapse the slot when type changes — old expanded inline knob DOM
+  // is no longer valid for the new type.
+  _expandedSlots.delete(slotId);
   renderColorRack();
   refreshEffectCardVisibility();
   schedulePersist();
@@ -702,8 +974,20 @@ function clearSlot(slotId) {
   if (!slot) return;
   slot.type = 'none';
   slot.enabled = false;
+  slot.params = {};
+  _expandedSlots.delete(slotId);
   renderColorRack();
   refreshEffectCardVisibility();
+  schedulePersist();
+}
+
+// Per-slot reset back to factory defaults for the slot's current effect
+// type. Bound to the small ⟲ button inside an expanded slot.
+function resetSlotParams(slotId) {
+  const slot = state.colorRack.find((s) => s.id === slotId);
+  if (!slot || slot.type === 'none') return;
+  slot.params = makeFactoryParams(slot.type);
+  renderColorRack();
   schedulePersist();
 }
 
@@ -718,7 +1002,7 @@ function reorderSlot(srcIdx, dstIdx) {
   schedulePersist();
 }
 
-// ---- Slot event delegation: chip click / toggle / remove ----
+// ---- Slot event delegation: chip click / toggle / remove / expand / reset ----
 colorRackEl?.addEventListener('click', (e) => {
   const slotEl = e.target.closest('.color-rack-slot');
   if (!slotEl) return;
@@ -732,6 +1016,12 @@ colorRackEl?.addEventListener('click', (e) => {
     toggleSlot(slotId);
   } else if (action === 'remove') {
     clearSlot(slotId);
+  } else if (action === 'expand') {
+    if (_expandedSlots.has(slotId)) _expandedSlots.delete(slotId);
+    else                            _expandedSlots.add(slotId);
+    renderColorRack();
+  } else if (action === 'reset-params') {
+    resetSlotParams(slotId);
   }
 });
 
@@ -863,7 +1153,7 @@ function loadPersistedState() {
       const c = parsed.color;
       const rack = makeColorRack();
       if (c && c !== 'none' && COLOR_SECTIONS.includes(c)) {
-        rack[0] = { id: makeSlotId(), type: c, enabled: true };
+        rack[0] = { id: makeSlotId(), type: c, enabled: true, params: makeFactoryParams(c) };
       }
       parsed.colorRack = rack;
       delete parsed.color;
@@ -877,15 +1167,51 @@ function loadPersistedState() {
     }
     if (Array.isArray(parsed.colorRack)) {
       parsed.colorRack = parsed.colorRack.map((slot) => {
-        if (!slot || typeof slot !== 'object') return { id: makeSlotId(), type: 'none', enabled: false };
+        if (!slot || typeof slot !== 'object') {
+          return { id: makeSlotId(), type: 'none', enabled: false, params: {} };
+        }
         const type = (slot.type === 'none' || COLOR_SECTIONS.includes(slot.type)) ? slot.type : 'none';
+        // Per-slot params migration: pre-this-commit slots had no params
+        // field. Per user spec the migration is STRICT FACTORY for all
+        // slots — even slots that already exist get their params reset
+        // (rather than inherit the dead global color knob values from
+        // older saves). Honest mental model: every slot starts at
+        // factory, no exceptions.
+        const factoryP = makeFactoryParams(type);
+        let params = factoryP;
+        // BUT — once this commit ships, subsequent saves persist the
+        // user's tweaks under slot.params. On those subsequent loads we
+        // DO want to read them back (otherwise every reload would wipe
+        // the user's work). Only the first-time-after-this-commit load
+        // takes the strict factory path; after that, validate-and-keep.
+        if (slot.params && typeof slot.params === 'object') {
+          params = { ...factoryP };
+          for (const k of Object.keys(factoryP)) {
+            const v = slot.params[k];
+            if (typeof v === 'number' && Number.isFinite(v)) params[k] = v;
+          }
+        }
         return {
           id:      slot.id || makeSlotId(),
           type,
           enabled: !!slot.enabled && type !== 'none',
+          params,
         };
       });
     }
+    // Strip dead global color knob state from older saves. These keys
+    // used to live on `state` (state.synthMode, state.oxideCorr, ...)
+    // and were read directly by runEffect. They no longer matter — slot
+    // params own these values now. Strip so they don't pile up forever
+    // in the saved blob.
+    const DEAD_GLOBAL_COLOR_KEYS = [
+      'oxideCorr','oxideMetal','oxideRough','oxideSheen',
+      'synthWarm','synthSep','synthRes','synthDyn',
+      'biolumGlow','biolumColor','biolumPulse','biolumDepth',
+      'thermoCont','thermoHot','thermoCold','thermoWhite',
+      'falsePalette','falseBand','falseBandCnt','falseBright',
+    ];
+    for (const k of DEAD_GLOBAL_COLOR_KEYS) delete parsed[k];
     for (const k of Object.keys(DEFAULTS)) if (k in parsed) state[k] = parsed[k];
     if (parsed.colorRack) state.colorRack = parsed.colorRack;
   } catch { /* ignore */ }
@@ -929,7 +1255,7 @@ document.addEventListener('click', (e) => {
     const info = knobRegistry.get(k.id);
     if (info) info.setValue(info.default);
   });
-  // Reset toggles in the card (erode-mode-group, false-band-group)
+  // Reset any toggle-groups inside the card (e.g. erode-mode-group).
   card.querySelectorAll('.toggle-group').forEach(group => {
     const cfg = TOGGLE_CONFIG.find(([gid]) => gid === group.id);
     if (!cfg) return;
@@ -1295,9 +1621,14 @@ function renderFrame() {
     if (totalStages === 1) {
       // Standalone single-stage fast path. No chain FBO allocation, no
       // ping-pong. Identical pixel output to the pre-rack standalone path.
-      const only = pipe.structure || pipe.colors[0];
-      runEffect(only);
-      compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[only] || 'source-over');
+      if (pipe.structure) {
+        runEffect(pipe.structure);
+        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
+      } else {
+        const c = pipe.colors[0];
+        runColorEffect(c.type, c.params);
+        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[c.type] || 'source-over');
+      }
     } else {
       // Multi-stage chain. Ping-pong through chain.a ↔ chain.b.
       const chain = getChainFBOs();
@@ -1338,7 +1669,8 @@ function renderFrame() {
         // shared video texture. Don't pass inputTex in that case.
         const opts = currentTex ? { inputTex: currentTex, outputFBO: outFB }
                                 : { outputFBO: outFB };
-        runEffect(pipe.colors[i], opts);
+        const c = pipe.colors[i];
+        runColorEffect(c.type, c.params, opts);
         if (!isLast) {
           currentTex = readTexs[writeIdx];
           writeIdx ^= 1;
@@ -1350,7 +1682,7 @@ function renderFrame() {
       // otherwise STRUCTURE (which means we got here only when STRUCTURE
       // is the only stage — already handled by the totalStages===1 branch
       // above, so this is just the COLOR case).
-      const terminal = pipe.colors[pipe.colors.length - 1];
+      const terminal = pipe.colors[pipe.colors.length - 1].type;
       compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[terminal] || 'source-over');
     }
   }
