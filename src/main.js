@@ -12,17 +12,15 @@ import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs } fr
 import { applyCompose } from './glCompose.js';
 
 const DEFAULTS = Object.freeze({
-  // Pipeline stages (P1: single-effect dispatch via getActiveFilter; P2 will
-  // wire STRUCTURE → COLOR through an FBO chain).
+  // Pipeline stages.
   // - structure: one of 'none' | voronoi | cellular | ascii | shatter | erode | wave
-  // - color:     one of 'none' | oxide | synth | biolum | thermo | falsecolor
+  // - colorRack: array of slots — see makeColorRack(). Stores up to 3 chained
+  //   COLOR effects. Initialized in startup (NOT in DEFAULTS) because each
+  //   slot has a fresh per-instance id; performFullReset re-creates it via
+  //   makeColorRack() so each session has unique ids.
   // - perBlob:   one of 'none' | inv | thermal  (legacy holding pen, moves to FX rack in P3)
-  // - lastPicked: 'structure' | 'color' | null  — which stage's selection should
-  //   render in the single-effect P1 pipeline. Lets the user have both a
-  //   STRUCTURE and COLOR selected simultaneously while we still only render
-  //   one of them; the more recent pick wins.
   speed: 1, shape: 'rect', regionStyle: 'basic',
-  structure: 'none', color: 'none', perBlob: 'none', lastPicked: null,
+  structure: 'none', perBlob: 'none',
   voronoiThreshold: 0.5, voronoiJumpDist: 0.5, voronoiFalloff: 0.5, voronoiEdgeLines: 0.0,
   caDensity: 0.5, caStability: 0.5, caEvolutionSpeed: 0.5, caSourceInflux: 0.5,
   asciiCellSize: 0.3, asciiContrast: 0.3, asciiBlackThresh: 0.2, asciiGlyphStrength: 0.9,
@@ -48,7 +46,32 @@ const DEFAULTS = Object.freeze({
 
 const STORAGE_KEY = 'fluxkit-state-v2';
 
-const state = { ...DEFAULTS, hasSource: false };
+// Color rack: 3 fixed slots, each holding one COLOR effect (or empty), with
+// per-slot enable/disable + drag-to-reorder. Renders in series — slot 0 reads
+// STRUCTURE's output (or raw video), each subsequent slot reads the previous
+// slot's output. Disabled slots are skipped in the chain entirely.
+//
+// Always exactly RACK_SLOTS slots — the user fills, empties, and reorders
+// them but never adds/removes the slot itself. Keeping a fixed-shape array
+// makes the DOM stable for drag-and-drop and simplifies persistence.
+const RACK_SLOTS = 3;
+
+// Per-instance slot ids. Used as DOM keys + drag-and-drop identity. Stable
+// across re-renders so dragging a slot doesn't recreate its DOM mid-drag.
+function makeSlotId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `slot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function makeColorRack() {
+  return Array.from({ length: RACK_SLOTS }, () => ({
+    id: makeSlotId(),
+    type: 'none',
+    enabled: false,
+  }));
+}
+
+const state = { ...DEFAULTS, hasSource: false, colorRack: makeColorRack() };
 
 let frameCount  = 0;
 let cachedBlobs = [];
@@ -363,7 +386,6 @@ const TOGGLE_CONFIG = [
   ['shape-group',       'shape',       String,     null],
   ['style-group',       'regionStyle', String,     null],
   ['structure-group',   'structure',   String,     onStructureChange],
-  ['color-group',       'color',       String,     onColorChange],
   ['perblob-group',     'perBlob',     String,     onPerBlobChange],
   ['detect-mode-group', 'detectMode',  String,     () => { resetFrameHistory(); }],
   ['blob-size-group',   'blobSize',    parseInt,   null],
@@ -371,34 +393,37 @@ const TOGGLE_CONFIG = [
   ['false-band-group',  'falseBand',   parseInt,   null],
 ];
 
-// Resolve which effects render this frame. P2b: both STRUCTURE and COLOR
-// can be active simultaneously and chained together (the actual chain
-// wire-up lives in renderFrame). state.lastPicked is no longer used to
-// pick a winning single effect — both render in chain mode — but it does
-// still mark which stage was most recently touched so the orchestrator
-// can scroll the corresponding card into view on user input.
-//
+// Resolve which effects render this frame. STRUCTURE plus 0-3 chained
+// colors from the rack (only enabled, non-none slots, in slot order).
 // Per-blob (Inv / Thermal) remains independent — always layers on top
 // of whatever the main chain produced; not part of this resolver.
 function resolveActivePipeline() {
   return {
     structure: state.structure !== 'none' ? state.structure : null,
-    color:     state.color     !== 'none' ? state.color     : null,
+    colors:    state.colorRack
+      .filter((s) => s.enabled && s.type !== 'none')
+      .map((s) => s.type),
   };
 }
 
 // Reveal/hide an effect-card based on whether its effect is currently
-// selected. In chain mode (both STRUCTURE and COLOR active) BOTH cards
-// stay visible AND BOTH get the `active-card` highlight (per D2: both
-// cards highlighted when both render). This gives up the "most recently
-// touched" hint that the P1 single-active-card rule provided, in
-// exchange for an honest visual signal that both stages are running.
+// selected somewhere in the pipeline. Cards stay visible while their
+// effect is selected (so the user can keep tweaking knobs), even if
+// their slot is disabled. `active-card` highlight goes on EVERY card
+// whose effect is actually rendering this frame — multiple highlighted
+// cards is the honest visual signal that a chain is running.
+//
+// "Selected" for COLOR effects = present in any rack slot regardless
+// of enabled state; "active" = present in any ENABLED rack slot. This
+// lets a user disable a slot to A/B compare without losing the card.
 function refreshEffectCardVisibility() {
-  const { structure, color } = resolveActivePipeline();
-  const active   = new Set([structure, color].filter(Boolean));
+  const { structure, colors } = resolveActivePipeline();
+  const active   = new Set([structure, ...colors].filter(Boolean));
   const selected = new Set();
   if (state.structure !== 'none') selected.add(state.structure);
-  if (state.color     !== 'none') selected.add(state.color);
+  for (const slot of state.colorRack) {
+    if (slot.type !== 'none') selected.add(slot.type);
+  }
   for (const name of GL_SECTIONS) {
     const el = document.getElementById(`${name}-controls`);
     if (!el) continue;
@@ -408,34 +433,17 @@ function refreshEffectCardVisibility() {
 }
 
 // True only while applyStateToUI is replaying loaded state into the UI.
-// Handlers consult this so they don't overwrite the loaded lastPicked when
-// they're called as part of restore (rather than user input).
+// Kept for symmetry with the rack render path (renderColorRack also
+// dispatches handlers internally and could re-enter); unused by the
+// remaining toggle-group handlers but cheap to retain.
 let _applyingState = false;
 
 function onStructureChange(v) {
-  if (!_applyingState) {
-    if (v !== 'none') state.lastPicked = 'structure';
-    else if (state.lastPicked === 'structure') state.lastPicked = state.color !== 'none' ? 'color' : null;
-  }
   // Reset stateful GL effects (voronoi/cellular/wave keep persistent buffers
   // between frames; we clear the ones that are no longer active so they
   // don't resume mid-pattern when re-selected later).
   for (const [name, fn] of Object.entries(GL_RESETS)) {
     if (v !== name && STRUCTURE_SECTIONS.includes(name)) fn();
-  }
-  refreshEffectCardVisibility();
-  if (v !== 'none') {
-    const card = document.getElementById(`${v}-controls`);
-    if (card && !card.classList.contains('hidden')) {
-      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-  }
-}
-
-function onColorChange(v) {
-  if (!_applyingState) {
-    if (v !== 'none') state.lastPicked = 'color';
-    else if (state.lastPicked === 'color') state.lastPicked = state.structure !== 'none' ? 'structure' : null;
   }
   refreshEffectCardVisibility();
   if (v !== 'none') {
@@ -511,6 +519,282 @@ swatchGrid.addEventListener('click', (e) => {
   updateOverlayColor(btn.dataset.swatch);
 });
 
+// ============================================================
+// COLOR RACK — custom widget (not a toggle group).
+// Renders state.colorRack into #color-rack as 3 fixed slots, wires
+// click-to-pick / toggle / remove / drag-to-reorder. See state.colorRack
+// docstring for the data shape.
+// ============================================================
+const colorRackEl  = document.getElementById('color-rack');
+const colorPickerEl = document.getElementById('color-picker-popover');
+
+// Same gradient stops as the .filter-swatch-group buttons (style.css) so
+// the chip swatch reads as the same identity. Inlined here because the
+// per-slot gradient varies and these aren't shareable via a simple class
+// (each slot needs its OWN gradient, picked from this lookup).
+const RACK_SWATCH_GRADIENTS = {
+  oxide:      'linear-gradient(90deg, #1a0a00, #8b4513, #cd853f, #d4af37)',
+  synth:      'linear-gradient(90deg, #f72585, #b5179e, #7209b7, #4361ee, #4cc9f0)',
+  biolum:     'linear-gradient(90deg, #001a1a, #00ffcc, #88ddff, #aa88ff)',
+  thermo:     'linear-gradient(90deg, #000, #220066, #cc0066, #ff6600, #ffff00, #fff)',
+  falsecolor: 'linear-gradient(90deg, #4361ee, #00d4ff, #5be7a6, #ffea00, #f72585)',
+};
+const RACK_LABEL = {
+  oxide: 'Oxide', synth: 'Synth', biolum: 'BioLum', thermo: 'Thermo', falsecolor: 'FalseClr',
+};
+
+// Per-slot tooltip mirrors the picker's (so hovering the chip explains
+// what the current effect does, same wording as picking it would have shown).
+const RACK_CHIP_TIP = {
+  oxide:      'Oxide / patina material in this slot. Re-skins the input as corroded metal. Click to swap.',
+  synth:      'Synthwave color grade in this slot. Maps luma to a 6-band palette. Click to swap.',
+  biolum:     'Bioluminescent glow in this slot. Re-tints the input as deep-water bioluminescence. Click to swap.',
+  thermo:     'Thermal-camera ramp in this slot. Maps luma to deep blue → cyan → yellow → red → white. Click to swap.',
+  falsecolor: 'False-color palette swap in this slot. Cross-fades between four palettes. Click to swap.',
+};
+
+// Currently-open picker state. picker is anchored beneath a chip; clicking
+// outside closes it. Tracking the slot id (not DOM ref) survives any
+// re-render between open and a pick action.
+let _openPickerSlotId = null;
+
+function renderColorRack() {
+  if (!colorRackEl) return;
+  // Build/replace exactly RACK_SLOTS DOM nodes. We rebuild rather than
+  // mutate-in-place because slot order can change on drag-drop and there
+  // are only 3 nodes — performance is irrelevant. The picker popover is
+  // separate (lives at body level) so it's never touched here.
+  colorRackEl.innerHTML = '';
+  for (let i = 0; i < state.colorRack.length; i++) {
+    const slot   = state.colorRack[i];
+    const filled = slot.type !== 'none';
+
+    const el = document.createElement('div');
+    el.className = 'color-rack-slot';
+    el.setAttribute('role', 'listitem');
+    el.dataset.slotId  = slot.id;
+    el.dataset.slotIdx = String(i);
+    el.dataset.empty   = filled ? 'false' : 'true';
+    el.dataset.enabled = (slot.enabled && filled) ? 'true' : 'false';
+    el.draggable = true;
+
+    // Drag handle
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'color-rack-handle';
+    handle.setAttribute('aria-label', 'Drag to reorder slot');
+    handle.dataset.tip = 'Drag to reorder this slot in the chain. Order matters: synth → thermo ≠ thermo → synth.';
+    handle.textContent = '≡';
+    el.appendChild(handle);
+
+    // Chip body
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'color-rack-chip';
+    chip.setAttribute('aria-haspopup', 'true');
+    chip.setAttribute('aria-expanded', _openPickerSlotId === slot.id ? 'true' : 'false');
+    chip.dataset.action = 'open-picker';
+    if (filled) {
+      chip.dataset.tip = RACK_CHIP_TIP[slot.type] || '';
+      const swatch = document.createElement('span');
+      swatch.className = 'color-rack-chip-swatch';
+      swatch.style.background = RACK_SWATCH_GRADIENTS[slot.type] || '';
+      const label = document.createElement('span');
+      label.className = 'color-rack-chip-label';
+      label.textContent = RACK_LABEL[slot.type] || slot.type;
+      chip.appendChild(swatch);
+      chip.appendChild(label);
+    } else {
+      chip.dataset.tip = 'Empty slot. Click to pick a color effect for this slot — it will run in series, reading the previous slot\'s output.';
+      const empty = document.createElement('span');
+      empty.className = 'color-rack-chip-empty';
+      empty.textContent = '+ add color';
+      chip.appendChild(empty);
+    }
+    el.appendChild(chip);
+
+    // Toggle + remove only on filled slots
+    if (filled) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'color-rack-toggle';
+      toggle.dataset.action = 'toggle';
+      toggle.setAttribute('aria-pressed', slot.enabled ? 'true' : 'false');
+      toggle.setAttribute('aria-label', slot.enabled ? 'Disable this slot' : 'Enable this slot');
+      toggle.dataset.tip = slot.enabled
+        ? 'Disable this slot. Stays in the rack but is skipped in the chain — useful for A/B compare without losing the pick.'
+        : 'Enable this slot. Re-includes it in the chain.';
+      toggle.textContent = slot.enabled ? '✓' : '⊘';
+      el.appendChild(toggle);
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'color-rack-remove';
+      remove.dataset.action = 'remove';
+      remove.setAttribute('aria-label', 'Clear this slot');
+      remove.dataset.tip = 'Clear this slot back to empty. Slot stays in the rack so you can pick a new color or drag it elsewhere.';
+      remove.textContent = '×';
+      el.appendChild(remove);
+    }
+
+    colorRackEl.appendChild(el);
+  }
+}
+
+// ---- Picker popover open/close ----
+function openPicker(slotEl) {
+  const slotId = slotEl.dataset.slotId;
+  _openPickerSlotId = slotId;
+  // Position the popover beneath the slot, right-aligned to the slot's
+  // right edge so the picker doesn't overflow the sidebar. Falls back to
+  // above-the-slot if there isn't room below.
+  const r = slotEl.getBoundingClientRect();
+  colorPickerEl.classList.remove('hidden');
+  const pr = colorPickerEl.getBoundingClientRect();
+  let top  = r.bottom + 4;
+  let left = r.right - pr.width;
+  if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 4;
+  if (left < 8) left = 8;
+  colorPickerEl.style.top  = `${top}px`;
+  colorPickerEl.style.left = `${left}px`;
+  // Update aria-expanded on the matching chip
+  const chip = slotEl.querySelector('.color-rack-chip');
+  if (chip) chip.setAttribute('aria-expanded', 'true');
+}
+
+function closePicker() {
+  if (!_openPickerSlotId) return;
+  _openPickerSlotId = null;
+  colorPickerEl.classList.add('hidden');
+  // Reset all chips' aria-expanded (cheaper than tracking which one was open).
+  for (const chip of colorRackEl.querySelectorAll('.color-rack-chip')) {
+    chip.setAttribute('aria-expanded', 'false');
+  }
+}
+
+// ---- Slot mutation helpers ----
+function setSlotType(slotId, type) {
+  const slot = state.colorRack.find((s) => s.id === slotId);
+  if (!slot) return;
+  if (type === 'none') {
+    slot.type = 'none';
+    slot.enabled = false;
+  } else {
+    slot.type = type;
+    slot.enabled = true;
+  }
+  renderColorRack();
+  refreshEffectCardVisibility();
+  schedulePersist();
+}
+
+function toggleSlot(slotId) {
+  const slot = state.colorRack.find((s) => s.id === slotId);
+  if (!slot || slot.type === 'none') return;
+  slot.enabled = !slot.enabled;
+  renderColorRack();
+  refreshEffectCardVisibility();
+  schedulePersist();
+}
+
+function clearSlot(slotId) {
+  const slot = state.colorRack.find((s) => s.id === slotId);
+  if (!slot) return;
+  slot.type = 'none';
+  slot.enabled = false;
+  renderColorRack();
+  refreshEffectCardVisibility();
+  schedulePersist();
+}
+
+function reorderSlot(srcIdx, dstIdx) {
+  if (srcIdx === dstIdx) return;
+  const arr = state.colorRack.slice();
+  const [moved] = arr.splice(srcIdx, 1);
+  arr.splice(dstIdx, 0, moved);
+  state.colorRack = arr;
+  renderColorRack();
+  refreshEffectCardVisibility();
+  schedulePersist();
+}
+
+// ---- Slot event delegation: chip click / toggle / remove ----
+colorRackEl?.addEventListener('click', (e) => {
+  const slotEl = e.target.closest('.color-rack-slot');
+  if (!slotEl) return;
+  const action = e.target.closest('[data-action]')?.dataset.action;
+  if (!action) return;
+  const slotId = slotEl.dataset.slotId;
+  if (action === 'open-picker') {
+    if (_openPickerSlotId === slotId) { closePicker(); return; }
+    openPicker(slotEl);
+  } else if (action === 'toggle') {
+    toggleSlot(slotId);
+  } else if (action === 'remove') {
+    clearSlot(slotId);
+  }
+});
+
+// ---- Picker click → set slot type ----
+colorPickerEl?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-pick-color]');
+  if (!btn || !_openPickerSlotId) return;
+  setSlotType(_openPickerSlotId, btn.dataset.pickColor);
+  closePicker();
+});
+
+// ---- Outside click / Esc to close picker ----
+document.addEventListener('mousedown', (e) => {
+  if (!_openPickerSlotId) return;
+  if (colorPickerEl.contains(e.target)) return;
+  if (e.target.closest(`.color-rack-slot[data-slot-id="${_openPickerSlotId}"]`)) return;
+  closePicker();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _openPickerSlotId) closePicker();
+});
+
+// ---- Drag-and-drop reorder ----
+// HTML5 native drag. setData payload is the source slot index (the
+// data-slotIdx attr written during render). dragover allows drop;
+// dragenter/dragleave manage the .drop-target class. Only ONE slot at
+// a time can carry .drop-target.
+let _dragSrcIdx = null;
+colorRackEl?.addEventListener('dragstart', (e) => {
+  const slotEl = e.target.closest('.color-rack-slot');
+  if (!slotEl) { e.preventDefault(); return; }
+  _dragSrcIdx = parseInt(slotEl.dataset.slotIdx, 10);
+  slotEl.classList.add('dragging');
+  // Required so Firefox emits dragend
+  e.dataTransfer.setData('text/plain', String(_dragSrcIdx));
+  e.dataTransfer.effectAllowed = 'move';
+});
+colorRackEl?.addEventListener('dragend', () => {
+  _dragSrcIdx = null;
+  for (const el of colorRackEl.querySelectorAll('.color-rack-slot')) {
+    el.classList.remove('dragging', 'drop-target');
+  }
+});
+colorRackEl?.addEventListener('dragover', (e) => {
+  if (_dragSrcIdx === null) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const slotEl = e.target.closest('.color-rack-slot');
+  // Highlight only the slot being hovered as the drop target.
+  for (const el of colorRackEl.querySelectorAll('.color-rack-slot')) {
+    el.classList.toggle('drop-target', el === slotEl && el !== e.currentTarget.querySelector('.dragging'));
+  }
+});
+colorRackEl?.addEventListener('drop', (e) => {
+  if (_dragSrcIdx === null) return;
+  e.preventDefault();
+  const slotEl = e.target.closest('.color-rack-slot');
+  if (!slotEl) return;
+  const dstIdx = parseInt(slotEl.dataset.slotIdx, 10);
+  reorderSlot(_dragSrcIdx, dstIdx);
+  _dragSrcIdx = null;
+});
+
 // ---- Apply persisted state to UI ----
 function applyStateToUI() {
   _applyingState = true;
@@ -525,12 +809,17 @@ function applyStateToUI() {
     }
     updateOverlayColor(state.overlayColor);
     video.playbackRate = state.speed;
+    // Color rack is a custom widget (not a toggle group), so it has to
+    // render itself rather than ride the TOGGLE_CONFIG loop. Runs inside
+    // the _applyingState guard so any future side effects on render don't
+    // double-fire during state restore.
+    renderColorRack();
   } finally {
     _applyingState = false;
   }
   // After loaded values are in place, recompute card visibility once with
-  // the loaded lastPicked intact (the per-handler refreshes during the
-  // loop reflect intermediate state).
+  // the final state (the per-handler refreshes during the loop reflect
+  // intermediate state).
   refreshEffectCardVisibility();
 }
 
@@ -558,12 +847,47 @@ function loadPersistedState() {
     // use the new fields exclusively.
     if ('filter' in parsed && !('structure' in parsed)) {
       const f = parsed.filter;
-      if      (STRUCTURE_SECTIONS.includes(f)) { parsed.structure = f; parsed.lastPicked = 'structure'; }
-      else if (COLOR_SECTIONS.includes(f))     { parsed.color     = f; parsed.lastPicked = 'color';     }
+      if      (STRUCTURE_SECTIONS.includes(f)) { parsed.structure = f; }
+      else if (COLOR_SECTIONS.includes(f))     { parsed.color     = f; }
       else if (f === 'inv' || f === 'thermal') { parsed.perBlob   = f; }
       delete parsed.filter;
     }
+    // lastPicked retired — was a vestigial recency hint; rendering never
+    // used it after P2b. Drop on load so the field doesn't pile up in
+    // saved state forever.
+    delete parsed.lastPicked;
+    // Color-rack migration (post-P2b): the single `color` field becomes a
+    // 3-slot rack. The previously-selected color (if any) lands in slot 0,
+    // enabled. Other slots empty. Subsequent saves use colorRack only.
+    if ('color' in parsed && !('colorRack' in parsed)) {
+      const c = parsed.color;
+      const rack = makeColorRack();
+      if (c && c !== 'none' && COLOR_SECTIONS.includes(c)) {
+        rack[0] = { id: makeSlotId(), type: c, enabled: true };
+      }
+      parsed.colorRack = rack;
+      delete parsed.color;
+    }
+    // Defensive shape check: if a persisted colorRack is malformed (wrong
+    // length, missing fields, unknown types) replace with a fresh rack
+    // rather than crash on render. Cheap insurance against forward-compat
+    // accidents.
+    if (parsed.colorRack && (!Array.isArray(parsed.colorRack) || parsed.colorRack.length !== RACK_SLOTS)) {
+      parsed.colorRack = makeColorRack();
+    }
+    if (Array.isArray(parsed.colorRack)) {
+      parsed.colorRack = parsed.colorRack.map((slot) => {
+        if (!slot || typeof slot !== 'object') return { id: makeSlotId(), type: 'none', enabled: false };
+        const type = (slot.type === 'none' || COLOR_SECTIONS.includes(slot.type)) ? slot.type : 'none';
+        return {
+          id:      slot.id || makeSlotId(),
+          type,
+          enabled: !!slot.enabled && type !== 'none',
+        };
+      });
+    }
     for (const k of Object.keys(DEFAULTS)) if (k in parsed) state[k] = parsed[k];
+    if (parsed.colorRack) state.colorRack = parsed.colorRack;
   } catch { /* ignore */ }
 }
 
@@ -571,6 +895,8 @@ function loadPersistedState() {
 let resetConfirmTimer = 0;
 function performFullReset() {
   for (const k of Object.keys(DEFAULTS)) state[k] = DEFAULTS[k];
+  // colorRack lives outside DEFAULTS (per-instance ids); reset explicitly.
+  state.colorRack = makeColorRack();
   applyStateToUI();
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   showToast('Reset to defaults', 'ok', 2500);
@@ -939,52 +1265,93 @@ function renderFrame() {
   }
   const blobs = smoothBlobs(cachedBlobs);
 
-  // GL dispatch (P2b chain pipeline). Three render paths, chosen from
-  // resolveActivePipeline():
+  // GL dispatch — multi-stage chain pipeline.
   //
-  //   structure  color
-  //   none       none      → no GL block runs; raw video stays on display
-  //   X          none      → standalone STRUCTURE → screen, blend = BLEND_MODES[X]
-  //   none       Y         → standalone COLOR     → screen, blend = BLEND_MODES[Y]
-  //   X          Y         → chain:
-  //                          STRUCTURE writes to chainFBOs.a
-  //                          if BLEND_MODES[X] === 'screen': compose pass
-  //                              screen-blends a.tex over raw video into chainFBOs.b
-  //                              (preserves voronoi/wave/cellular's identity look
-  //                              instead of letting COLOR see a flat opaque structure)
-  //                          else: skip compose; COLOR reads a.tex directly
-  //                          COLOR samples the resulting tex, writes to screen
-  //                          composite blend = BLEND_MODES[Y] (terminal-stage rule)
+  //   video → STRUCTURE → [compose if structure blend = screen]
+  //                 ↓                 ↓
+  //              COLOR[0] → COLOR[1] → COLOR[2] → screen
+  //                                                composite blend =
+  //                                                terminal stage's BLEND_MODES
+  //
+  // Stages are ping-ponged through the two chain FBOs (chain.a ↔ chain.b).
+  // Each non-terminal stage writes to whichever FBO is the current write
+  // target; the next stage reads the just-written texture and writes to
+  // the other FBO. The terminal stage writes to the default framebuffer
+  // (the shared GL canvas) and gets composited to the 2D display canvas
+  // with the terminal stage's blend mode.
+  //
+  // Empty rack + no structure: no GL block runs; raw video stays on display.
+  // Single stage (any combination collapsing to one effect): no chain FBO
+  // touched — that effect renders straight to the screen, identical to
+  // pre-rack behavior.
   //
   // Per-blob (Inv / Thermal) layers on top of all of this — see block below.
   const pipe = resolveActivePipeline();
-  if (pipe.structure || pipe.color) {
+  const totalStages = (pipe.structure ? 1 : 0) + pipe.colors.length;
+  if (totalStages > 0) {
     ensureContext(cw, ch);
     uploadVideoFrame(video);
 
-    if (pipe.structure && pipe.color) {
-      // Chain mode.
-      const chain = getChainFBOs();
-      runEffect(pipe.structure, { outputFBO: chain.a.fb });
-
-      let colorInputTex;
-      if (BLEND_MODES[pipe.structure] === 'screen') {
-        applyCompose(cw, ch, chain.a.tex, chain.b.fb);
-        colorInputTex = chain.b.tex;
-      } else {
-        // STRUCTURE blend mode is source-over (ascii / shatter / erode):
-        // its output already replaces the video. Skip the compose pass —
-        // COLOR samples chain.a directly. Saves one full-frame pass.
-        colorInputTex = chain.a.tex;
-      }
-
-      runEffect(pipe.color, { inputTex: colorInputTex, outputFBO: null });
-      compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.color] || 'source-over');
-    } else {
-      // Standalone single-stage (preserves P2a semantics exactly).
-      const only = pipe.structure || pipe.color;
+    if (totalStages === 1) {
+      // Standalone single-stage fast path. No chain FBO allocation, no
+      // ping-pong. Identical pixel output to the pre-rack standalone path.
+      const only = pipe.structure || pipe.colors[0];
       runEffect(only);
       compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[only] || 'source-over');
+    } else {
+      // Multi-stage chain. Ping-pong through chain.a ↔ chain.b.
+      const chain = getChainFBOs();
+      let currentTex = null;       // Texture the next stage reads from. null = read raw video.
+      let writeIdx   = 0;          // 0 = next write goes to chain.a, 1 = chain.b.
+      const writeFBOs = [chain.a.fb, chain.b.fb];
+      const readTexs  = [chain.a.tex, chain.b.tex];
+
+      // STRUCTURE (if present) — always reads raw video; writes to chain.
+      if (pipe.structure) {
+        runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
+        currentTex = readTexs[writeIdx];
+        writeIdx ^= 1;
+
+        // Compose pass: screen-blend STRUCTURE's output back over raw
+        // video so the next stage sees the structure-as-it-would-look-
+        // standalone. Only needed when STRUCTURE's identity blend is
+        // 'screen' (voronoi/wave/cellular). Source-over STRUCTUREs
+        // (ascii/shatter/erode) already replace the video — skip the
+        // pass entirely.
+        if (BLEND_MODES[pipe.structure] === 'screen') {
+          applyCompose(cw, ch, currentTex, writeFBOs[writeIdx]);
+          currentTex = readTexs[writeIdx];
+          writeIdx ^= 1;
+        }
+      }
+
+      // COLORS — chained. Each reads currentTex (or raw video if STRUCTURE
+      // was None and this is the first color), writes to the next slot in
+      // the ping-pong, then becomes the source for the next iteration.
+      // Last color writes to the default framebuffer instead of a chain FBO
+      // so its output ends up on the shared GL canvas for compositing.
+      for (let i = 0; i < pipe.colors.length; i++) {
+        const isLast = (i === pipe.colors.length - 1);
+        const outFB  = isLast ? null : writeFBOs[writeIdx];
+        // currentTex is null when no STRUCTURE and this is the first color
+        // → effect module's `inputTex || getVideoTex()` defaults to the
+        // shared video texture. Don't pass inputTex in that case.
+        const opts = currentTex ? { inputTex: currentTex, outputFBO: outFB }
+                                : { outputFBO: outFB };
+        runEffect(pipe.colors[i], opts);
+        if (!isLast) {
+          currentTex = readTexs[writeIdx];
+          writeIdx ^= 1;
+        }
+      }
+
+      // Terminal-stage rule: composite blend mode is whatever the LAST
+      // stage in the chain naturally wants. Last color when colors exist,
+      // otherwise STRUCTURE (which means we got here only when STRUCTURE
+      // is the only stage — already handled by the totalStages===1 branch
+      // above, so this is just the COLOR case).
+      const terminal = pipe.colors[pipe.colors.length - 1];
+      compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[terminal] || 'source-over');
     }
   }
 
@@ -1109,7 +1476,6 @@ if (import.meta.env.DEV) {
   queueMicrotask(() => {
     const scopes = [
       { root: document.getElementById('structure-group'), sel: '.toggle-btn' },
-      { root: document.getElementById('color-group'),     sel: '.toggle-btn' },
       { root: document.getElementById('perblob-group'),   sel: '.toggle-btn' },
       ...Array.from(document.querySelectorAll('.effect-card')).map((c) => ({
         root: c,

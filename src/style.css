@@ -371,6 +371,207 @@ label.section-label { cursor: pointer; }
 }
 
 /* ============================================================
+   COLOR RACK — 3 fixed slots. Each slot is a horizontal row:
+   [drag handle] [chip body / + add] [on/off toggle] [× remove]
+   Filled slot has solid hairline; empty has dashed. Drag uses
+   HTML5 native drag-and-drop via the handle; .dragging fades the
+   slot, .drop-target draws a 2px orange top border showing the
+   insertion point.
+   ============================================================ */
+.color-rack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.color-rack-slot {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  background: var(--bg-stage);
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  min-height: 36px;
+  position: relative;
+  transition:
+    background   var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    opacity      var(--duration-base) var(--ease-out);
+}
+.color-rack-slot[data-empty="true"] {
+  border-style: dashed;
+  grid-template-columns: auto 1fr;
+}
+.color-rack-slot.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+/* Drop target: 2px Orange-Signal top border showing where the dragged
+   slot will land. Sits inside the slot's own 1px hairline so it doesn't
+   reflow. */
+.color-rack-slot.drop-target::before {
+  content: "";
+  position: absolute;
+  top: -2px; left: -1px; right: -1px;
+  height: 2px;
+  background: var(--orange-signal);
+  border-radius: 2px;
+  z-index: 1;
+}
+.color-rack-handle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: grab;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 3px;
+  transition: color var(--duration-base) var(--ease-out);
+}
+.color-rack-handle:hover {
+  color: var(--text-key);
+  background: var(--surface-hover);
+}
+.color-rack-handle:active { cursor: grabbing; }
+
+/* Chip body: gradient swatch + label. Click → opens picker popover.
+   For empty slots this becomes a "+ Add color" placeholder button. */
+.color-rack-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-body);
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border-radius: 4px;
+  min-height: 26px;
+  text-align: left;
+  transition:
+    background   var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    color        var(--duration-base) var(--ease-out);
+}
+.color-rack-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-key);
+}
+.color-rack-chip[aria-expanded="true"] {
+  border-color: var(--orange-signal);
+}
+.color-rack-chip-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid oklch(0% 0 0 / 0.4);
+  box-shadow: inset 0 0 4px oklch(0% 0 0 / 0.4);
+}
+.color-rack-chip-label { flex: 1; min-width: 0; }
+.color-rack-chip-empty {
+  font-style: italic;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+
+/* On/off toggle pill. ✓ = enabled (orange), ⊘ = disabled (muted). */
+.color-rack-toggle {
+  background: transparent;
+  border: 1px solid var(--border-hairline);
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background   var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    color        var(--duration-base) var(--ease-out);
+}
+.color-rack-toggle[aria-pressed="true"] {
+  background: var(--orange-signal);
+  border-color: var(--orange-signal);
+  color: var(--knob-cap-black);
+}
+.color-rack-toggle:hover { border-color: var(--orange-signal); }
+
+.color-rack-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 3px;
+  transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out);
+}
+.color-rack-remove:hover {
+  color: var(--state-danger);
+  background: var(--surface-hover);
+}
+
+/* Disabled slot: chip dims, swatch dims. Slot border stays solid (the
+   slot itself is "filled" in the rack — just paused). */
+.color-rack-slot[data-enabled="false"][data-empty="false"] .color-rack-chip-label,
+.color-rack-slot[data-enabled="false"][data-empty="false"] .color-rack-chip-swatch {
+  opacity: 0.45;
+}
+
+/* ============================================================
+   COLOR PICKER POPOVER — floats at body level, positioned beneath
+   the clicked slot's chip. Closed by clicking outside or pressing
+   Esc. 6 buttons: None + 5 colors, in a 2×3 grid.
+   ============================================================ */
+.color-picker-popover {
+  position: fixed;
+  z-index: 50;
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  padding: var(--space-sm);
+  display: grid;
+  grid-template-columns: repeat(3, 80px);
+  gap: var(--space-xs);
+  box-shadow: 0 8px 24px oklch(0% 0 0 / 0.55);
+}
+.color-picker-popover.hidden { display: none; }
+.color-pick {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-body);
+  padding: var(--space-sm);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  border-radius: 4px;
+  min-height: 32px;
+  transition:
+    background   var(--duration-base) var(--ease-out),
+    color        var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
+}
+.color-pick:hover {
+  background: var(--surface-hover);
+  color: var(--text-key);
+  border-color: var(--orange-signal);
+}
+
+/* ============================================================
    FX RACK SLOTS — placeholder pedalboard. P1 ships visual-only;
    the rack mechanics + real FX effects land in P3 along with the
    STRUCTURE → COLOR FBO chain. Empty slots read as deprecated /

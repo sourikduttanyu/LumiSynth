@@ -158,23 +158,35 @@
         </section>
 
         <!-- ============ COLOR ============ -->
-        <!-- The palette / tone stage. Pick ONE color treatment that recolors
-             the structure output (or raw video, when STRUCTURE = None).
-             P1: still single-effect dispatch. P2: actually consumes
-             STRUCTURE's FBO output. -->
-        <div class="stage-divider" data-stage="color">COLOR <span class="stage-sub">palette · tone</span></div>
+        <!-- The palette / tone stage — now a 0-3 stack chained in series.
+             Each enabled slot reads the previous slot's output (or
+             STRUCTURE's output, or raw video). Order matters; slots are
+             reorderable. Empty/disabled slots are skipped. -->
+        <div class="stage-divider" data-stage="color">COLOR <span class="stage-sub">stack · 0–3 chained</span></div>
 
         <section class="control-section">
-          <div class="section-label" id="lbl-color">Pick one</div>
-          <div class="toggle-group filter-swatch-group" id="color-group" role="radiogroup" aria-labelledby="lbl-color">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"       aria-label="No color"           data-tip="No color stage. Output of STRUCTURE (or raw video) passes through unchanged."><span>None</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="oxide"      aria-label="Oxide patina"       data-tip="COLOR. Oxide / patina material. Re-skins the video as corroded metal — copper, iron, or silver (Metal knob) with patina, surface roughness, and edge sheen."><span>Oxide</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="synth"      aria-label="Synth colors"       data-tip="COLOR. Synthwave color grade. Maps luma to a 6-band purple → red → orange → green → blue → white palette with optional banding and resonance ripples."><span>Synth</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="biolum"     aria-label="Bioluminescent"     data-tip="COLOR. Bioluminescent glow. Re-tints the video as deep-water bioluminescence — cyan to violet (Color knob) with depth fade and optional pulsing."><span>BioLum</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="thermo"     aria-label="Thermo"             data-tip="COLOR. Thermal-camera look. Maps luma to a deep blue → cyan → yellow → red → white ramp."><span>Thermo</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="falsecolor" aria-label="False color"        data-tip="COLOR. False-color palette swap. Cross-fades between four palettes (Thermal / Neon / Acid / Ice) via the Palette knob, with optional discrete banding."><span>FalseClr</span></button>
+          <div class="section-label" id="lbl-color">Slots</div>
+          <div class="color-rack" id="color-rack" role="list" aria-labelledby="lbl-color"
+               data-tip="Up to 3 color stages chained in series. Each slot reads the previous slot's output. Drag the handle to reorder; toggle to A/B without losing the slot; × clears.">
+            <!-- Slots are rendered by renderColorRack() in main.js from
+                 state.colorRack. The fixed 3-slot count means we don't
+                 need to add/remove DOM nodes; renderColorRack just updates
+                 each slot's contents. Kept blank here so the empty-state
+                 layout doesn't flash before JS boots. -->
           </div>
         </section>
+
+        <!-- Color picker popover — positioned at body level, anchored
+             beneath the slot that opened it. Hidden by default; opened by
+             clicking a slot's chip. 6 buttons: None + 5 colors. -->
+        <div class="color-picker-popover hidden" id="color-picker-popover" role="dialog" aria-label="Pick a color for this slot">
+          <button type="button" class="color-pick" data-pick-color="none"       data-tip="Clear this slot. Slot becomes empty and is skipped in the chain.">None</button>
+          <button type="button" class="color-pick" data-pick-color="oxide"      data-tip="Oxide / patina material. Re-skins the input as corroded metal.">Oxide</button>
+          <button type="button" class="color-pick" data-pick-color="synth"      data-tip="Synthwave color grade. Maps luma to a 6-band palette.">Synth</button>
+          <button type="button" class="color-pick" data-pick-color="biolum"     data-tip="Bioluminescent glow. Re-tints the input as deep-water bioluminescence.">BioLum</button>
+          <button type="button" class="color-pick" data-pick-color="thermo"     data-tip="Thermal-camera ramp. Maps luma to deep blue → cyan → yellow → red → white.">Thermo</button>
+          <button type="button" class="color-pick" data-pick-color="falsecolor" data-tip="False-color palette swap. Cross-fades between four palettes.">FalseClr</button>
+        </div>
 
         <section class="effect-card hidden" id="oxide-controls" data-card-effect="oxide" aria-label="Oxide parameters">
           <div class="effect-card-header"><div class="effect-card-title">Oxide</div><button class="card-reset-btn" type="button" data-reset-card="oxide" title="Reset Oxide knobs" aria-label="Reset Oxide knobs">×</button></div>
