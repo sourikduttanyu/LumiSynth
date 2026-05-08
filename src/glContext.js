@@ -13,11 +13,30 @@
  * shader programs, FBOs, and uniform locations (those vary per effect) but
  * shares everything else.
  *
- * Per-frame contract for effect modules:
- *   1. const S = ensureContext(cw, ch);      // idempotent, resizes canvas
- *   2. uploadVideoFrame(video);              // ONE upload per frame
- *   3. ...effect-specific draw passes against S.gl, S.vao, S.videoTex...
- *   4. compositeToCanvas2D(ctx, cw, ch, op); // ONE drawImage to display
+ * --- ORCHESTRATOR CONTRACT (post-P2a) ---
+ *
+ * Effect modules used to upload the video frame and composite the GL canvas
+ * to the display 2D canvas themselves. That made multi-stage chaining
+ * impossible — two stages would upload twice and composite twice. So those
+ * two responsibilities now live in renderFrame (the orchestrator):
+ *
+ *   1. const S = ensureContext(cw, ch);     // orchestrator: idempotent, resizes
+ *   2. uploadVideoFrame(video);              // orchestrator: ONE upload per frame
+ *   3. apply{Effect}(cw, ch, params, opts);  // module: pure GL passes only
+ *   4. compositeToCanvas2D(ctx, cw, ch, op); // orchestrator: ONE drawImage to display
+ *
+ * Where opts = { inputTex, outputFBO }:
+ *   - inputTex:  texture sampler for the effect's u_video uniform.
+ *                Defaults to the shared videoTex; chain mode passes the
+ *                upstream stage's output texture.
+ *   - outputFBO: framebuffer to bind for the FINAL draw pass.
+ *                Defaults to null (= the shared GL canvas); chain mode passes
+ *                a chain FBO so the next stage can sample its color attachment.
+ *
+ * Stateful effects (voronoi, cellular, wave) ignore inputTex — their
+ * "input" is always the raw video (they sample it for seed/source/influx
+ * pixels in their own update passes). They do respect outputFBO on the
+ * final display pass.
  *
  * VAO contract: every effect's vertex shader uses attribute 0 as the
  * clip-space position. Effect programs MUST call
@@ -28,6 +47,43 @@
 import { uploadVideoTexture } from './glUtil.js';
 
 let S = null;
+
+// Lazily-allocated pair of chain FBOs used by P2's STRUCTURE → COLOR
+// pipeline. Two are needed because the planned compose pass (which bakes
+// STRUCTURE's blend mode against the original video) cannot read and write
+// the same texture in one draw. Sequence:
+//   STRUCTURE writes → chainFBOs.a
+//   compose(chainFBOs.a, video) writes → chainFBOs.b
+//   COLOR reads chainFBOs.b, writes → screen
+//
+// Both FBOs use RGBA8; STRUCTURE/COLOR effects are color flow, not
+// high-precision state. Allocated on first call to getChainFBOs(), resized
+// by ensureContext when the shared canvas resizes.
+let chain = null;
+
+function makeChainFBO(gl, w, h) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { fb, tex };
+}
+
+function disposeChain(gl) {
+  if (!chain) return;
+  gl.deleteTexture(chain.a.tex);
+  gl.deleteFramebuffer(chain.a.fb);
+  gl.deleteTexture(chain.b.tex);
+  gl.deleteFramebuffer(chain.b.fb);
+  chain = null;
+}
 
 export function ensureContext(w, h) {
   if (!S) {
@@ -67,6 +123,10 @@ export function ensureContext(w, h) {
     S.canvas.height = h;
     S.w = w;
     S.h = h;
+    // Chain FBOs are sized to the shared canvas. Drop the old pair so the
+    // next getChainFBOs() call reallocates at the new dimensions. Cheap —
+    // chain FBOs are RGBA8 and resize is rare (canvas-area resize observer).
+    if (chain) disposeChain(S.gl);
   }
   return S;
 }
@@ -83,6 +143,21 @@ export function compositeToCanvas2D(ctx, cw, ch, op = 'source-over') {
   ctx.globalCompositeOperation = op;
   ctx.drawImage(S.canvas, 0, 0, cw, ch);
   ctx.restore();
+}
+
+// Returns the chain FBO pair { a, b }. Each side is { fb, tex }. Lazy:
+// nothing allocates until P2's chain pipeline calls this. Consumers must
+// not cache fb/tex handles across resize — ensureContext disposes the pair
+// when the canvas dimensions change. Call this fresh each frame instead.
+export function getChainFBOs() {
+  if (!S) return null;
+  if (!chain) {
+    chain = {
+      a: makeChainFBO(S.gl, S.w, S.h),
+      b: makeChainFBO(S.gl, S.w, S.h),
+    };
+  }
+  return chain;
 }
 
 export function getGL()       { return S ? S.gl : null; }

@@ -4,7 +4,7 @@
  * Renders video as 5x7 bitmap-font ASCII characters by luminance density.
  */
 
-import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getGL } from './glContext.js';
+import { ensureContext, getGL, getVideoTex } from './glContext.js';
 
 const VERT = `#version 300 es
 in vec2 a_pos;
@@ -154,8 +154,14 @@ function initProgram() {
  * @param {HTMLVideoElement}         video
  * @param {number} cw, ch
  * @param {object} params  { cellSize, contrast, blackThreshold, glyphStrength } all 0-1
+ * @param {object} [opts]  { inputTex, outputFBO } — orchestrator chain hooks
+ *                         (P2). inputTex defaults to the shared video tex;
+ *                         outputFBO defaults to null (= shared GL canvas).
+ *                         Per the orchestrator contract in glContext.js,
+ *                         this function does NOT upload video or composite
+ *                         to the 2D canvas — renderFrame owns both.
  */
-export function applyASCII(ctx, video, cw, ch, params = {}) {
+export function applyASCII(cw, ch, params = {}, opts = {}) {
   const cellSize      = params.cellSize      ?? 0.3;
   const contrast      = params.contrast      ?? 0.3;
   const blackThresh   = params.blackThreshold ?? 0.2;
@@ -168,18 +174,17 @@ export function applyASCII(ctx, video, cw, ch, params = {}) {
     if (!M) return;
   }
 
-  const { gl, vao, videoTex } = S;
+  const { gl, vao } = S;
   const { prog, u } = M;
+  const inTex = opts.inputTex  || getVideoTex();
+  const outFB = opts.outputFBO ?? null;
 
   gl.viewport(0, 0, cw, ch);
   gl.bindVertexArray(vao);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  uploadVideoFrame(video);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, outFB);
 
   gl.useProgram(prog);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(u.video, 0);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, inTex); gl.uniform1i(u.video, 0);
   gl.uniform4f(u.params, cellSize, contrast, blackThresh, glyphStrength);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-  compositeToCanvas2D(ctx, cw, ch, 'source-over');
 }

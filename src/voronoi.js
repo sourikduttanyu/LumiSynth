@@ -4,7 +4,7 @@
  * Output is composited onto the 2D display canvas via drawImage.
  */
 
-import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getGL, getVideoTex, getQuadVAO } from './glContext.js';
+import { ensureContext, getGL, getVideoTex, getQuadVAO } from './glContext.js';
 
 // ---- Shaders ----
 
@@ -224,12 +224,17 @@ export function resetVoronoi() {
 }
 
 /**
- * @param {CanvasRenderingContext2D} ctx    display canvas 2D context
- * @param {HTMLVideoElement}         video
  * @param {number} cw, ch                  display canvas dimensions
  * @param {object} params                  { threshold, jumpDist, falloff, edgeLines } all 0-1
+ * @param {object} [opts]                  { inputTex, outputFBO } orchestrator chain hooks (P2).
+ *                                         inputTex is IGNORED — voronoi is a STRUCTURE effect
+ *                                         and always seeds from the raw video texture (its
+ *                                         update pass reads u_video for seed brightness).
+ *                                         outputFBO is respected on the final display pass.
+ *                                         Per the orchestrator contract in glContext.js,
+ *                                         this function does NOT upload video or composite.
  */
-export function applyVoronoi(ctx, video, cw, ch, params = {}) {
+export function applyVoronoi(cw, ch, params = {}, opts = {}) {
   const threshold = params.threshold ?? 0.5;
   const jumpDist  = params.jumpDist  ?? 0.5;
   const falloff   = params.falloff   ?? 0.5;
@@ -246,6 +251,7 @@ export function applyVoronoi(ctx, video, cw, ch, params = {}) {
 
   const { gl, vao, videoTex } = S;
   const { updateProg, displayProg, uUpdate, uDisplay, fb0, fb1 } = M;
+  const outFB = opts.outputFBO ?? null;
 
   const fbRead  = M.pingPong === 0 ? fb0 : fb1;
   const fbWrite = M.pingPong === 0 ? fb1 : fb0;
@@ -253,9 +259,8 @@ export function applyVoronoi(ctx, video, cw, ch, params = {}) {
 
   gl.viewport(0, 0, cw, ch);
   gl.bindVertexArray(vao);
-  uploadVideoFrame(video);
 
-  // --- Pass 1: update Voronoi map ---
+  // --- Pass 1: update Voronoi map (always reads raw video for seeds) ---
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbWrite.fb);
   gl.useProgram(updateProg);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex);    gl.uniform1i(uUpdate.video, 0);
@@ -263,12 +268,10 @@ export function applyVoronoi(ctx, video, cw, ch, params = {}) {
   gl.uniform4f(uUpdate.params, threshold, jumpDist, falloff, edgeLines);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-  // --- Pass 2: display ---
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // --- Pass 2: display (writes to outputFBO; null = shared GL canvas) ---
+  gl.bindFramebuffer(gl.FRAMEBUFFER, outFB);
   gl.useProgram(displayProg);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fbWrite.tex); gl.uniform1i(uDisplay.voronoi, 0);
   gl.uniform4f(uDisplay.params, threshold, jumpDist, falloff, edgeLines);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-  compositeToCanvas2D(ctx, cw, ch, 'screen');
 }

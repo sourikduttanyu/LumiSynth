@@ -8,6 +8,7 @@ import { applyCA, resetCA } from './cellular.js';
 import { applyASCII } from './ascii.js';
 import { applyGLFilter } from './glFilters.js';
 import { applyWave, resetWave } from './wave.js';
+import { ensureContext, uploadVideoFrame, compositeToCanvas2D } from './glContext.js';
 
 const DEFAULTS = Object.freeze({
   // Pipeline stages (P1: single-effect dispatch via getActiveFilter; P2 will
@@ -284,6 +285,77 @@ const STRUCTURE_SECTIONS = ['voronoi','cellular','ascii','shatter','erode','wave
 const COLOR_SECTIONS     = ['oxide','synth','biolum','thermo','falsecolor'];
 const GL_SECTIONS        = [...STRUCTURE_SECTIONS, ...COLOR_SECTIONS];
 const GL_RESETS          = { voronoi: resetVoronoi, cellular: resetCA, wave: resetWave };
+
+// Centralized effect dispatch: pulls per-effect knob values from `state`
+// and forwards them to the correct module with a uniform call shape.
+// Defined as a single function so the P1 single-effect path AND the P2
+// chain path call the SAME entry point — when P2b lands, the only change
+// at the call site is passing `opts = { inputTex, outputFBO }` in.
+//
+// `name` is one of GL_SECTIONS. `opts` (optional) flows straight through
+// to the effect module's chain hooks.
+function runEffect(name, opts) {
+  switch (name) {
+    case 'voronoi':
+      return applyVoronoi(canvas.width, canvas.height, {
+        threshold: state.voronoiThreshold, jumpDist: state.voronoiJumpDist,
+        falloff: state.voronoiFalloff, edgeLines: state.voronoiEdgeLines,
+      }, opts);
+    case 'cellular':
+      return applyCA(canvas.width, canvas.height, {
+        density: state.caDensity, stability: state.caStability,
+        evolutionSpeed: state.caEvolutionSpeed, sourceInflux: state.caSourceInflux,
+      }, opts);
+    case 'ascii':
+      return applyASCII(canvas.width, canvas.height, {
+        cellSize: state.asciiCellSize, contrast: state.asciiContrast,
+        blackThreshold: state.asciiBlackThresh, glyphStrength: state.asciiGlyphStrength,
+      }, opts);
+    case 'wave':
+      return applyWave(canvas.width, canvas.height, {
+        sourceStrength: state.waveSource, damping: state.waveDamp,
+        speed: state.waveSpeed, contrast: state.waveContr,
+      }, opts);
+    case 'shatter':
+      return applyGLFilter('shatter',    canvas.width, canvas.height, [state.shatterCells, state.shatterCrack, state.shatterFill, state.shatterRandom],          opts);
+    case 'erode':
+      return applyGLFilter('erode',      canvas.width, canvas.height, [state.erodeMode, state.erodeRadius, state.erodeStrength, state.erodeEdge],                opts);
+    case 'oxide':
+      return applyGLFilter('oxide',      canvas.width, canvas.height, [state.oxideCorr, state.oxideMetal, state.oxideRough, state.oxideSheen],                   opts);
+    case 'synth':
+      return applyGLFilter('synth',      canvas.width, canvas.height, [state.synthWarm, state.synthSep, state.synthRes, state.synthDyn],                         opts);
+    case 'biolum':
+      return applyGLFilter('biolum',     canvas.width, canvas.height, [state.biolumGlow, state.biolumColor, state.biolumPulse, state.biolumDepth],               opts);
+    case 'thermo':
+      return applyGLFilter('thermo',     canvas.width, canvas.height, [state.thermoCont, state.thermoHot, state.thermoCold, state.thermoWhite],                  opts);
+    case 'falsecolor':
+      return applyGLFilter('falsecolor', canvas.width, canvas.height, [state.falsePalette, state.falseBand, state.falseBandCnt, state.falseBright],              opts);
+    default:
+      return;
+  }
+}
+
+// Per-effect display blend mode used by compositeToCanvas2D when blitting
+// the shared GL canvas onto the 2D display canvas (which already has the
+// raw video drawn). Voronoi/wave/cellular use 'screen' to glow over the
+// source; everything else opaque-replaces. Surfaced here (was hardcoded
+// inside each effect module pre-P2a) so the orchestrator can pick the
+// right blend per active effect, and so P2b can apply the terminal-stage
+// rule when a chain runs (use the COLOR stage's blend mode at the final
+// composite).
+const BLEND_MODES = {
+  voronoi:    'screen',
+  cellular:   'screen',
+  wave:       'screen',
+  ascii:      'source-over',
+  shatter:    'source-over',
+  erode:      'source-over',
+  oxide:      'source-over',
+  synth:      'source-over',
+  biolum:     'source-over',
+  thermo:     'source-over',
+  falsecolor: 'source-over',
+};
 
 const TOGGLE_CONFIG = [
   ['speed-group',       'speed',       parseFloat, (v) => { video.playbackRate = v; }],
@@ -861,41 +933,18 @@ function renderFrame() {
   }
   const blobs = smoothBlobs(cachedBlobs);
 
+  // GL dispatch (P2a contract): the orchestrator owns the shared context,
+  // the video upload, and the final composite. Effect modules become pure
+  // GL pass functions — they no longer touch ctx/video and no longer call
+  // uploadVideoFrame/compositeToCanvas2D themselves. P2b will extend this
+  // block into a chain (STRUCTURE → compose → COLOR); for now it stays
+  // single-effect dispatch driven by getActiveFilter().
   const f = getActiveFilter();
-  if (f === 'voronoi') {
-    applyVoronoi(ctx, video, cw, ch, {
-      threshold: state.voronoiThreshold, jumpDist: state.voronoiJumpDist,
-      falloff: state.voronoiFalloff, edgeLines: state.voronoiEdgeLines,
-    });
-  } else if (f === 'cellular') {
-    applyCA(ctx, video, cw, ch, {
-      density: state.caDensity, stability: state.caStability,
-      evolutionSpeed: state.caEvolutionSpeed, sourceInflux: state.caSourceInflux,
-    });
-  } else if (f === 'ascii') {
-    applyASCII(ctx, video, cw, ch, {
-      cellSize: state.asciiCellSize, contrast: state.asciiContrast,
-      blackThreshold: state.asciiBlackThresh, glyphStrength: state.asciiGlyphStrength,
-    });
-  } else if (f === 'wave') {
-    applyWave(ctx, video, cw, ch, {
-      sourceStrength: state.waveSource, damping: state.waveDamp,
-      speed: state.waveSpeed, contrast: state.waveContr,
-    });
-  } else if (f === 'shatter') {
-    applyGLFilter('shatter', ctx, video, cw, ch, [state.shatterCells, state.shatterCrack, state.shatterFill, state.shatterRandom]);
-  } else if (f === 'erode') {
-    applyGLFilter('erode',   ctx, video, cw, ch, [state.erodeMode, state.erodeRadius, state.erodeStrength, state.erodeEdge]);
-  } else if (f === 'oxide') {
-    applyGLFilter('oxide',   ctx, video, cw, ch, [state.oxideCorr, state.oxideMetal, state.oxideRough, state.oxideSheen]);
-  } else if (f === 'synth') {
-    applyGLFilter('synth',   ctx, video, cw, ch, [state.synthWarm, state.synthSep, state.synthRes, state.synthDyn]);
-  } else if (f === 'biolum') {
-    applyGLFilter('biolum',  ctx, video, cw, ch, [state.biolumGlow, state.biolumColor, state.biolumPulse, state.biolumDepth]);
-  } else if (f === 'thermo') {
-    applyGLFilter('thermo',  ctx, video, cw, ch, [state.thermoCont, state.thermoHot, state.thermoCold, state.thermoWhite]);
-  } else if (f === 'falsecolor') {
-    applyGLFilter('falsecolor', ctx, video, cw, ch, [state.falsePalette, state.falseBand, state.falseBandCnt, state.falseBright]);
+  if (f !== 'none') {
+    ensureContext(cw, ch);
+    uploadVideoFrame(video);
+    runEffect(f);
+    compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[f] || 'source-over');
   }
 
   // Per-blob CPU filters (Inv / Thermal): ONE full-frame getImageData, N

@@ -1,10 +1,13 @@
 /**
  * Stateless single-pass GL filters — all share one WebGL2 canvas.
  * Programs compiled lazily and cached per filter name.
- * applyGLFilter(name, ctx, video, cw, ch, [p0,p1,p2,p3])
+ * applyGLFilter(name, cw, ch, [p0,p1,p2,p3], opts)
+ *   opts = { inputTex, outputFBO } — orchestrator chain hooks (P2).
+ *   See glContext.js header for the orchestrator contract: this function
+ *   does NOT upload video or composite — renderFrame owns both.
  */
 
-import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getGL } from './glContext.js';
+import { ensureContext, getGL, getVideoTex } from './glContext.js';
 
 const VERT = `#version 300 es
 in vec2 a_pos;
@@ -317,11 +320,11 @@ function getProgram(name) {
 /**
  * @param {string}                   name    filter name (shatter|erode|oxide|synth|biolum|thermo|falsecolor)
  * @param {CanvasRenderingContext2D}  ctx
- * @param {HTMLVideoElement}          video
  * @param {number}                    cw, ch
  * @param {number[]}                  params  [p0,p1,p2,p3] → uParams.xyzw
+ * @param {object}                   [opts]   { inputTex, outputFBO }
  */
-export function applyGLFilter(name, ctx, video, cw, ch, params = [0.5, 0.5, 0.5, 0.5]) {
+export function applyGLFilter(name, cw, ch, params = [0.5, 0.5, 0.5, 0.5], opts = {}) {
   if (!FRAGS[name]) return;
   const S = ensureContext(cw, ch);
   if (!S) return;
@@ -329,18 +332,18 @@ export function applyGLFilter(name, ctx, video, cw, ch, params = [0.5, 0.5, 0.5,
   const entry = getProgram(name);
   if (!entry) return;
 
-  const { gl, vao, videoTex } = S;
+  const { gl, vao } = S;
+  const inTex = opts.inputTex  || getVideoTex();
+  const outFB = opts.outputFBO ?? null;
+
   gl.viewport(0, 0, cw, ch);
   gl.bindVertexArray(vao);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  uploadVideoFrame(video);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, outFB);
 
   gl.useProgram(entry.prog);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, videoTex);
+  gl.bindTexture(gl.TEXTURE_2D, inTex);
   gl.uniform1i(entry.video, 0);
   gl.uniform4f(entry.params, params[0], params[1], params[2], params[3]);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-  compositeToCanvas2D(ctx, cw, ch, 'source-over');
 }

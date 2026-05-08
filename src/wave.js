@@ -4,7 +4,7 @@
  * FBO encodes: R=visualization, G=u_curr*0.5+0.5, B=u_prev*0.5+0.5
  */
 
-import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getGL } from './glContext.js';
+import { ensureContext, getGL } from './glContext.js';
 
 const VERT = `#version 300 es
 in vec2 a_pos;
@@ -199,8 +199,14 @@ export function resetWave() {
  * @param {HTMLVideoElement}         video
  * @param {number} cw, ch
  * @param {object} params  { sourceStrength, damping, speed, contrast } all 0-1
+ * @param {object} [opts]  { inputTex, outputFBO } — orchestrator chain hooks (P2).
+ *                         inputTex is IGNORED — wave always reads raw video for
+ *                         source-strength (its update pass samples u_video).
+ *                         outputFBO is respected on the final colorize pass.
+ *                         Per the orchestrator contract in glContext.js, this
+ *                         function does NOT upload video or composite.
  */
-export function applyWave(ctx, video, cw, ch, params = {}) {
+export function applyWave(cw, ch, params = {}, opts = {}) {
   const sourceStrength = params.sourceStrength ?? 0.5;
   const damping        = params.damping        ?? 0.3;
   const speed          = params.speed          ?? 0.5;
@@ -217,6 +223,7 @@ export function applyWave(ctx, video, cw, ch, params = {}) {
 
   const { gl, vao, videoTex } = S;
   const { updateProg, displayProg, uUpdate, uDisplay, fb0, fb1 } = M;
+  const outFB = opts.outputFBO ?? null;
 
   const fbRead  = M.pingPong === 0 ? fb0 : fb1;
   const fbWrite = M.pingPong === 0 ? fb1 : fb0;
@@ -224,9 +231,8 @@ export function applyWave(ctx, video, cw, ch, params = {}) {
 
   gl.viewport(0, 0, cw, ch);
   gl.bindVertexArray(vao);
-  uploadVideoFrame(video);
 
-  // Pass 1: update wave state
+  // Pass 1: update wave state (always reads raw video for source-strength)
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbWrite.fb);
   gl.useProgram(updateProg);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex);   gl.uniform1i(uUpdate.video, 0);
@@ -234,11 +240,9 @@ export function applyWave(ctx, video, cw, ch, params = {}) {
   gl.uniform4f(uUpdate.params, sourceStrength, damping, speed, contrast);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-  // Pass 2: colorize wave vis, composite over video
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // Pass 2: colorize wave vis (writes to outputFBO; null = shared GL canvas)
+  gl.bindFramebuffer(gl.FRAMEBUFFER, outFB);
   gl.useProgram(displayProg);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fbWrite.tex); gl.uniform1i(uDisplay.wave, 0);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-  compositeToCanvas2D(ctx, cw, ch, 'screen');
 }

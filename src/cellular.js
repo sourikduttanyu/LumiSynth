@@ -3,7 +3,7 @@
  * Conway-style CA seeded by video luminance, ping-pong FBOs.
  */
 
-import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getGL } from './glContext.js';
+import { ensureContext, getGL } from './glContext.js';
 
 const VERT = `#version 300 es
 in vec2 a_pos;
@@ -198,12 +198,16 @@ export function resetCA() {
 }
 
 /**
- * @param {CanvasRenderingContext2D} ctx
- * @param {HTMLVideoElement}         video
  * @param {number} cw, ch
  * @param {object} params  { density, stability, evolutionSpeed, sourceInflux } all 0-1
+ * @param {object} [opts]  { inputTex, outputFBO } — orchestrator chain hooks (P2).
+ *                         inputTex is IGNORED — cellular always seeds from raw video
+ *                         (its update pass reads u_video for source-influx). outputFBO
+ *                         is respected on the final colorize pass. Per the orchestrator
+ *                         contract in glContext.js, this function does NOT upload video
+ *                         or composite.
  */
-export function applyCA(ctx, video, cw, ch, params = {}) {
+export function applyCA(cw, ch, params = {}, opts = {}) {
   const density        = params.density        ?? 0.5;
   const stability      = params.stability      ?? 0.5;
   const evolutionSpeed = params.evolutionSpeed ?? 0.5;
@@ -220,6 +224,7 @@ export function applyCA(ctx, video, cw, ch, params = {}) {
 
   const { gl, vao, videoTex } = S;
   const { updateProg, displayProg, uUpdate, uDisplay, fb0, fb1 } = M;
+  const outFB = opts.outputFBO ?? null;
 
   const fbRead  = M.pingPong === 0 ? fb0 : fb1;
   const fbWrite = M.pingPong === 0 ? fb1 : fb0;
@@ -227,9 +232,8 @@ export function applyCA(ctx, video, cw, ch, params = {}) {
 
   gl.viewport(0, 0, cw, ch);
   gl.bindVertexArray(vao);
-  uploadVideoFrame(video);
 
-  // Pass 1: update CA state
+  // Pass 1: update CA state (always reads raw video for source-influx)
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbWrite.fb);
   gl.useProgram(updateProg);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex);   gl.uniform1i(uUpdate.video, 0);
@@ -237,11 +241,9 @@ export function applyCA(ctx, video, cw, ch, params = {}) {
   gl.uniform4f(uUpdate.params, density, stability, evolutionSpeed, sourceInflux);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-  // Pass 2: colorize + display
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  // Pass 2: colorize + display (writes to outputFBO; null = shared GL canvas)
+  gl.bindFramebuffer(gl.FRAMEBUFFER, outFB);
   gl.useProgram(displayProg);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fbWrite.tex); gl.uniform1i(uDisplay.ca, 0);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-  compositeToCanvas2D(ctx, cw, ch, 'screen');
 }
