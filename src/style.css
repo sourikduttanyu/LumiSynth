@@ -246,9 +246,18 @@ html, body {
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.stage-divider[data-stage="osc"]    { color: var(--stage-osc); }
-.stage-divider[data-stage="filter"] { color: var(--stage-filter); }
-.stage-divider[data-stage="fx"]     { color: var(--stage-fx); }
+.stage-divider[data-stage="osc"]       { color: var(--stage-osc); }
+/* The transformation chain (STRUCTURE → COLOR → FX RACK) shares one stage
+   color so it visually reads as one continuous chain rather than three
+   separate ideas. Honors the Two-Color Rule — no new chroma added. */
+.stage-divider[data-stage="filter"],
+.stage-divider[data-stage="structure"],
+.stage-divider[data-stage="color"],
+.stage-divider[data-stage="fx-rack"]    { color: var(--stage-filter); }
+.stage-divider[data-stage="fx"]        { color: var(--stage-fx); }
+/* Per-blob is the legacy holding pen for inv/thermal until they fold into
+   the FX rack. Deliberately uncolored (text-muted) to read as deprecated. */
+.stage-divider[data-stage="perblob"]   { color: var(--text-muted); }
 .stage-divider::after {
   content: "";
   flex: 1;
@@ -361,16 +370,38 @@ label.section-label { cursor: pointer; }
   cursor: not-allowed;
 }
 
-.empty-card {
-  margin: var(--space-md) var(--space-lg);
-  padding: var(--space-xl) var(--space-lg);
+/* ============================================================
+   FX RACK SLOTS — placeholder pedalboard. P1 ships visual-only;
+   the rack mechanics + real FX effects land in P3 along with the
+   STRUCTURE → COLOR FBO chain. Empty slots read as deprecated /
+   pending: dashed border, no hover, faint text.
+   ============================================================ */
+.fx-rack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.fx-rack-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-stage);
   border: 1px dashed var(--border-hairline);
-  border-radius: 8px;
-  text-align: center;
+  border-radius: 6px;
   font-size: 10px;
-  color: var(--text-faint);
   letter-spacing: 0.06em;
+  min-height: 28px;
+}
+.fx-rack-slot-num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  min-width: 12px;
+}
+.fx-rack-slot-empty {
+  color: var(--text-faint);
   font-style: italic;
 }
 
@@ -403,7 +434,8 @@ label.section-label { cursor: pointer; }
 }
 /* Detect-mode picker: 6 modes (motion, luma, dark, sat, edge, sharp).
    3-column grid keeps two clean rows of three at the 240px sidebar width;
-   mirrors the id-scoped pattern #filter-group uses for its 14-button grid. */
+   mirrors the class-scoped pattern .filter-swatch-group uses across the
+   STRUCTURE / COLOR / PER-BLOB filter sections. */
 #detect-mode-group {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -446,9 +478,11 @@ label.section-label { cursor: pointer; }
 }
 
 /* ============================================================
-   FILTER BUTTONS — full-bleed gradient swatch (signature).
+   FILTER SWATCH GROUPS — full-bleed gradient swatch (signature).
+   Shared by the three filter pickers: STRUCTURE, COLOR, PER-BLOB.
    The gradient IS the identity, label overlays with text-shadow.
-   3-column CSS Grid.
+   3-column CSS Grid (uneven groups gracefully orphan the trailing
+   row — STRUCTURE is 3+3+1, PER-BLOB is 3, COLOR is 3+3).
 
    Filter swatches are exempt from The Two-Color Rule — they preview
    creative output (the canvas), and creative output is itself exempt.
@@ -456,13 +490,13 @@ label.section-label { cursor: pointer; }
    chassis hue, because the scrim's job is to mute the swatch enough
    for the white label to read, not to participate in the chassis palette.
    ============================================================ */
-#filter-group {
+.filter-swatch-group {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-xs);
   flex-wrap: initial;
 }
-#filter-group .toggle-btn {
+.filter-swatch-group .toggle-btn {
   flex: initial;
   min-height: 42px;
   padding: 0;
@@ -473,7 +507,7 @@ label.section-label { cursor: pointer; }
     0 1px 2px rgba(0, 0, 0, 0.95),
     0 0 4px rgba(0, 0, 0, 0.6);
 }
-#filter-group .toggle-btn::before {
+.filter-swatch-group .toggle-btn::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -481,34 +515,34 @@ label.section-label { cursor: pointer; }
   z-index: 1;
   transition: background var(--duration-base) var(--ease-out);
 }
-#filter-group .toggle-btn:hover::before {
+.filter-swatch-group .toggle-btn:hover::before {
   background: linear-gradient(180deg, oklch(0% 0 0 / 0.10), oklch(0% 0 0 / 0.55));
 }
-#filter-group .toggle-btn > * { position: relative; z-index: 2; }
-#filter-group .toggle-btn[data-value="none"]       { background: linear-gradient(135deg, #1a0a2e, #2a1545); }
-#filter-group .toggle-btn[data-value="inv"]        { background: linear-gradient(90deg, #fff, #000); }
-#filter-group .toggle-btn[data-value="thermal"]    { background: linear-gradient(90deg, #000, #6a0dad, #ff4500, #ffea00, #fff); }
-#filter-group .toggle-btn[data-value="voronoi"]    { background: linear-gradient(90deg, #1a0033, #4a00b3, #00d4ff, #ffffff); }
-#filter-group .toggle-btn[data-value="cellular"]   { background: linear-gradient(90deg, #001a00, #008833, #66ff66); }
-#filter-group .toggle-btn[data-value="ascii"]      { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 6px); }
-#filter-group .toggle-btn[data-value="shatter"]    { background: linear-gradient(135deg, #444 25%, #111 25% 50%, #666 50% 75%, #222 75%); background-size: 12px 12px; }
-#filter-group .toggle-btn[data-value="erode"]      { background: linear-gradient(90deg, #000, #444, #aaa, #fff); }
-#filter-group .toggle-btn[data-value="wave"]       { background: linear-gradient(90deg, #001a33, #0066cc, #00ccff, #aaffff); }
-#filter-group .toggle-btn[data-value="oxide"]      { background: linear-gradient(90deg, #1a0a00, #8b4513, #cd853f, #d4af37); }
-#filter-group .toggle-btn[data-value="synth"]      { background: linear-gradient(90deg, #f72585, #b5179e, #7209b7, #4361ee, #4cc9f0); }
-#filter-group .toggle-btn[data-value="biolum"]     { background: linear-gradient(90deg, #001a1a, #00ffcc, #88ddff, #aa88ff); }
-#filter-group .toggle-btn[data-value="thermo"]     { background: linear-gradient(90deg, #000, #220066, #cc0066, #ff6600, #ffff00, #fff); }
-#filter-group .toggle-btn[data-value="falsecolor"] { background: linear-gradient(90deg, #4361ee, #00d4ff, #5be7a6, #ffea00, #f72585); }
+.filter-swatch-group .toggle-btn > * { position: relative; z-index: 2; }
+.filter-swatch-group .toggle-btn[data-value="none"]       { background: linear-gradient(135deg, #1a0a2e, #2a1545); }
+.filter-swatch-group .toggle-btn[data-value="inv"]        { background: linear-gradient(90deg, #fff, #000); }
+.filter-swatch-group .toggle-btn[data-value="thermal"]    { background: linear-gradient(90deg, #000, #6a0dad, #ff4500, #ffea00, #fff); }
+.filter-swatch-group .toggle-btn[data-value="voronoi"]    { background: linear-gradient(90deg, #1a0033, #4a00b3, #00d4ff, #ffffff); }
+.filter-swatch-group .toggle-btn[data-value="cellular"]   { background: linear-gradient(90deg, #001a00, #008833, #66ff66); }
+.filter-swatch-group .toggle-btn[data-value="ascii"]      { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 6px); }
+.filter-swatch-group .toggle-btn[data-value="shatter"]    { background: linear-gradient(135deg, #444 25%, #111 25% 50%, #666 50% 75%, #222 75%); background-size: 12px 12px; }
+.filter-swatch-group .toggle-btn[data-value="erode"]      { background: linear-gradient(90deg, #000, #444, #aaa, #fff); }
+.filter-swatch-group .toggle-btn[data-value="wave"]       { background: linear-gradient(90deg, #001a33, #0066cc, #00ccff, #aaffff); }
+.filter-swatch-group .toggle-btn[data-value="oxide"]      { background: linear-gradient(90deg, #1a0a00, #8b4513, #cd853f, #d4af37); }
+.filter-swatch-group .toggle-btn[data-value="synth"]      { background: linear-gradient(90deg, #f72585, #b5179e, #7209b7, #4361ee, #4cc9f0); }
+.filter-swatch-group .toggle-btn[data-value="biolum"]     { background: linear-gradient(90deg, #001a1a, #00ffcc, #88ddff, #aa88ff); }
+.filter-swatch-group .toggle-btn[data-value="thermo"]     { background: linear-gradient(90deg, #000, #220066, #cc0066, #ff6600, #ffff00, #fff); }
+.filter-swatch-group .toggle-btn[data-value="falsecolor"] { background: linear-gradient(90deg, #4361ee, #00d4ff, #5be7a6, #ffea00, #f72585); }
 
 /* Active = 2px orange border. No glow. */
-#filter-group .toggle-btn.active,
-#filter-group .toggle-btn[aria-checked="true"] {
+.filter-swatch-group .toggle-btn.active,
+.filter-swatch-group .toggle-btn[aria-checked="true"] {
   border: 2px solid var(--orange-signal);
   font-weight: 700;
   outline: none;
 }
-#filter-group .toggle-btn.active::before,
-#filter-group .toggle-btn[aria-checked="true"]::before {
+.filter-swatch-group .toggle-btn.active::before,
+.filter-swatch-group .toggle-btn[aria-checked="true"]::before {
   background: linear-gradient(180deg, oklch(0% 0 0 / 0.05), oklch(0% 0 0 / 0.45));
 }
 
@@ -1089,7 +1123,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
     border-right: none;
     border-bottom: 1px solid var(--border-hairline);
   }
-  #filter-group { grid-template-columns: repeat(4, 1fr); }
+  .filter-swatch-group { grid-template-columns: repeat(4, 1fr); }
   .knob-grid { grid-template-columns: repeat(4, 1fr); }
   #canvas-topbar .topbar-title { display: none; }
   #help-panel { padding: var(--space-xl); }

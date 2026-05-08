@@ -33,7 +33,7 @@
         </div>
 
         <!-- ============ OSC ============ -->
-        <div class="stage-divider" data-stage="osc">OSC <span class="stage-sub">source · structure</span></div>
+        <div class="stage-divider" data-stage="osc">OSC <span class="stage-sub">source · detection</span></div>
 
         <section class="control-section" aria-label="Video input">
           <div class="section-label">Source</div>
@@ -74,31 +74,24 @@
           </div>
         </section>
 
-        <!-- ============ FILTER ============ -->
-        <div class="stage-divider" data-stage="filter">FILTER <span class="stage-sub">color</span></div>
+        <!-- ============ STRUCTURE ============ -->
+        <!-- The geometry / pattern stage. Pick ONE structure that reshapes
+             the video before any color treatment. (P1 ships single-effect
+             dispatch; STRUCTURE → COLOR FBO chain lands in P2.) -->
+        <div class="stage-divider" data-stage="structure">STRUCTURE <span class="stage-sub">geometry · pattern</span></div>
 
         <section class="control-section">
-          <div class="section-label" id="lbl-filter">Effect</div>
-          <div class="toggle-group" id="filter-group" role="radiogroup" aria-labelledby="lbl-filter">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"       aria-label="No filter"           data-tip="No filter applied. Raw video passes through; only blob outlines render."><span>None</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="inv"        aria-label="Invert colors"       data-tip="PER-BLOB. Inverts colors within each blob's region. Affected by Blob Size + Shape (clipped to ellipse / rounded / diamond)."><span>Inv</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="thermal"    aria-label="Thermal"             data-tip="PER-BLOB. Maps luma to a thermal palette (black → blue → magenta → red → white) within each blob's region. Affected by Blob Size + Shape."><span>Thermal</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="voronoi"    aria-label="Voronoi"             data-tip="FULL-FRAME. Voronoi diffusion. Bright spots in the video become seed points; the frame partitions into colored cells around them with a unique hue per cell."><span>Voronoi</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="cellular"   aria-label="Cellular automata"   data-tip="FULL-FRAME. Conway-style cellular automaton seeded by video brightness. Live cells survive / die / birth based on neighbor counts; bright video pixels keep injecting new life."><span>Cellular</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii"      aria-label="ASCII shader"         data-tip="FULL-FRAME. ASCII art. Replaces video with a grid of 5×7 bitmap characters; denser glyphs for brighter regions."><span>ASCII</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="shatter"    aria-label="Voronoi shatter"     data-tip="FULL-FRAME. Voronoi shatter. The image breaks into irregular polygonal cells with cracks between them; each cell samples a single color from its center."><span>Shatter</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="erode"      aria-label="Erode/dilate"        data-tip="FULL-FRAME. Morphological op. Erode shrinks bright regions; Dilate (mode toggle) grows them. The Edge knob can isolate just the difference as an outline ring."><span>Erode</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="wave"       aria-label="Wave propagation"    data-tip="FULL-FRAME. Wave propagation simulation. Bright peaks in the video disturb a 2D wave field; the field ripples and damps over time per the wave equation."><span>Wave</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="oxide"      aria-label="Oxide patina"        data-tip="FULL-FRAME. Oxide / patina material. Re-skins the video as corroded metal — copper, iron, or silver (Metal knob) with patina, surface roughness, and edge sheen."><span>Oxide</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="synth"      aria-label="Synth colors"        data-tip="FULL-FRAME. Synthwave color grade. Maps luma to a 6-band purple → red → orange → green → blue → white palette with optional banding and resonance ripples."><span>Synth</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="biolum"     aria-label="Bioluminescent"      data-tip="FULL-FRAME. Bioluminescent glow. Re-tints the video as deep-water bioluminescence — cyan to violet (Color knob) with depth fade and optional pulsing."><span>BioLum</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="thermo"     aria-label="Thermo"              data-tip="FULL-FRAME. Thermal-camera look. Maps luma to a deep blue → cyan → yellow → red → white ramp. Different from per-blob Thermal — this paints the whole frame."><span>Thermo</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="falsecolor" aria-label="False color"         data-tip="FULL-FRAME. False-color palette swap. Cross-fades between four palettes (Thermal / Neon / Acid / Ice) via the Palette knob, with optional discrete banding."><span>FalseClr</span></button>
+          <div class="section-label" id="lbl-structure">Pick one</div>
+          <div class="toggle-group filter-swatch-group" id="structure-group" role="radiogroup" aria-labelledby="lbl-structure">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"     aria-label="No structure"      data-tip="No structure stage. Video passes through to the COLOR stage unchanged."><span>None</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="voronoi"  aria-label="Voronoi"           data-tip="STRUCTURE. Voronoi diffusion. Bright spots in the video become seed points; the frame partitions into colored cells around them with a unique hue per cell."><span>Voronoi</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="cellular" aria-label="Cellular automata" data-tip="STRUCTURE. Conway-style cellular automaton seeded by video brightness. Live cells survive / die / birth based on neighbor counts; bright video pixels keep injecting new life."><span>Cellular</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii"    aria-label="ASCII shader"      data-tip="STRUCTURE. ASCII art. Replaces video with a grid of 5×7 bitmap characters; denser glyphs for brighter regions."><span>ASCII</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="shatter"  aria-label="Voronoi shatter"   data-tip="STRUCTURE. Voronoi shatter. The image breaks into irregular polygonal cells with cracks between them; each cell samples a single color from its center."><span>Shatter</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="erode"    aria-label="Erode/dilate"      data-tip="STRUCTURE. Morphological op. Erode shrinks bright regions; Dilate (mode toggle) grows them. The Edge knob can isolate just the difference as an outline ring."><span>Erode</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="wave"     aria-label="Wave propagation"  data-tip="STRUCTURE. Wave propagation simulation. Bright peaks in the video disturb a 2D wave field; the field ripples and damps over time per the wave equation."><span>Wave</span></button>
           </div>
         </section>
-
-        <!-- Empty-state placeholder (shown when filter=none) -->
-        <div class="empty-card" id="empty-card">Pick an effect to shape the signal.</div>
 
         <section class="effect-card hidden" id="voronoi-controls" data-card-effect="voronoi" aria-label="Voronoi parameters">
           <div class="effect-card-header"><div class="effect-card-title">Voronoi</div><button class="card-reset-btn" type="button" data-reset-card="voronoi" title="Reset Voronoi knobs" aria-label="Reset Voronoi knobs">×</button></div>
@@ -164,6 +157,25 @@
           </div>
         </section>
 
+        <!-- ============ COLOR ============ -->
+        <!-- The palette / tone stage. Pick ONE color treatment that recolors
+             the structure output (or raw video, when STRUCTURE = None).
+             P1: still single-effect dispatch. P2: actually consumes
+             STRUCTURE's FBO output. -->
+        <div class="stage-divider" data-stage="color">COLOR <span class="stage-sub">palette · tone</span></div>
+
+        <section class="control-section">
+          <div class="section-label" id="lbl-color">Pick one</div>
+          <div class="toggle-group filter-swatch-group" id="color-group" role="radiogroup" aria-labelledby="lbl-color">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"       aria-label="No color"           data-tip="No color stage. Output of STRUCTURE (or raw video) passes through unchanged."><span>None</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="oxide"      aria-label="Oxide patina"       data-tip="COLOR. Oxide / patina material. Re-skins the video as corroded metal — copper, iron, or silver (Metal knob) with patina, surface roughness, and edge sheen."><span>Oxide</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="synth"      aria-label="Synth colors"       data-tip="COLOR. Synthwave color grade. Maps luma to a 6-band purple → red → orange → green → blue → white palette with optional banding and resonance ripples."><span>Synth</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="biolum"     aria-label="Bioluminescent"     data-tip="COLOR. Bioluminescent glow. Re-tints the video as deep-water bioluminescence — cyan to violet (Color knob) with depth fade and optional pulsing."><span>BioLum</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="thermo"     aria-label="Thermo"             data-tip="COLOR. Thermal-camera look. Maps luma to a deep blue → cyan → yellow → red → white ramp."><span>Thermo</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="falsecolor" aria-label="False color"        data-tip="COLOR. False-color palette swap. Cross-fades between four palettes (Thermal / Neon / Acid / Ice) via the Palette knob, with optional discrete banding."><span>FalseClr</span></button>
+          </div>
+        </section>
+
         <section class="effect-card hidden" id="oxide-controls" data-card-effect="oxide" aria-label="Oxide parameters">
           <div class="effect-card-header"><div class="effect-card-title">Oxide</div><button class="card-reset-btn" type="button" data-reset-card="oxide" title="Reset Oxide knobs" aria-label="Reset Oxide knobs">×</button></div>
           <div class="knob-grid">
@@ -215,6 +227,38 @@
             <div class="knob" id="false-palette" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.25" aria-label="FalseColor Palette"    data-tip="Cross-fade between four palettes: Thermal (0) → Neon (0.25) → Acid (0.5) → Ice (0.75) → back to Thermal (1)." tabindex="0"><span class="knob-label">Palette</span><span class="knob-val" id="false-palette-val">0.25</span></div>
             <div class="knob" id="false-bandcnt" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="FalseColor Band Count"  data-tip="Number of discrete color bands when Banding is On (4-20). Smaller = chunkier posterized look. Has no effect when Banding is Off." tabindex="0"><span class="knob-label">Bands</span><span class="knob-val" id="false-bandcnt-val">0.5</span></div>
             <div class="knob" id="false-bright"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="FalseColor Brightness"  data-tip="Brightness offset added to the input. 0.5 = neutral. Below 0.5 = darker (palette shifts cooler). Above 0.5 = brighter (palette shifts hotter)." tabindex="0"><span class="knob-label">Bright</span><span class="knob-val" id="false-bright-val">0.5</span></div>
+          </div>
+        </section>
+
+        <!-- ============ FX RACK ============ -->
+        <!-- Sequential chain of 0–3 FX, applied AFTER STRUCTURE → COLOR.
+             Each slot reads the output of the previous one (not raw video).
+             P1 ships placeholder slots only; rack mechanics + real FX
+             effects land in P3. -->
+        <div class="stage-divider" data-stage="fx-rack">FX RACK <span class="stage-sub">chain · 0–3 slots</span></div>
+
+        <section class="control-section">
+          <div class="section-label">Slots</div>
+          <div class="fx-rack" id="fx-rack" data-tip="FX rack chain. 0–3 effects in series, each reading the previous stage's output. Empty slots wire-through. Coming in a future update.">
+            <div class="fx-rack-slot" data-slot="0" aria-label="FX rack slot 1, empty"><span class="fx-rack-slot-num">1</span><span class="fx-rack-slot-empty">— empty —</span></div>
+            <div class="fx-rack-slot" data-slot="1" aria-label="FX rack slot 2, empty"><span class="fx-rack-slot-num">2</span><span class="fx-rack-slot-empty">— empty —</span></div>
+            <div class="fx-rack-slot" data-slot="2" aria-label="FX rack slot 3, empty"><span class="fx-rack-slot-num">3</span><span class="fx-rack-slot-empty">— empty —</span></div>
+          </div>
+        </section>
+
+        <!-- ============ PER-BLOB (legacy) ============ -->
+        <!-- Holding pen for the per-blob CPU filters (Inv, Thermal). They
+             don't fit the full-frame chain model and will be rebuilt as
+             FX RACK candidates in P3. Until then they keep working as-is,
+             applied after the main chain inside detected blob regions only. -->
+        <div class="stage-divider" data-stage="perblob">PER-BLOB <span class="stage-sub">legacy → moves to FX rack</span></div>
+
+        <section class="control-section">
+          <div class="section-label" id="lbl-perblob">Overlay</div>
+          <div class="toggle-group filter-swatch-group" id="perblob-group" role="radiogroup" aria-labelledby="lbl-perblob">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"    aria-label="No per-blob overlay" data-tip="No per-blob overlay. Only the main chain renders."><span>None</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="inv"     aria-label="Invert colors"       data-tip="PER-BLOB. Inverts colors within each blob's region. Affected by Blob Size + Shape (clipped to ellipse / rounded / diamond)."><span>Inv</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="thermal" aria-label="Thermal palette"     data-tip="PER-BLOB. Maps luma to a thermal palette (black → blue → magenta → red → white) within each blob's region. Affected by Blob Size + Shape."><span>Thermal</span></button>
           </div>
         </section>
 

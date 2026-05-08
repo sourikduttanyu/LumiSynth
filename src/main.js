@@ -10,7 +10,17 @@ import { applyGLFilter } from './glFilters.js';
 import { applyWave, resetWave } from './wave.js';
 
 const DEFAULTS = Object.freeze({
-  speed: 1, shape: 'rect', regionStyle: 'basic', filter: 'none',
+  // Pipeline stages (P1: single-effect dispatch via getActiveFilter; P2 will
+  // wire STRUCTURE → COLOR through an FBO chain).
+  // - structure: one of 'none' | voronoi | cellular | ascii | shatter | erode | wave
+  // - color:     one of 'none' | oxide | synth | biolum | thermo | falsecolor
+  // - perBlob:   one of 'none' | inv | thermal  (legacy holding pen, moves to FX rack in P3)
+  // - lastPicked: 'structure' | 'color' | null  — which stage's selection should
+  //   render in the single-effect P1 pipeline. Lets the user have both a
+  //   STRUCTURE and COLOR selected simultaneously while we still only render
+  //   one of them; the more recent pick wins.
+  speed: 1, shape: 'rect', regionStyle: 'basic',
+  structure: 'none', color: 'none', perBlob: 'none', lastPicked: null,
   voronoiThreshold: 0.5, voronoiJumpDist: 0.5, voronoiFalloff: 0.5, voronoiEdgeLines: 0.0,
   caDensity: 0.5, caStability: 0.5, caEvolutionSpeed: 0.5, caSourceInflux: 0.5,
   asciiCellSize: 0.3, asciiContrast: 0.3, asciiBlackThresh: 0.2, asciiGlyphStrength: 0.9,
@@ -67,7 +77,6 @@ const btnPlay      = document.getElementById('btn-play');
 const videoScrub   = document.getElementById('video-scrub');
 const videoTime    = document.getElementById('video-time');
 const fpsOverlay   = document.getElementById('fps-overlay');
-const emptyCard    = document.getElementById('empty-card');
 const swatchGrid   = document.getElementById('swatch-grid');
 
 const offscreen = document.createElement('canvas');
@@ -268,45 +277,102 @@ document.querySelectorAll('[data-knob]').forEach(initKnob);
 _hiddenCards.forEach(c => c.classList.add('hidden'));
 
 // ---- Toggle groups ----
-const GL_SECTIONS    = ['voronoi','cellular','ascii','shatter','erode','wave','oxide','synth','biolum','thermo','falsecolor'];
-const FULL_FRAME_SET = new Set(GL_SECTIONS);
-const GL_RESETS      = { voronoi: resetVoronoi, cellular: resetCA, wave: resetWave };
+// Pipeline categorization (matches the sidebar STRUCTURE / COLOR sections).
+// GL_SECTIONS is the union, kept for places that ask "is this a full-frame
+// GPU effect?" without caring which stage it belongs to.
+const STRUCTURE_SECTIONS = ['voronoi','cellular','ascii','shatter','erode','wave'];
+const COLOR_SECTIONS     = ['oxide','synth','biolum','thermo','falsecolor'];
+const GL_SECTIONS        = [...STRUCTURE_SECTIONS, ...COLOR_SECTIONS];
+const GL_RESETS          = { voronoi: resetVoronoi, cellular: resetCA, wave: resetWave };
 
 const TOGGLE_CONFIG = [
   ['speed-group',       'speed',       parseFloat, (v) => { video.playbackRate = v; }],
   ['shape-group',       'shape',       String,     null],
   ['style-group',       'regionStyle', String,     null],
-  ['filter-group',      'filter',      String,     onFilterChange],
+  ['structure-group',   'structure',   String,     onStructureChange],
+  ['color-group',       'color',       String,     onColorChange],
+  ['perblob-group',     'perBlob',     String,     onPerBlobChange],
   ['detect-mode-group', 'detectMode',  String,     () => { resetFrameHistory(); }],
   ['blob-size-group',   'blobSize',    parseInt,   null],
   ['erode-mode-group',  'erodeMode',   parseInt,   null],
   ['false-band-group',  'falseBand',   parseInt,   null],
 ];
 
-function onFilterChange(v) {
+// Single source of truth for "which effect renders this frame". P1 pipeline
+// is still single-effect dispatch (only one of STRUCTURE / COLOR runs per
+// frame); the lastPicked field tiebreaks when the user has both selected.
+// Per-blob (Inv / Thermal) is independent — it always layers on top of
+// whatever the main chain produced. P2 will replace this single-pick logic
+// with a real STRUCTURE → COLOR FBO chain.
+function getActiveFilter() {
+  if (state.lastPicked === 'structure' && state.structure !== 'none') return state.structure;
+  if (state.lastPicked === 'color'     && state.color     !== 'none') return state.color;
+  if (state.structure !== 'none') return state.structure;
+  if (state.color     !== 'none') return state.color;
+  return 'none';
+}
+
+// Reveal/hide an effect-card based on whether its effect is currently
+// selected in either the STRUCTURE or COLOR group. Cards stay visible (so
+// users can tweak knobs) even if their effect isn't the one rendering this
+// frame — `active-card` highlight goes only on the rendering one.
+function refreshEffectCardVisibility() {
+  const active = getActiveFilter();
+  const selected = new Set();
+  if (state.structure !== 'none') selected.add(state.structure);
+  if (state.color     !== 'none') selected.add(state.color);
   for (const name of GL_SECTIONS) {
     const el = document.getElementById(`${name}-controls`);
-    if (el) {
-      const visible = v === name;
-      el.classList.toggle('hidden', !visible);
-      el.classList.toggle('active-card', visible);
-    }
-  }
-  for (const [name, fn] of Object.entries(GL_RESETS)) {
-    if (v !== name) fn();
-  }
-  // Empty-card shows when no GL effect is active OR for non-GL filters too
-  emptyCard.classList.toggle('hidden', GL_SECTIONS.includes(v));
-  if (v === 'none') {
-    emptyCard.textContent = 'Pick an effect to shape the signal.';
-  } else if (!GL_SECTIONS.includes(v)) {
-    emptyCard.textContent = `${v.toUpperCase()} runs per-blob — no parameters.`;
-  }
-  const active = document.getElementById(`${v}-controls`);
-  if (active && !active.classList.contains('hidden')) {
-    active.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (!el) continue;
+    el.classList.toggle('hidden',     !selected.has(name));
+    el.classList.toggle('active-card', name === active);
   }
 }
+
+// True only while applyStateToUI is replaying loaded state into the UI.
+// Handlers consult this so they don't overwrite the loaded lastPicked when
+// they're called as part of restore (rather than user input).
+let _applyingState = false;
+
+function onStructureChange(v) {
+  if (!_applyingState) {
+    if (v !== 'none') state.lastPicked = 'structure';
+    else if (state.lastPicked === 'structure') state.lastPicked = state.color !== 'none' ? 'color' : null;
+  }
+  // Reset stateful GL effects (voronoi/cellular/wave keep persistent buffers
+  // between frames; we clear the ones that are no longer active so they
+  // don't resume mid-pattern when re-selected later).
+  for (const [name, fn] of Object.entries(GL_RESETS)) {
+    if (v !== name && STRUCTURE_SECTIONS.includes(name)) fn();
+  }
+  refreshEffectCardVisibility();
+  if (v !== 'none') {
+    const card = document.getElementById(`${v}-controls`);
+    if (card && !card.classList.contains('hidden')) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+}
+
+function onColorChange(v) {
+  if (!_applyingState) {
+    if (v !== 'none') state.lastPicked = 'color';
+    else if (state.lastPicked === 'color') state.lastPicked = state.structure !== 'none' ? 'structure' : null;
+  }
+  refreshEffectCardVisibility();
+  if (v !== 'none') {
+    const card = document.getElementById(`${v}-controls`);
+    if (card && !card.classList.contains('hidden')) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+}
+
+// Per-blob (Inv / Thermal) has no associated effect-card and doesn't
+// participate in the main-chain dispatch — it just toggles the per-blob
+// CPU pass in renderFrame. Persistence is handled by the toggle wiring;
+// this hook intentionally has no side effects beyond that.
+function onPerBlobChange(_v) { /* intentionally empty */ }
 
 function setToggleGroupValue(groupId, value) {
   const group = document.getElementById(groupId);
@@ -369,16 +435,25 @@ swatchGrid.addEventListener('click', (e) => {
 
 // ---- Apply persisted state to UI ----
 function applyStateToUI() {
-  for (const [, info] of knobRegistry) {
-    const v = state[info.stateKey];
-    if (typeof v === 'number' && !Number.isNaN(v)) info.setValue(v, { persist: false });
+  _applyingState = true;
+  try {
+    for (const [, info] of knobRegistry) {
+      const v = state[info.stateKey];
+      if (typeof v === 'number' && !Number.isNaN(v)) info.setValue(v, { persist: false });
+    }
+    for (const [groupId, key, , onChange] of TOGGLE_CONFIG) {
+      setToggleGroupValue(groupId, state[key]);
+      if (onChange) onChange(state[key]);
+    }
+    updateOverlayColor(state.overlayColor);
+    video.playbackRate = state.speed;
+  } finally {
+    _applyingState = false;
   }
-  for (const [groupId, key, , onChange] of TOGGLE_CONFIG) {
-    setToggleGroupValue(groupId, state[key]);
-    if (onChange) onChange(state[key]);
-  }
-  updateOverlayColor(state.overlayColor);
-  video.playbackRate = state.speed;
+  // After loaded values are in place, recompute card visibility once with
+  // the loaded lastPicked intact (the per-handler refreshes during the
+  // loop reflect intermediate state).
+  refreshEffectCardVisibility();
 }
 
 // ---- Persistence ----
@@ -398,6 +473,18 @@ function loadPersistedState() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return;
+    // P1 migration: pre-P1 saved state has a single `filter` field that
+    // mapped to one of structure / color / per-blob. Classify it into the
+    // new bucket so the user's previous selection survives the upgrade.
+    // After classification the stale `filter` is dropped; subsequent saves
+    // use the new fields exclusively.
+    if ('filter' in parsed && !('structure' in parsed)) {
+      const f = parsed.filter;
+      if      (STRUCTURE_SECTIONS.includes(f)) { parsed.structure = f; parsed.lastPicked = 'structure'; }
+      else if (COLOR_SECTIONS.includes(f))     { parsed.color     = f; parsed.lastPicked = 'color';     }
+      else if (f === 'inv' || f === 'thermal') { parsed.perBlob   = f; }
+      delete parsed.filter;
+    }
     for (const k of Object.keys(DEFAULTS)) if (k in parsed) state[k] = parsed[k];
   } catch { /* ignore */ }
 }
@@ -774,7 +861,7 @@ function renderFrame() {
   }
   const blobs = smoothBlobs(cachedBlobs);
 
-  const f = state.filter;
+  const f = getActiveFilter();
   if (f === 'voronoi') {
     applyVoronoi(ctx, video, cw, ch, {
       threshold: state.voronoiThreshold, jumpDist: state.voronoiJumpDist,
@@ -811,11 +898,15 @@ function renderFrame() {
     applyGLFilter('falsecolor', ctx, video, cw, ch, [state.falsePalette, state.falseBand, state.falseBandCnt, state.falseBright]);
   }
 
-  // Per-blob CPU filters: ONE full-frame getImageData, N region passes that
-  // share the buffer, ONE putImageData. Replaces the old N-round-trip pattern
-  // (was 12-30 GPU↔CPU stalls per frame at maxBlobs default). Skipped entirely
-  // when no CPU filter is active so the display canvas stays GPU-resident.
-  if (state.filter !== 'none' && !FULL_FRAME_SET.has(state.filter) && blobs.length > 0 && state.blobSize > 0) {
+  // Per-blob CPU filters (Inv / Thermal): ONE full-frame getImageData, N
+  // region passes that share the buffer, ONE putImageData. Replaces the
+  // old N-round-trip pattern (was 12-30 GPU↔CPU stalls per frame at
+  // maxBlobs default). Skipped entirely when no per-blob filter is active
+  // so the display canvas stays GPU-resident.
+  // Sourced from state.perBlob (was state.filter pre-P1; per-blob is now
+  // an independent stage that always layers on top of whatever the main
+  // STRUCTURE/COLOR chain rendered).
+  if (state.perBlob !== 'none' && blobs.length > 0 && state.blobSize > 0) {
     const full = ctx.getImageData(0, 0, cw, ch);
     const blobScale = state.blobSize / 64;
     let touched = false;
@@ -829,7 +920,7 @@ function renderFrame() {
       const bw = Math.min(cw - bx, Math.ceil(sw));
       const bh = Math.min(ch - by, Math.ceil(sh));
       if (bw <= 0 || bh <= 0) continue;
-      applyFilterToSubregion(full.data, cw, bx, by, bw, bh, state.filter, state.shape);
+      applyFilterToSubregion(full.data, cw, bx, by, bw, bh, state.perBlob, state.shape);
       touched = true;
     }
     if (touched) ctx.putImageData(full, 0, 0);
@@ -915,10 +1006,11 @@ document.addEventListener('mouseleave', hideHelpTip);
 document.addEventListener('mousedown', hideHelpTip);
 window.addEventListener('blur', hideHelpTip);
 
-// Convention guard: future filter buttons (in #filter-group) and future
-// effect-card controls (knobs + toggles inside .effect-card) must ship with
-// a data-tip describing them. The hover-tip system is the only inline help
-// users get, so a missing tip is a real regression. Scope intentionally
+// Convention guard: future filter buttons (in any of the structure / color /
+// per-blob groups) and future effect-card controls (knobs + toggles inside
+// .effect-card) must ship with a data-tip describing them. The hover-tip
+// system is the only inline help users get, so a missing tip is a real
+// regression. Scope intentionally
 // excludes top-bar controls and other sidebar groups (Speed, Source) that
 // the help-tip system was not asked to cover.
 // Coverage is granted if the element OR any ancestor up to its scope root
@@ -926,7 +1018,9 @@ window.addEventListener('blur', hideHelpTip);
 if (import.meta.env.DEV) {
   queueMicrotask(() => {
     const scopes = [
-      { root: document.getElementById('filter-group'), sel: '.toggle-btn' },
+      { root: document.getElementById('structure-group'), sel: '.toggle-btn' },
+      { root: document.getElementById('color-group'),     sel: '.toggle-btn' },
+      { root: document.getElementById('perblob-group'),   sel: '.toggle-btn' },
       ...Array.from(document.querySelectorAll('.effect-card')).map((c) => ({
         root: c,
         sel: '.toggle-btn, .knob',
