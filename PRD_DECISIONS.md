@@ -1,5 +1,7 @@
 # PRD §4 Implementation Decisions
 
+> New here? See [`OVERVIEW.md`](./OVERVIEW.md) — a friendly, non-technical introduction to FluxKit aimed at PMs, designers, and other non-engineering contributors.
+
 Companion doc to `lumisynthprd.md`. Tracks what we ship, defer, and refuse.
 
 Color legend:

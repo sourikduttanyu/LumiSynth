@@ -1,5 +1,7 @@
 # Product
 
+> New here? See [`OVERVIEW.md`](./OVERVIEW.md) — a friendly, non-technical introduction to FluxKit aimed at PMs, designers, and other non-engineering contributors.
+
 ## Register
 
 product

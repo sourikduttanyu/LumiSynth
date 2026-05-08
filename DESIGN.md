@@ -120,6 +120,8 @@ components:
 
 # Design System: FluxKit
 
+> New here? See [`OVERVIEW.md`](./OVERVIEW.md) — a friendly, non-technical introduction to FluxKit aimed at PMs, designers, and other non-engineering contributors.
+
 ## 1. Overview
 
 **Creative North Star: "The Late-Night Patch"**
