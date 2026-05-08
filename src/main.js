@@ -8,7 +8,8 @@ import { applyCA, resetCA } from './cellular.js';
 import { applyASCII } from './ascii.js';
 import { applyGLFilter } from './glFilters.js';
 import { applyWave, resetWave } from './wave.js';
-import { ensureContext, uploadVideoFrame, compositeToCanvas2D } from './glContext.js';
+import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs } from './glContext.js';
+import { applyCompose } from './glCompose.js';
 
 const DEFAULTS = Object.freeze({
   // Pipeline stages (P1: single-effect dispatch via getActiveFilter; P2 will
@@ -370,26 +371,31 @@ const TOGGLE_CONFIG = [
   ['false-band-group',  'falseBand',   parseInt,   null],
 ];
 
-// Single source of truth for "which effect renders this frame". P1 pipeline
-// is still single-effect dispatch (only one of STRUCTURE / COLOR runs per
-// frame); the lastPicked field tiebreaks when the user has both selected.
-// Per-blob (Inv / Thermal) is independent — it always layers on top of
-// whatever the main chain produced. P2 will replace this single-pick logic
-// with a real STRUCTURE → COLOR FBO chain.
-function getActiveFilter() {
-  if (state.lastPicked === 'structure' && state.structure !== 'none') return state.structure;
-  if (state.lastPicked === 'color'     && state.color     !== 'none') return state.color;
-  if (state.structure !== 'none') return state.structure;
-  if (state.color     !== 'none') return state.color;
-  return 'none';
+// Resolve which effects render this frame. P2b: both STRUCTURE and COLOR
+// can be active simultaneously and chained together (the actual chain
+// wire-up lives in renderFrame). state.lastPicked is no longer used to
+// pick a winning single effect — both render in chain mode — but it does
+// still mark which stage was most recently touched so the orchestrator
+// can scroll the corresponding card into view on user input.
+//
+// Per-blob (Inv / Thermal) remains independent — always layers on top
+// of whatever the main chain produced; not part of this resolver.
+function resolveActivePipeline() {
+  return {
+    structure: state.structure !== 'none' ? state.structure : null,
+    color:     state.color     !== 'none' ? state.color     : null,
+  };
 }
 
 // Reveal/hide an effect-card based on whether its effect is currently
-// selected in either the STRUCTURE or COLOR group. Cards stay visible (so
-// users can tweak knobs) even if their effect isn't the one rendering this
-// frame — `active-card` highlight goes only on the rendering one.
+// selected. In chain mode (both STRUCTURE and COLOR active) BOTH cards
+// stay visible AND BOTH get the `active-card` highlight (per D2: both
+// cards highlighted when both render). This gives up the "most recently
+// touched" hint that the P1 single-active-card rule provided, in
+// exchange for an honest visual signal that both stages are running.
 function refreshEffectCardVisibility() {
-  const active = getActiveFilter();
+  const { structure, color } = resolveActivePipeline();
+  const active   = new Set([structure, color].filter(Boolean));
   const selected = new Set();
   if (state.structure !== 'none') selected.add(state.structure);
   if (state.color     !== 'none') selected.add(state.color);
@@ -397,7 +403,7 @@ function refreshEffectCardVisibility() {
     const el = document.getElementById(`${name}-controls`);
     if (!el) continue;
     el.classList.toggle('hidden',     !selected.has(name));
-    el.classList.toggle('active-card', name === active);
+    el.classList.toggle('active-card', active.has(name));
   }
 }
 
@@ -933,18 +939,53 @@ function renderFrame() {
   }
   const blobs = smoothBlobs(cachedBlobs);
 
-  // GL dispatch (P2a contract): the orchestrator owns the shared context,
-  // the video upload, and the final composite. Effect modules become pure
-  // GL pass functions — they no longer touch ctx/video and no longer call
-  // uploadVideoFrame/compositeToCanvas2D themselves. P2b will extend this
-  // block into a chain (STRUCTURE → compose → COLOR); for now it stays
-  // single-effect dispatch driven by getActiveFilter().
-  const f = getActiveFilter();
-  if (f !== 'none') {
+  // GL dispatch (P2b chain pipeline). Three render paths, chosen from
+  // resolveActivePipeline():
+  //
+  //   structure  color
+  //   none       none      → no GL block runs; raw video stays on display
+  //   X          none      → standalone STRUCTURE → screen, blend = BLEND_MODES[X]
+  //   none       Y         → standalone COLOR     → screen, blend = BLEND_MODES[Y]
+  //   X          Y         → chain:
+  //                          STRUCTURE writes to chainFBOs.a
+  //                          if BLEND_MODES[X] === 'screen': compose pass
+  //                              screen-blends a.tex over raw video into chainFBOs.b
+  //                              (preserves voronoi/wave/cellular's identity look
+  //                              instead of letting COLOR see a flat opaque structure)
+  //                          else: skip compose; COLOR reads a.tex directly
+  //                          COLOR samples the resulting tex, writes to screen
+  //                          composite blend = BLEND_MODES[Y] (terminal-stage rule)
+  //
+  // Per-blob (Inv / Thermal) layers on top of all of this — see block below.
+  const pipe = resolveActivePipeline();
+  if (pipe.structure || pipe.color) {
     ensureContext(cw, ch);
     uploadVideoFrame(video);
-    runEffect(f);
-    compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[f] || 'source-over');
+
+    if (pipe.structure && pipe.color) {
+      // Chain mode.
+      const chain = getChainFBOs();
+      runEffect(pipe.structure, { outputFBO: chain.a.fb });
+
+      let colorInputTex;
+      if (BLEND_MODES[pipe.structure] === 'screen') {
+        applyCompose(cw, ch, chain.a.tex, chain.b.fb);
+        colorInputTex = chain.b.tex;
+      } else {
+        // STRUCTURE blend mode is source-over (ascii / shatter / erode):
+        // its output already replaces the video. Skip the compose pass —
+        // COLOR samples chain.a directly. Saves one full-frame pass.
+        colorInputTex = chain.a.tex;
+      }
+
+      runEffect(pipe.color, { inputTex: colorInputTex, outputFBO: null });
+      compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.color] || 'source-over');
+    } else {
+      // Standalone single-stage (preserves P2a semantics exactly).
+      const only = pipe.structure || pipe.color;
+      runEffect(only);
+      compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[only] || 'source-over');
+    }
   }
 
   // Per-blob CPU filters (Inv / Thermal): ONE full-frame getImageData, N
