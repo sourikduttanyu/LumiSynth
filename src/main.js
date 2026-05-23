@@ -159,7 +159,7 @@ function initSliderControl(el, opts = {}) {
   const def      = parseFloat(el.dataset.default);
   const stateKey = el.dataset.state || kebabToCamel(id);
   const isInt    = step >= 1 && Number.isInteger(min) && Number.isInteger(max);
-  const valEl    = document.getElementById(`${id}-val`);
+  const valEl    = document.getElementById(`${id}-val`) || el.querySelector('.knob-val');
   const isSlotKnob = !!opts.writeValue;
   const seed = (opts.initialValue !== undefined) ? opts.initialValue : def;
   let currentValue = clamp(seed, min, max);
@@ -236,7 +236,7 @@ function initKnob(el, opts = {}) {
   const def     = parseFloat(el.dataset.default);
   const stateKey = el.dataset.state || kebabToCamel(id);
   const isInt   = step >= 1 && Number.isInteger(min) && Number.isInteger(max);
-  const valEl   = document.getElementById(`${id}-val`);
+  const valEl   = document.getElementById(`${id}-val`) || el.querySelector('.knob-val');
   const isSlotKnob = !!opts.writeValue;
 
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -862,9 +862,12 @@ function renderSlotPanel(slot) {
     }
   }
 
-  // Knob grid — bind each knob to slot.params[k.key].
-  const grid = document.createElement('div');
-  grid.className = 'color-rack-slot-knob-grid';
+  const controlStack = document.createElement('div');
+  controlStack.className = 'control-stack color-rack-slot-controls';
+  const sliderStack = document.createElement('div');
+  sliderStack.className = 'slider-stack';
+  const knobCluster = document.createElement('div');
+  knobCluster.className = 'knob-cluster color-rack-slot-knob-grid';
   for (const k of schema.knobs) {
     const knobId = `slot-${slot.id}-${k.key}`;
     const valId  = `${knobId}-val`;
@@ -889,7 +892,8 @@ function renderSlotPanel(slot) {
     valSpan.textContent = String(slot.params[k.key] ?? k.default);
     knobEl.appendChild(labelEl);
     knobEl.appendChild(valSpan);
-    grid.appendChild(knobEl);
+    if (k.control === 'slider') sliderStack.appendChild(knobEl);
+    else                        knobCluster.appendChild(knobEl);
 
     // Slot-bound init: writes go to slot.params[k.key], not global state.
     // Closes over `slot` (live ref into state.colorRack) so writes hit the
@@ -900,7 +904,9 @@ function renderSlotPanel(slot) {
       initialValue: slot.params[k.key] ?? k.default,
     });
   }
-  panel.appendChild(grid);
+  if (sliderStack.childElementCount) controlStack.appendChild(sliderStack);
+  if (knobCluster.childElementCount) controlStack.appendChild(knobCluster);
+  if (controlStack.childElementCount) panel.appendChild(controlStack);
 
   return panel;
 }
@@ -1229,8 +1235,12 @@ function renderTrackFxSlotPanel(slot) {
   phead.appendChild(presetBtn);
   panel.appendChild(phead);
 
-  const grid = document.createElement('div');
-  grid.className = 'color-rack-slot-knob-grid';
+  const controlStack = document.createElement('div');
+  controlStack.className = 'control-stack color-rack-slot-controls';
+  const sliderStack = document.createElement('div');
+  sliderStack.className = 'slider-stack';
+  const knobCluster = document.createElement('div');
+  knobCluster.className = 'knob-cluster color-rack-slot-knob-grid';
   for (const k of schema.knobs) {
     const knobId = `trackfx-${slot.id}-${k.key}`;
     const valId  = `${knobId}-val`;
@@ -1255,14 +1265,17 @@ function renderTrackFxSlotPanel(slot) {
     valSpan.textContent = String(slot.params[k.key] ?? k.default);
     knobEl.appendChild(labelEl);
     knobEl.appendChild(valSpan);
-    grid.appendChild(knobEl);
+    if (k.control === 'slider') sliderStack.appendChild(knobEl);
+    else                        knobCluster.appendChild(knobEl);
 
     initKnob(knobEl, {
       writeValue:   (v) => { slot.params[k.key] = v; },
       initialValue: slot.params[k.key] ?? k.default,
     });
   }
-  panel.appendChild(grid);
+  if (sliderStack.childElementCount) controlStack.appendChild(sliderStack);
+  if (knobCluster.childElementCount) controlStack.appendChild(knobCluster);
+  if (controlStack.childElementCount) panel.appendChild(controlStack);
 
   return panel;
 }
