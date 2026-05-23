@@ -136,7 +136,8 @@ Exported API:
 
 | File | Role |
 |---|---|
-| `src/main.js` | App entry, `DEFAULTS`, `COLOR_PARAM_SCHEMAS`, render loop, all UI wiring |
+| `src/main.js` | App entry, `state` object, render loop, all UI wiring. Imports all schemas from `schemas.js` |
+| `src/schemas.js` | Pure data leaf: `DEFAULTS`, `STORAGE_KEY`, `RACK_SLOTS`, `COLOR_PARAM_SCHEMAS`, `TRACK_FX_PARAM_SCHEMAS`, `STRUCTURE_SECTIONS`, `COLOR_SECTIONS`, `BLEND_MODES`, `GL_RESETS`, rack factory functions. No DOM, no imports |
 | `src/glContext.js` | Shared GL context + chain FBO allocator. Read the contract comment at the top before touching any GL module |
 | `src/glCompose.js` | STRUCTURE → COLOR compose pass (screen-blend STRUCTURE output over raw video) |
 | `src/glFilters.js` | Stateless full-frame GL effects: shatter, erode, oxide, synth, biolum, thermo, falsecolor |
@@ -152,7 +153,7 @@ Voronoi / cellular / wave were removed; they are not in the current `src/`.
 
 ### Color rack (COLOR_PARAM_SCHEMAS)
 
-3 fixed slots. Each slot holds one color effect (oxide / synth / biolum / thermo / falsecolor) or is empty. Each slot has its own independent copy of that effect's knob params. Slots run in series — slot 0 output feeds slot 1, etc. Disabled slots are skipped entirely. Schemas live in `COLOR_PARAM_SCHEMAS` in `main.js`; `order` array must match shader uniform order exactly.
+3 fixed slots. Each slot holds one color effect (oxide / synth / biolum / thermo / falsecolor) or is empty. Each slot has its own independent copy of that effect's knob params. Slots run in series — slot 0 output feeds slot 1, etc. Disabled slots are skipped entirely. Schemas live in `COLOR_PARAM_SCHEMAS` in `src/schemas.js`; `order` array must match shader uniform order exactly.
 
 ### Design system
 

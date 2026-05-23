@@ -214,9 +214,9 @@
 
         <section class="control-section" id="color-key-controls" data-mode-section="track" style="display:none">
           <div class="section-label">Key Color</div>
-          <div style="display:flex;align-items:center;gap:8px;padding:4px 0 6px">
-            <input type="color" id="color-key-input" value="#ff0000" style="width:36px;height:28px;border:1px solid var(--border-subtle);background:transparent;cursor:pointer;border-radius:3px;padding:2px;" data-tip="Target color for color-key blob detection. Click to open picker.">
-            <span style="font-size:10px;color:var(--fg-dim);letter-spacing:.05em">TARGET HUE</span>
+          <div class="color-key-row">
+            <input type="color" id="color-key-input" class="color-key-input" value="#ff0000" data-tip="Target color for color-key blob detection. Click to open picker.">
+            <span class="color-key-label">TARGET HUE</span>
           </div>
           <div class="knob-grid">
             <div class="knob" id="color-key-huetol" data-knob data-state="colorKeyHueTol" data-min="5" data-max="90" data-step="1" data-default="18" aria-label="Hue tolerance (degrees)" data-tip="Hue tolerance in degrees (5–90). Wider = accept more hues similar to the target." tabindex="0"><span class="knob-label">Hue Tol</span><span class="knob-val" id="color-key-huetol-val">18</span></div>

@@ -238,7 +238,7 @@ html, body {
 #btn-record {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-sm);
   font-variant-numeric: tabular-nums;
 }
 #btn-record .rec-dot {
@@ -481,7 +481,7 @@ label.section-label { cursor: pointer; }
   cursor: grab;
   font-size: 14px;
   line-height: 1;
-  padding: 4px 6px;
+  padding: var(--space-xs) var(--space-sm);
   border-radius: 3px;
   transition: color var(--duration-base) var(--ease-out);
 }
@@ -500,7 +500,7 @@ label.section-label { cursor: pointer; }
   background: var(--surface-raised);
   border: 1px solid var(--border-hairline);
   color: var(--text-body);
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-md);
   font-family: inherit;
   font-size: 11px;
   font-weight: 500;
@@ -569,7 +569,7 @@ label.section-label { cursor: pointer; }
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  padding: 4px 6px;
+  padding: var(--space-xs) var(--space-sm);
   border-radius: 3px;
   transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out);
 }
@@ -588,7 +588,7 @@ label.section-label { cursor: pointer; }
   cursor: pointer;
   font-size: 11px;
   line-height: 1;
-  padding: 4px 6px;
+  padding: var(--space-xs) var(--space-sm);
   border-radius: 3px;
   transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out);
 }
@@ -614,7 +614,7 @@ label.section-label { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 4px;
+  padding: 0 var(--space-xs);
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -628,7 +628,7 @@ label.section-label { cursor: pointer; }
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: var(--space-2xs) var(--space-sm);
   border-radius: 3px;
   transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out);
 }
@@ -644,14 +644,14 @@ label.section-label { cursor: pointer; }
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: var(--space-xs);
-  padding: 2px;
+  padding: var(--space-2xs);
 }
 .color-rack-slot-knob-grid .knob {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 4px 0;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) 0;
 }
 .color-rack-slot-knob-grid .knob-label {
   font-size: 9px;
@@ -672,7 +672,7 @@ label.section-label { cursor: pointer; }
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  padding: 2px 4px;
+  padding: var(--space-2xs) var(--space-xs);
 }
 .color-rack-slot-toggle-label {
   font-size: 9px;
@@ -680,7 +680,7 @@ label.section-label { cursor: pointer; }
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.color-rack-slot-toggle-group { display: flex; gap: 2px; }
+.color-rack-slot-toggle-group { display: flex; gap: var(--space-2xs); }
 .color-rack-slot-toggle-btn {
   background: var(--surface-raised);
   border: 1px solid var(--border-hairline);
@@ -826,6 +826,27 @@ label.section-label { cursor: pointer; }
 }
 #lumi-channel-group .toggle-btn { flex: initial; }
 
+.color-key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xs) 0 var(--space-sm);
+}
+.color-key-input {
+  width: 36px;
+  height: 28px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-raised);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: var(--space-2xs);
+}
+.color-key-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
 /* Track-lines picker: 7 types (off, dist, velocity, pulse, const, mst, star).
    4-column grid → rows of 4 / 3. Short abbreviations fit the narrow cells. */
 #track-lines-group {
@@ -878,10 +899,11 @@ label.section-label { cursor: pointer; }
 
 /* ============================================================
    FILTER SWATCH GROUPS — full-bleed gradient swatch (signature).
-   Shared by the three filter pickers: STRUCTURE, COLOR, PER-BLOB.
+   Shared by single-pick filter stages: STRUCTURE and PER-BLOB.
+   COLOR uses rack chips instead of this swatch grid.
    The gradient IS the identity, label overlays with text-shadow.
    3-column CSS Grid (uneven groups gracefully orphan the trailing
-   row — STRUCTURE is 3+3+1, PER-BLOB is 3, COLOR is 3+3).
+   row — STRUCTURE is 3+3, PER-BLOB is 3).
 
    Filter swatches are exempt from The Two-Color Rule — they preview
    creative output (the canvas), and creative output is itself exempt.
@@ -921,17 +943,11 @@ label.section-label { cursor: pointer; }
 .filter-swatch-group .toggle-btn[data-value="none"]       { background: linear-gradient(135deg, #1a0a2e, #2a1545); }
 .filter-swatch-group .toggle-btn[data-value="inv"]        { background: linear-gradient(90deg, #fff, #000); }
 .filter-swatch-group .toggle-btn[data-value="thermal"]    { background: linear-gradient(90deg, #000, #6a0dad, #ff4500, #ffea00, #fff); }
-.filter-swatch-group .toggle-btn[data-value="voronoi"]    { background: linear-gradient(90deg, #1a0033, #4a00b3, #00d4ff, #ffffff); }
-.filter-swatch-group .toggle-btn[data-value="cellular"]   { background: linear-gradient(90deg, #001a00, #008833, #66ff66); }
 .filter-swatch-group .toggle-btn[data-value="ascii"]      { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 6px); }
-.filter-swatch-group .toggle-btn[data-value="shatter"]    { background: linear-gradient(135deg, #444 25%, #111 25% 50%, #666 50% 75%, #222 75%); background-size: 12px 12px; }
 .filter-swatch-group .toggle-btn[data-value="erode"]      { background: linear-gradient(90deg, #000, #444, #aaa, #fff); }
-.filter-swatch-group .toggle-btn[data-value="wave"]       { background: linear-gradient(90deg, #001a33, #0066cc, #00ccff, #aaffff); }
-.filter-swatch-group .toggle-btn[data-value="oxide"]      { background: linear-gradient(90deg, #1a0a00, #8b4513, #cd853f, #d4af37); }
-.filter-swatch-group .toggle-btn[data-value="synth"]      { background: linear-gradient(90deg, #f72585, #b5179e, #7209b7, #4361ee, #4cc9f0); }
-.filter-swatch-group .toggle-btn[data-value="biolum"]     { background: linear-gradient(90deg, #001a1a, #00ffcc, #88ddff, #aa88ff); }
-.filter-swatch-group .toggle-btn[data-value="thermo"]     { background: linear-gradient(90deg, #000, #220066, #cc0066, #ff6600, #ffff00, #fff); }
-.filter-swatch-group .toggle-btn[data-value="falsecolor"] { background: linear-gradient(90deg, #4361ee, #00d4ff, #5be7a6, #ffea00, #f72585); }
+.filter-swatch-group .toggle-btn[data-value="watershed"]  { background: linear-gradient(90deg, #0d1110, #40534a, #8aa08d, #d4d7c5); }
+.filter-swatch-group .toggle-btn[data-value="pixelsort"]  { background: linear-gradient(90deg, #0a0908 0 20%, #d9d2c4 20% 30%, #3b3630 30% 55%, #ff5722 55% 62%, #100f0d 62%); }
+.filter-swatch-group .toggle-btn[data-value="melt"]       { background: linear-gradient(180deg, #f0ede8, #b89669 35%, #ff5722 70%, #100f0d); }
 
 /* Active = 2px orange border. No glow. */
 .filter-swatch-group .toggle-btn.active,
@@ -1102,7 +1118,7 @@ input[type="color"] {
   cursor: pointer;
   padding: 0;
 }
-input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+input[type="color"]::-webkit-color-swatch-wrapper { padding: var(--space-2xs); }
 input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
 .color-label {
   color: var(--text-muted);
@@ -1158,7 +1174,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   font-size: 11px;
   letter-spacing: 0.02em;
   color: oklch(92% 0.005 70 / 0.85);
-  padding: 2px 8px;
+  padding: var(--space-2xs) var(--space-md);
   border-radius: 3px;
   border: 1px solid transparent;
   cursor: text;
