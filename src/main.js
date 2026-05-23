@@ -1,5 +1,5 @@
 import './style.css';
-import { detectBlobs, resetFrameHistory } from './blobDetector.js';
+import { detectBlobs, resetFrameHistory, setColorKeyTarget, clearColorKeyTarget } from './blobDetector.js';
 import { applyFilterToSubregion } from './filters.js';
 import { drawTrackOverlay, resetTrackOverlay } from './overlays.js';
 import { trackBlobs, resetTracker } from './kalman.js';
@@ -47,6 +47,10 @@ const DEFAULTS = Object.freeze({
   trackStability: 0,
   trackMaxBlobs: 12,
   updateInterval: 1,
+  // Color-key mode: hex string '#rrggbb'. Only active when trackChannel='color'.
+  colorKeyHex: '#ff0000',
+  colorKeyHueTol: 18,   // degrees
+  colorKeySatMin: 0.25, // 0–1
 
   // Shape (one active style + 4 knobs).
   //   trackShape:           'solid' | 'hollow' | 'dotted' | 'corners'
@@ -65,6 +69,16 @@ const DEFAULTS = Object.freeze({
   //   trackLinesTaper       0..1
   trackLines: 'off',
   trackLinesColor: 0, trackLinesThickness: 1, trackLinesParam: 0.5, trackLinesTaper: 0,
+
+  // Labels + center markers (Tracery-style XY readouts).
+  //   trackLabels:       true | false
+  //   trackLabelMarker:  'dot' | 'plus' | 'cross'
+  //   trackLabelFontSize: 8..16
+  //   trackLabelColor:   0..1  — hue knob (same scheme as shape/lines)
+  trackLabels: false,
+  trackLabelMarker: 'dot',
+  trackLabelFontSize: 10,
+  trackLabelColor: 0,
 
   // Track FX rack (3 slots, like colorRack) — initialized via makeTrackFxRack()
   // at startup. Stores up to 3 stackable tracking effects: echo / radar / heatmap.
@@ -486,6 +500,8 @@ const btnPlay      = document.getElementById('btn-play');
 const videoScrub   = document.getElementById('video-scrub');
 const videoTime    = document.getElementById('video-time');
 const fpsOverlay   = document.getElementById('fps-overlay');
+const colorKeyInput   = document.getElementById('color-key-input');
+const colorKeyHueTolKnob = document.getElementById('color-key-huetol');
 // (overlay-color swatch grid retired — replaced by per-shape/per-lines hue knob)
 
 const offscreen = document.createElement('canvas');
@@ -856,9 +872,11 @@ const TOGGLE_CONFIG = [
   // ============ TRACK-mode toggle groups ============
   ['mode-group',            'mode',           String,     onModeChange],
   ['track-composite-group', 'trackComposite', String,     null],
-  ['lumi-channel-group',    'trackChannel',   String,     () => { resetFrameHistory(); }],
+  ['lumi-channel-group',    'trackChannel',   String,     (v) => { resetFrameHistory(); refreshColorKeyControls(v); }],
   ['track-shape-group',     'trackShape',     String,     null],
   ['track-lines-group',     'trackLines',     String,     null],
+  ['track-label-marker-group', 'trackLabelMarker', String, null],
+  ['track-labels-group',       'trackLabels',      (v) => v === 'true', null],
 ];
 
 // Resolve which effects render this frame. STRUCTURE plus 0-3 chained
@@ -920,6 +938,11 @@ function onStructureChange(v) {
 // CPU pass in renderFrame. Persistence is handled by the toggle wiring;
 // this hook intentionally has no side effects beyond that.
 function onPerBlobChange(_v) { /* intentionally empty */ }
+
+function refreshColorKeyControls(channel) {
+  const el = document.getElementById('color-key-controls');
+  if (el) el.style.display = channel === 'color' ? '' : 'none';
+}
 
 // Mode toggle. Drives section visibility via body[data-mode] (the CSS
 // rule [data-mode-section="track"] / [data-mode-section="synth"] reacts
@@ -1779,6 +1802,8 @@ function applyStateToUI() {
   // the final state (the per-handler refreshes during the loop reflect
   // intermediate state).
   refreshEffectCardVisibility();
+  refreshColorKeyControls(state.trackChannel);
+  if (colorKeyInput) colorKeyInput.value = state.colorKeyHex;
 }
 
 // ---- Persistence ----
@@ -2464,6 +2489,14 @@ video.addEventListener('timeupdate', () => {
   videoTime.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
 });
 
+// Color key mode — native <input type="color"> wired to state.colorKeyHex.
+if (colorKeyInput) {
+  colorKeyInput.value = state.colorKeyHex;
+  colorKeyInput.addEventListener('input', () => {
+    state.colorKeyHex = colorKeyInput.value;
+  });
+}
+
 // ---- Canvas sizing ----
 function resizeCanvas() {
   const aw = canvasArea.clientWidth;
@@ -2720,6 +2753,15 @@ function renderFrame(nowDOMHi) {
     if (frameCount % Math.max(1, state.updateInterval) === 0) {
       const minSizeDetect = state.trackMinSize * DETECT_SCALE;
       const cap = Math.min(30, state.trackMaxBlobs);
+      if (state.trackChannel === 'color') {
+        const hex = state.colorKeyHex.replace('#', '');
+        const cr = parseInt(hex.slice(0, 2), 16);
+        const cg = parseInt(hex.slice(2, 4), 16);
+        const cb = parseInt(hex.slice(4, 6), 16);
+        setColorKeyTarget(cr, cg, cb, state.colorKeyHueTol, state.colorKeySatMin, 0.10);
+      } else {
+        clearColorKeyTarget();
+      }
       const rawBlobs  = detectBlobs(offImageData, state.threshold, cap, state.trackChannel, minSizeDetect);
       const sx = cw / ow, sy = ch / oh;
       const scaledRaw = rawBlobs.map(b => ({
@@ -2883,6 +2925,12 @@ function renderFrame(nowDOMHi) {
         taper:     state.trackLinesTaper,
       },
       effects,
+      labels: {
+        show:        state.trackLabels,
+        markerStyle: state.trackLabelMarker,
+        fontSize:    state.trackLabelFontSize,
+        hueColor:    state.trackLabelColor,
+      },
     });
   }
 

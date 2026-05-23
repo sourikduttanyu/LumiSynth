@@ -208,6 +208,19 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sat"    data-tip="Chroma (max-min). Detects vivid color regions, ignores brightness.">Sat</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edge"   data-tip="Sobel gradient. Detects edges and textures.">Edge</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sharp"  data-tip="Laplacian magnitude. Detects high-frequency detail and focused regions.">Sharp</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="color"  data-tip="Color key. Detects pixels matching a chosen hue. Use the color swatch and Hue Tol knob to tune.">Color</button>
+          </div>
+        </section>
+
+        <section class="control-section" id="color-key-controls" data-mode-section="track" style="display:none">
+          <div class="section-label">Key Color</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:4px 0 6px">
+            <input type="color" id="color-key-input" value="#ff0000" style="width:36px;height:28px;border:1px solid var(--border-subtle);background:transparent;cursor:pointer;border-radius:3px;padding:2px;" data-tip="Target color for color-key blob detection. Click to open picker.">
+            <span style="font-size:10px;color:var(--fg-dim);letter-spacing:.05em">TARGET HUE</span>
+          </div>
+          <div class="knob-grid">
+            <div class="knob" id="color-key-huetol" data-knob data-state="colorKeyHueTol" data-min="5" data-max="90" data-step="1" data-default="18" aria-label="Hue tolerance (degrees)" data-tip="Hue tolerance in degrees (5–90). Wider = accept more hues similar to the target." tabindex="0"><span class="knob-label">Hue Tol</span><span class="knob-val" id="color-key-huetol-val">18</span></div>
+            <div class="knob" id="color-key-satmin" data-knob data-state="colorKeySatMin" data-min="0" data-max="1" data-step="0.01" data-default="0.25" aria-label="Min saturation" data-tip="Minimum saturation (0–1). Filters out near-grey pixels that happen to match the hue." tabindex="0"><span class="knob-label">Sat Min</span><span class="knob-val" id="color-key-satmin-val">0.25</span></div>
           </div>
         </section>
 
@@ -254,6 +267,8 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="velocity"      data-tip="Velocity Trails. Each blob trails a line behind its own past path. No inter-blob connections. Knob 3 = TRAIL LENGTH.">Velocity</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="pulse"          data-tip="Pulse Trail. Same connections as Distance Threshold, but a bright dot travels along each connection from A to B repeatedly. Knob 3 = PULSE SPEED.">Pulse</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="constellation" data-tip="Constellation. Connect every blob to every other; line opacity falls off with distance. Knob 3 = FALLOFF CURVE.">Const</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="mst"           data-tip="Minimum Spanning Tree. Kruskal's algorithm on blob centroids — minimal edge set connecting all blobs. Knob 3 = OPACITY.">MST</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="star"          data-tip="Star Topology. Every blob connects to blob[0] (the hub). Knob 3 = OPACITY. Hub is marked with a filled dot.">Star</button>
           </div>
         </section>
 
@@ -263,6 +278,33 @@
             <div class="knob" id="track-lines-thickness" data-knob data-state="trackLinesThickness" data-min="1" data-max="6" data-step="1"    data-default="1"   aria-label="Lines thickness (px)"  data-tip="Line weight in pixels (1–6)." tabindex="0"><span class="knob-label">Thick</span><span class="knob-val" id="track-lines-thickness-val">1</span></div>
             <div class="knob" id="track-lines-param"     data-knob data-state="trackLinesParam"     data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Lines param (type-specific)" data-tip="Type-specific. Dist = max connect distance (50–500 px). Velocity = trail length. Pulse = pulse speed. Constellation = falloff curve." tabindex="0"><span class="knob-label">Param</span><span class="knob-val" id="track-lines-param-val">0.5</span></div>
             <div class="knob" id="track-lines-taper"     data-knob data-state="trackLinesTaper"     data-min="0" data-max="1" data-step="0.01" data-default="0"   aria-label="Lines taper"           data-tip="0 = constant width. 1 = taper from thick at one end to thin at the other." tabindex="0"><span class="knob-label">Taper</span><span class="knob-val" id="track-lines-taper-val">0</span></div>
+          </div>
+        </section>
+
+        <!-- ============ LABELS (TRACK only) ============ -->
+        <div class="stage-divider" data-stage="fx" data-mode-section="track">LABELS <span class="stage-sub">XY coords · markers</span></div>
+
+        <section class="control-section" data-mode-section="track">
+          <div class="section-label" id="lbl-track-labels">Show</div>
+          <div class="toggle-group" id="track-labels-group" role="radiogroup" aria-labelledby="lbl-track-labels">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="false" data-tip="No coordinate labels or center markers.">Off</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="true"  data-tip="Show X/Y coordinate readouts and center marker on each blob centroid.">On</button>
+          </div>
+        </section>
+
+        <section class="control-section" data-mode-section="track">
+          <div class="section-label" id="lbl-track-label-marker">Marker</div>
+          <div class="toggle-group" id="track-label-marker-group" role="radiogroup" aria-labelledby="lbl-track-label-marker">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="dot"   data-tip="Filled dot at blob centroid.">Dot</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="plus"  data-tip="Plus (+) crosshair at blob centroid.">+</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="cross" data-tip="Cross (×) crosshair at blob centroid.">×</button>
+          </div>
+        </section>
+
+        <section class="control-section" data-mode-section="track">
+          <div class="knob-grid">
+            <div class="knob" id="track-label-color"    data-knob data-state="trackLabelColor"    data-min="0" data-max="1" data-step="0.01" data-default="0"  aria-label="Label color (hue)"  data-tip="Hue of label text and marker. At 0 white; scrolls through full hue range." tabindex="0"><span class="knob-label">Color</span><span class="knob-val" id="track-label-color-val">0</span></div>
+            <div class="knob" id="track-label-fontsize" data-knob data-state="trackLabelFontSize" data-min="8" data-max="16" data-step="1"   data-default="10" aria-label="Label font size (px)" data-tip="Font size of XY coordinate readouts (8–16 px)." tabindex="0"><span class="knob-label">Size</span><span class="knob-val" id="track-label-fontsize-val">10</span></div>
           </div>
         </section>
 
