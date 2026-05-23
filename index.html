@@ -72,6 +72,12 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="pixelsort"  aria-label="Pixel Sort"     data-tip="STRUCTURE. Bright pixels cast sharp sorted streak trails. Threshold, Length, Opacity, Direction."><span>PixSort</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"       aria-label="Melt"           data-tip="STRUCTURE. Luminance drips downward like heated wax. Amount, Drip Length, Viscosity, Direction."><span>Melt</span></button>
           </div>
+          <div class="section-label" id="lbl-structure-output">Output</div>
+          <div class="toggle-group" id="structure-output-group" role="radiogroup" aria-labelledby="lbl-structure-output">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="mono"   data-tip="Mono output. Current STRUCTURE behavior: grayscale geometry feeds the COLOR rack.">Mono</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="source" data-tip="Source output. The structure mask modulates the original source RGB before the COLOR rack.">Source</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ink"    data-tip="Ink output. High-contrast black/cream hardware-poster rendering before the COLOR rack.">Ink</button>
+          </div>
         </section>
 
         <section class="effect-card hidden" id="ascii-controls" data-card-effect="ascii" data-mode-section="synth" aria-label="ASCII parameters">

@@ -107,6 +107,7 @@ const KNOB_DRAG_PX = 150;
 // notch / one trackpad line). Threshold-based accumulation prevents trackpad
 // runaway; deltaMode normalization handles devices that report lines or pages.
 const WHEEL_TICK_PX = 40;
+const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, ink: 2 };
 
 function kebabToCamel(s) { return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase()); }
 function snapToStep(v, min, step) {
@@ -126,6 +127,9 @@ function formatTime(seconds) {
   return `${m}:${s}`;
 }
 function nearlyEqual(a, b) { return Math.abs(a - b) < 1e-6; }
+function structureOutputModeValue() {
+  return STRUCTURE_OUTPUT_MODE_VALUE[state.structureOutputMode] ?? STRUCTURE_OUTPUT_MODE_VALUE.mono;
+}
 
 // ---- Knob component ----
 const knobRegistry = new Map();   // id -> { setValue, getValue, min, max, step, default, stateKey, el }
@@ -314,20 +318,22 @@ _hiddenCards.forEach(c => c.classList.add('hidden'));
 // uniform call shape. COLOR effects are dispatched separately via
 // runColorEffect (each color slot owns its own params).
 function runEffect(name, opts) {
+  const outputMode = structureOutputModeValue();
   switch (name) {
     case 'ascii':
       return applyASCII(canvas.width, canvas.height, {
         cellSize: state.asciiCellSize, contrast: state.asciiContrast,
         blackThreshold: state.asciiBlackThresh, glyphStrength: state.asciiGlyphStrength,
+        outputMode,
       }, opts);
     case 'erode':
-      return applyGLFilter('erode', canvas.width, canvas.height, [state.erodeMode, state.erodeRadius, state.erodeStrength, state.erodeEdge], opts);
+      return applyGLFilter('erode', canvas.width, canvas.height, [state.erodeMode, state.erodeRadius, state.erodeStrength, state.erodeEdge], { ...opts, outputMode });
     case 'watershed':
-      return applyGLFilter('watershed', canvas.width, canvas.height, [state.watershedBasin, state.watershedBoundary, state.watershedFlat, state.watershedDepth], opts);
+      return applyGLFilter('watershed', canvas.width, canvas.height, [state.watershedBasin, state.watershedBoundary, state.watershedFlat, state.watershedDepth], { ...opts, outputMode });
     case 'pixelsort':
-      return applyGLFilter('pixelsort', canvas.width, canvas.height, [state.pixelsortThresh, state.pixelsortLength, state.pixelsortOpacity, state.pixelsortDir], opts);
+      return applyGLFilter('pixelsort', canvas.width, canvas.height, [state.pixelsortThresh, state.pixelsortLength, state.pixelsortOpacity, state.pixelsortDir], { ...opts, outputMode });
     case 'melt':
-      return applyGLFilter('melt', canvas.width, canvas.height, [state.meltAmount, state.meltDrip, state.meltViscosity, state.meltDir], opts);
+      return applyGLFilter('melt', canvas.width, canvas.height, [state.meltAmount, state.meltDrip, state.meltViscosity, state.meltDir], { ...opts, outputMode });
     case 'oxide':
     case 'synth':
     case 'biolum':
@@ -374,6 +380,7 @@ function runColorEffect(name, params, opts) {
 const TOGGLE_CONFIG = [
   ['speed-group',           'speed',          parseFloat, (v) => { video.playbackRate = v; }],
   ['structure-group',       'structure',      String,     onStructureChange],
+  ['structure-output-group', 'structureOutputMode', String, null],
   ['perblob-group',         'perBlob',        String,     onPerBlobChange],
   ['erode-mode-group',      'erodeMode',      parseInt,   null],
   // ============ TRACK-mode toggle groups ============

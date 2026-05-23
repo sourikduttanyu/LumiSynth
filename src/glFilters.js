@@ -25,12 +25,24 @@ precision highp int;
 in vec2 vUV;
 uniform sampler2D u_video;
 uniform vec4 uParams;
+uniform float uOutputMode;
 out vec4 fragColor;
+
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  vec3 inkBlack = vec3(0.04, 0.035, 0.03);
+  vec3 inkCream = vec3(0.92, 0.88, 0.78);
+  float poster = smoothstep(0.42, 0.58, structure);
+  return mix(inkBlack, inkCream, poster);
+}
 
 void main() {
   vec2 uv = vUV;
   vec2 texel = 1.0 / vec2(textureSize(u_video, 0));
-  float val = texture(u_video, uv).r;
+  vec3 src = texture(u_video, uv).rgb;
+  float val = src.r;
   int radius = int(mix(1.0, 6.0, uParams.y));
   float strength = mix(0.3, 1.0, uParams.z);
   bool dilate = uParams.x > 0.5;
@@ -48,7 +60,7 @@ void main() {
   float morphed  = mix(val, morphVal, strength);
   float edgeRing = abs(val - morphVal) * 3.0;
   float out_v    = mix(morphed, clamp(edgeRing, 0.0, 1.0), uParams.w);
-  fragColor = vec4(out_v, out_v, out_v, 1.0);
+  fragColor = vec4(applyStructureOutput(out_v, src, uOutputMode), 1.0);
 }`;
 
 const FRAG_OXIDE = `#version 300 es
@@ -220,12 +232,25 @@ precision highp float;
 in vec2 vUV;
 uniform sampler2D u_video;
 uniform vec4 uParams;
+uniform float uOutputMode;
 out vec4 fragColor;
+
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  vec3 inkBlack = vec3(0.04, 0.035, 0.03);
+  vec3 inkCream = vec3(0.92, 0.88, 0.78);
+  float poster = smoothstep(0.42, 0.58, structure);
+  return mix(inkBlack, inkCream, poster);
+}
+
 void main() {
   vec2 uv = vUV;
   vec2 res = vec2(textureSize(u_video, 0));
   vec2 texel = 1.0 / res;
-  float val = texture(u_video, uv).r;
+  vec3 src = texture(u_video, uv).rgb;
+  float val = src.r;
   float scale = mix(2.0, 12.0, uParams.x);
   vec2 st = texel * scale;
   vec2 pos = uv;
@@ -252,7 +277,7 @@ void main() {
   interior *= mix(1.0, 0.5 + basinVal * 0.5, uParams.w);
   float result = interior + boundary * 0.6;
   result = clamp(result, 0.0, 1.0);
-  fragColor = vec4(result, result, result, 1.0);
+  fragColor = vec4(applyStructureOutput(result, src, uOutputMode), 1.0);
 }`;
 
 const FRAG_PIXELSORT = `#version 300 es
@@ -260,12 +285,25 @@ precision highp float;
 in vec2 vUV;
 uniform sampler2D u_video;
 uniform vec4 uParams;
+uniform float uOutputMode;
 out vec4 fragColor;
+
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  vec3 inkBlack = vec3(0.04, 0.035, 0.03);
+  vec3 inkCream = vec3(0.92, 0.88, 0.78);
+  float poster = smoothstep(0.42, 0.58, structure);
+  return mix(inkBlack, inkCream, poster);
+}
+
 void main() {
   vec2 uv = vUV;
   vec2 res = vec2(textureSize(u_video, 0));
   vec2 texel = 1.0 / res;
-  float srcVal = texture(u_video, uv).r;
+  vec3 src = texture(u_video, uv).rgb;
+  float srcVal = src.r;
   float threshold = mix(0.02, 0.8, uParams.x);
   int maxLen = int(uParams.y * 200.0);
   float opacity = uParams.z;
@@ -281,11 +319,14 @@ void main() {
     float sv = texture(u_video, sUV).r;
     if (sv >= threshold && sv > bestVal) { bestVal = sv; bestDist = float(i); }
   }
-  if (bestDist < 0.0) { fragColor = vec4(srcVal, srcVal, srcVal, 1.0); return; }
+  if (bestDist < 0.0) {
+    fragColor = vec4(applyStructureOutput(srcVal, src, uOutputMode), 1.0);
+    return;
+  }
   float fade = clamp(1.0 - (bestDist / float(max(maxLen, 1))), 0.0, 1.0);
   float streakVal = bestVal * fade;
   float out_v = max(srcVal, streakVal * opacity);
-  fragColor = vec4(out_v, out_v, out_v, 1.0);
+  fragColor = vec4(applyStructureOutput(out_v, src, uOutputMode), 1.0);
 }`;
 
 const FRAG_MELT = `#version 300 es
@@ -293,11 +334,24 @@ precision highp float;
 in vec2 vUV;
 uniform sampler2D u_video;
 uniform vec4 uParams;
+uniform float uOutputMode;
 out vec4 fragColor;
+
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  vec3 inkBlack = vec3(0.04, 0.035, 0.03);
+  vec3 inkCream = vec3(0.92, 0.88, 0.78);
+  float poster = smoothstep(0.42, 0.58, structure);
+  return mix(inkBlack, inkCream, poster);
+}
+
 void main() {
   vec2 uv = vUV;
   vec2 texel = 1.0 / vec2(textureSize(u_video, 0));
-  float val = texture(u_video, uv).r;
+  vec3 src = texture(u_video, uv).rgb;
+  float val = src.r;
   float angle = uParams.w * 3.14159;
   vec2 dripDir = vec2(sin(angle), -cos(angle));
   int maxDrip = int(mix(5.0, 80.0, uParams.y));
@@ -316,7 +370,7 @@ void main() {
       if (drippedVal > bestVal) bestVal = drippedVal;
     }
   }
-  fragColor = vec4(bestVal, bestVal, bestVal, 1.0);
+  fragColor = vec4(applyStructureOutput(bestVal, src, uOutputMode), 1.0);
 }`;
 
 // ---- COLOR additions ----
@@ -1133,6 +1187,7 @@ function getProgram(name) {
     prog,
     video:  gl.getUniformLocation(prog, 'u_video'),
     params: gl.getUniformLocation(prog, 'uParams'),
+    outputMode: gl.getUniformLocation(prog, 'uOutputMode'),
   };
   _programs[name] = entry;
   return entry;
@@ -1166,5 +1221,6 @@ export function applyGLFilter(name, cw, ch, params = [0.5, 0.5, 0.5, 0.5], opts 
   gl.bindTexture(gl.TEXTURE_2D, inTex);
   gl.uniform1i(entry.video, 0);
   gl.uniform4f(entry.params, params[0], params[1], params[2], params[3]);
+  if (entry.outputMode) gl.uniform1f(entry.outputMode, opts.outputMode ?? 0);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }

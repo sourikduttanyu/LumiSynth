@@ -12,7 +12,7 @@
  * All consumers import from here. main.js owns `state` and all DOM.
  */
 
-export const STORAGE_KEY = 'lumisynth-state-v4';
+export const STORAGE_KEY = 'lumisynth-state-v5';
 
 // Color rack: 3 fixed slots, each holding one COLOR effect (or empty), with
 // per-slot enable/disable + drag-to-reorder. Renders in series — slot 0 reads
@@ -29,11 +29,12 @@ export const DEFAULTS = Object.freeze({
   speed: 1,
 
   // SYNTH-mode pipeline.
-  // - structure: 'none' | 'ascii' | 'erode'
+  // - structure: 'none' | 'ascii' | 'erode' | 'watershed' | 'pixelsort' | 'melt'
+  // - structureOutputMode: 'mono' | 'source' | 'ink'
   // - colorRack: array of 3 slots (see makeColorRack()) — initialized at
   //   startup, not in DEFAULTS, because each slot has a fresh per-instance id.
   // - perBlob: 'none' | 'inv' | 'thermal' (legacy holding pen)
-  structure: 'none', perBlob: 'none',
+  structure: 'none', structureOutputMode: 'mono', perBlob: 'none',
   asciiCellSize: 0.3, asciiContrast: 0.3, asciiBlackThresh: 0.2, asciiGlyphStrength: 0.9,
   erodeMode: 0,       erodeRadius: 0.3,    erodeStrength: 0.7,    erodeEdge: 0.0,
   watershedBasin: 0.4, watershedBoundary: 0.5, watershedFlat: 0.5, watershedDepth: 0.0,
