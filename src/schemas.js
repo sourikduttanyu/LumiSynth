@@ -77,8 +77,8 @@ export const DEFAULTS = Object.freeze({
   trackShape: 'solid',
   trackShapeColor: 0, trackShapeThickness: 2, trackShapePadding: 0, trackShapeStyle: 0.5,
 
-  // Lines (5 graph types + 4 knobs).
-  //   trackLines:           'off' | 'distthresh' | 'velocity' | 'pulse' | 'constellation'
+  // Lines (8 graph types including off + 4 knobs).
+  //   trackLines:           'off' | 'distthresh' | 'velocity' | 'pulse' | 'constellation' | 'mst' | 'star' | 'hubcurve'
   //   trackLinesColor       0..1
   //   trackLinesThickness   1..6
   //   trackLinesParam       0..1  — type-specific

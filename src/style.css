@@ -954,8 +954,8 @@ label.section-label { cursor: pointer; }
   letter-spacing: 0.05em;
 }
 
-/* Track-lines picker: 7 types (off, dist, velocity, pulse, const, mst, star).
-   4-column grid → rows of 4 / 3. Short abbreviations fit the narrow cells. */
+/* Track-lines picker: 8 types (off, dist, velocity, pulse, const, mst, star, curve).
+   4-column grid → rows of 4 / 4. Short abbreviations fit the narrow cells. */
 #track-lines-group {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

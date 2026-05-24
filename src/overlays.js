@@ -3,7 +3,7 @@
  * BlobTracking section: Shape × Lines × Effects on top of detected blobs.
  *
  *   SHAPE (4):    solid rect | hollow rect | dotted rect | corner brackets
- *   LINES (7):    off | distance threshold | velocity trails | pulse trail | constellation | mst | star
+ *   LINES (8):    off | distance threshold | velocity trails | pulse trail | constellation | mst | star | hub curves
  *   EFFECTS (3):  echo blobs | radar sweep | heatmap residue   (stack 0–3)
  *
  * All control values come in via the opts bag — this module is stateless
@@ -61,6 +61,7 @@ const HISTORY_MAX = 60;       // ~1 second at 60 fps; long enough for trails up 
 // frame size changes. Owned here so resetTrackOverlay() can blow it away.
 let _heatCanvas = null;
 let _heatCtx    = null;
+let _hubPoint   = null;
 
 function ensureHeatCanvas(w, h) {
   if (_heatCanvas && _heatCanvas.width === w && _heatCanvas.height === h) return;
@@ -78,6 +79,7 @@ export function resetTrackOverlay() {
   _history.clear();
   if (_heatCtx && _heatCanvas) _heatCtx.clearRect(0, 0, _heatCanvas.width, _heatCanvas.height);
   _frameCounter = 0;
+  _hubPoint = null;
 }
 
 // ---- Public entry point ----
@@ -134,7 +136,7 @@ export function drawTrackOverlay(ctx, blobs, cw, ch, opts) {
 
   // ---- Lines (under shapes so shapes draw on top of line endpoints) ----
   if (opts.lines.type !== 'off' && blobs.length > 0) {
-    drawLines(ctx, blobs, opts.lines);
+    drawLines(ctx, blobs, opts.lines, cw, ch);
   }
 
   // ---- Shapes (with optional echo-blob ghosts behind the live shape) ----
@@ -264,7 +266,7 @@ function drawCornerBrackets(ctx, x, y, w, h, len) {
 // LINES
 // ============================================================
 
-function drawLines(ctx, blobs, L) {
+function drawLines(ctx, blobs, L, cw, ch) {
   const baseColor = hueToRgba(L.hueColor, 1);
   ctx.save();
   ctx.lineWidth = L.thickness;
@@ -276,6 +278,7 @@ function drawLines(ctx, blobs, L) {
     case 'constellation': drawConstellation(ctx, blobs, L); break;
     case 'mst':           drawMST(ctx, blobs, L);           break;
     case 'star':          drawStar(ctx, blobs, L);          break;
+    case 'hubcurve':      drawHubCurves(ctx, blobs, L, cw, ch); break;
   }
   ctx.restore();
 }
@@ -305,6 +308,74 @@ function strokeSegment(ctx, x1, y1, x2, y2, L) {
   ctx.closePath();
   ctx.fillStyle = ctx.strokeStyle;
   ctx.fill();
+}
+
+function quadraticPoint(x0, y0, cx, cy, x1, y1, t) {
+  const inv = 1 - t;
+  return {
+    x: inv * inv * x0 + 2 * inv * t * cx + t * t * x1,
+    y: inv * inv * y0 + 2 * inv * t * cy + t * t * y1,
+  };
+}
+
+function strokeQuadraticCurve(ctx, x0, y0, cx, cy, x1, y1, L) {
+  if (L.taper <= 0.01) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(cx, cy, x1, y1);
+    ctx.stroke();
+    return;
+  }
+
+  const segments = 18;
+  const prevWidth = ctx.lineWidth;
+  for (let i = 1; i <= segments; i++) {
+    const t0 = (i - 1) / segments;
+    const t1 = i / segments;
+    const p0 = quadraticPoint(x0, y0, cx, cy, x1, y1, t0);
+    const p1 = quadraticPoint(x0, y0, cx, cy, x1, y1, t1);
+    ctx.lineWidth = Math.max(0.25, L.thickness * (1 - L.taper * t1));
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+  }
+  ctx.lineWidth = prevWidth;
+}
+
+function estimateHub(blobs, cw, ch) {
+  let sx = 0;
+  let sy = 0;
+  let sw = 0;
+  for (const b of blobs) {
+    const areaWeight = Math.sqrt(Math.max(1, b.area || b.w * b.h || 1));
+    const scoreWeight = 0.5 + Math.max(0, b.score || 0);
+    const weight = areaWeight * scoreWeight;
+    sx += b.cx * weight;
+    sy += b.cy * weight;
+    sw += weight;
+  }
+  if (sw <= 0) return null;
+
+  let x = sx / sw;
+  let y = sy / sw;
+
+  // Sparse detections make a centroid unstable; pull gently toward frame
+  // center until enough blobs define their own reliable hub.
+  const pull = blobs.length === 1 ? 0.65 : blobs.length === 2 ? 0.25 : 0;
+  if (pull > 0) {
+    x = x * (1 - pull) + (cw / 2) * pull;
+    y = y * (1 - pull) + (ch / 2) * pull;
+  }
+
+  if (!_hubPoint) {
+    _hubPoint = { x, y };
+  } else {
+    const alpha = 0.14;
+    _hubPoint.x += (x - _hubPoint.x) * alpha;
+    _hubPoint.y += (y - _hubPoint.y) * alpha;
+  }
+  return _hubPoint;
 }
 
 function drawDistThresh(ctx, blobs, L) {
@@ -392,6 +463,45 @@ function drawConstellation(ctx, blobs, L) {
       strokeSegment(ctx, a.cx, a.cy, b.cx, b.cy, L);
     }
   }
+}
+
+// Hub Curves — general center-to-blob topology. The hub is a smoothed,
+// weighted centroid of the current tracked blobs, not an object-specific
+// detector. param = curve amount; taper narrows the spokes toward endpoints.
+function drawHubCurves(ctx, blobs, L, cw, ch) {
+  if (blobs.length < 1) return;
+  const hub = estimateHub(blobs, cw, ch);
+  if (!hub) return;
+
+  const curveAmount = 0.08 + L.param * 0.36;
+  const alpha = 0.82;
+  ctx.strokeStyle = hueToRgba(L.hueColor, alpha);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  for (let i = 0; i < blobs.length; i++) {
+    const b = blobs[i];
+    const dx = b.cx - hub.x;
+    const dy = b.cy - hub.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1) continue;
+
+    const mx = hub.x + dx * 0.52;
+    const my = hub.y + dy * 0.52;
+    const nx = -dy / d;
+    const ny = dx / d;
+    const bend = d * curveAmount;
+    const controlX = mx + nx * bend;
+    const controlY = my + ny * bend;
+
+    strokeQuadraticCurve(ctx, hub.x, hub.y, controlX, controlY, b.cx, b.cy, L);
+  }
+
+  const r = Math.max(3, L.thickness * 2.5);
+  ctx.fillStyle = hueToRgba(L.hueColor, Math.min(1, alpha + 0.2));
+  ctx.beginPath();
+  ctx.arc(hub.x, hub.y, r, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 // ============================================================

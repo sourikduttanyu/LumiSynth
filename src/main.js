@@ -78,7 +78,6 @@ const videoScrub   = document.getElementById('video-scrub');
 const videoTime    = document.getElementById('video-time');
 const fpsOverlay   = document.getElementById('fps-overlay');
 const colorKeyInput   = document.getElementById('color-key-input');
-const colorKeyHueTolKnob = document.getElementById('color-key-huetol');
 // (overlay-color swatch grid retired — replaced by per-shape/per-lines hue knob)
 
 const offscreen = document.createElement('canvas');

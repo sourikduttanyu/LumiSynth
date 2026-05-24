@@ -9,15 +9,18 @@ npm install        # first time only
 npm run dev        # dev server at http://localhost:5173
 npm run build      # production build → dist/
 npm run preview    # serve dist/ locally
+npm run test:e2e   # Playwright smoke tests
+npm run cf:dev     # build + Cloudflare Pages local dev for Functions
+npm run cf:deploy  # build + deploy dist/ to Cloudflare Pages
 ```
 
-No test runner, no linter. The app is vanilla JS + Vite — verify correctness in the browser.
+No linter. The app is vanilla JS + Vite with Playwright smoke tests — verify visual/interaction correctness in the browser.
 
 ## Tech stack constraints
 
 **Hard no** (see `PRD_DECISIONS.md`): TypeScript, React/Svelte/Solid, Tailwind, shadcn, three.js, any framework. This is intentionally vanilla JS + raw WebGL2 + Vite. Don't introduce build-time transpilation or component libraries.
 
-State lives in plain objects. Persistence is `localStorage` (`STORAGE_KEY = 'lumisynth-state-v4'`). Bump the storage key and explain why if the saved-state schema changes.
+State lives in plain objects. Persistence is `localStorage` (`STORAGE_KEY = 'lumisynth-state-v5'`). Bump the storage key and explain why if the saved-state schema changes.
 
 ## Architecture
 
@@ -29,7 +32,7 @@ Video / webcam
   ↓ kalman.js          Kalman + nearest-neighbour tracker, keeps blob identities stable
   ↓ STRUCTURE pass     one full-frame WebGL effect (or none)
   ↓ COLOR rack         0–3 slots chained in series, each an independent WebGL pass
-  ↓ FX RACK            placeholder (P3 — not real yet)
+  ↓ FX RACK            placeholder (P3 — not real GL shaders yet)
   ↓ PER-BLOB pass      CPU-side filter (inv / thermal) inside blob bounding boxes
   ↓ overlays.js        Canvas 2D shapes, labels, connection lines drawn on top
 ```
@@ -143,11 +146,14 @@ Exported API:
 | `src/glFilters.js` | Stateless full-frame GL effects: shatter, erode, oxide, synth, biolum, thermo, falsecolor |
 | `src/blobDetector.js` | CPU blob detection, all 6 modes |
 | `src/kalman.js` | 1D Kalman filter + nearest-neighbour tracker |
-| `src/overlays.js` | Canvas 2D track overlay: shapes, labels, connection lines |
+| `src/overlays.js` | Canvas 2D track overlay: shapes, labels, connection lines, Track FX |
 | `src/oneEuroFilter.js` | One Euro Filter for sub-pixel blob position smoothing |
 | `src/filters.js` | CPU per-blob effects (inv, thermal) applied to ImageData subregions |
 | `src/ascii.js` | WebGL2 ASCII luma (single-pass, stateless) |
 | `src/glUtil.js` | `uploadVideoTexture` — allocate-once + `texSubImage2D` fast-path (saves ~8 MB GPU alloc/free per frame at 1080p); also handles UNPACK_FLIP_Y_WEBGL |
+| `functions/api/[[path]].js` | Cloudflare Pages Functions API for auth, presets, and export events |
+| `migrations/0001_auth_presets.sql` | D1 schema for users, auth challenges, sessions, presets, export events |
+| `wrangler.toml` | Cloudflare Pages config; D1 binding intentionally requires real database id later |
 
 Voronoi / cellular / wave were removed; they are not in the current `src/`.
 
@@ -167,6 +173,38 @@ Tokens defined in `DESIGN.md` / `DESIGN.json`. Key palette: warm-grey graphite c
 
 3 fixed slots mirroring the COLOR rack, but for TRACK mode only. Effects: `echo` (ghost bboxes of past blob positions), `radar` (sweep-ring per blob), `heatmap` (canvas residue layer). Schemas live in `TRACK_FX_PARAM_SCHEMAS`; rack initialized via `makeTrackFxRack()` in `main.js`. CPU-side Canvas 2D — no GL passes.
 
+### Track lines and smoothing
+
+Blob tracking is general-purpose, not object-specific. Detection happens in `blobDetector.js`, identity stabilization in `kalman.js`, and display smoothing in `main.js` via `BlobOneEuroFilter` when `state.trackStability > 0`.
+
+TRACK Lines currently include: `off`, `distthresh`, `velocity`, `pulse`, `constellation`, `mst`, `star`, `hubcurve`.
+
+`hubcurve` is the newest line style. It does **not** add a flower/petal detector. It computes a smoothed weighted hub from whatever blobs are already detected, then draws curved quadratic spokes from that hub to each blob in `overlays.js`. `trackLinesParam` controls curve amount; `trackLinesTaper` narrows the spokes toward endpoints. Existing `star`, `mst`, and `constellation` behavior should remain unchanged.
+
+### Auth, presets, and hosting
+
+Frontend hosting target: Cloudflare Pages. Backend target: Cloudflare Pages Functions + D1.
+
+`functions/api/[[path]].js` provides:
+- `POST /api/auth/start` — create a 6-digit login challenge and send it by email
+- `POST /api/auth/verify` — verify code, create user/session, set `lumisynth_session` HttpOnly cookie
+- `POST /api/auth/logout`
+- `GET /api/me`
+- `GET/POST /api/presets`
+- `PUT/DELETE /api/presets/:id`
+- `POST /api/export-events`
+
+Production email login expects these Cloudflare env vars:
+- `RESEND_API_KEY`
+- `AUTH_FROM_EMAIL`
+- `APP_ORIGIN`
+
+D1 must be bound as `DB`. The real `database_id` is **not** in `wrangler.toml` because it is only known after creating the real Cloudflare D1 database. Do not invent it. After D1 exists, add the binding in Cloudflare Pages settings or update `wrangler.toml` with the real `database_id` and `preview_database_id`.
+
+Local/internal testing before D1 exists: the frontend has a localhost-only fallback. On `localhost`, `127.0.0.1`, or file-host style empty hostname, if `/api` is unavailable, login code is shown in a toast and internal user/presets are stored in `localStorage` under `lumisynth-internal-auth` and `lumisynth-internal-presets`. This is only for internal testing of export gating and cloud preset UI.
+
+Exports are gated in `main.js`: Snap/Rec require an authenticated user. Real Cloudflare sessions record an `export_events` row; internal login bypasses the API and allows local testing.
+
 ## Active work context
 
-See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. P3 (real FX RACK GL shaders, drag-reorder, Inv/Thermal moving from PER-BLOB into FX RACK) is not started. `PRD_DECISIONS.md` logs what is deliberately out of scope.
+See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. Curved hub lines are implemented as a general TRACK Lines style (`hubcurve`). Cloudflare Pages Functions + D1 auth/presets/export-gating scaffolding exists, with localhost-only internal login for testing before real D1 setup. P3 (real FX RACK GL shaders, drag-reorder, Inv/Thermal moving from PER-BLOB into FX RACK) is not started. `PRD_DECISIONS.md` logs what is deliberately out of scope.
