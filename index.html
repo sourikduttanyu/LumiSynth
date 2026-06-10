@@ -222,17 +222,20 @@
           <button type="button" class="color-pick" data-pick-color="crt"          data-tip="Full CRT simulation. Phosphor subpixels, bloom, barrel distortion, scanlines.">CRT</button>
         </div>
 
-        <!-- ============ FX RACK (placeholder, untouched per "ignore fx") ============ -->
+        <!-- ============ FX RACK ============ -->
         <div class="stage-divider" data-stage="fx-rack" data-mode-section="synth">FX RACK <span class="stage-sub">chain · 0–3 slots</span></div>
 
         <section class="control-section" data-mode-section="synth">
-          <div class="section-label">Slots</div>
-          <div class="fx-rack" id="fx-rack" data-tip="FX rack chain. 0–3 effects in series, each reading the previous stage's output. Empty slots wire-through. Coming in a future update.">
-            <div class="fx-rack-slot" data-slot="0" aria-label="FX rack slot 1, empty"><span class="fx-rack-slot-num">1</span><span class="fx-rack-slot-empty">— empty —</span></div>
-            <div class="fx-rack-slot" data-slot="1" aria-label="FX rack slot 2, empty"><span class="fx-rack-slot-num">2</span><span class="fx-rack-slot-empty">— empty —</span></div>
-            <div class="fx-rack-slot" data-slot="2" aria-label="FX rack slot 3, empty"><span class="fx-rack-slot-num">3</span><span class="fx-rack-slot-empty">— empty —</span></div>
+          <div class="section-label" id="lbl-fx">Slots</div>
+          <div class="color-rack" id="fx-rack" role="list" aria-labelledby="lbl-fx"
+               data-tip="Up to 3 FX stages chained in series AFTER the color rack. These are feedback effects — they accumulate trails across frames. Drag the handle to reorder; toggle to A/B; × clears.">
           </div>
         </section>
+
+        <div class="color-picker-popover hidden" id="fx-picker-popover" role="dialog" aria-label="Pick an FX effect for this slot">
+          <button type="button" class="color-pick" data-pick-fx="none"      data-tip="Clear this slot. Slot becomes empty and is skipped in the chain.">None</button>
+          <button type="button" class="color-pick" data-pick-fx="flowfield" data-tip="Flow Field. Advects pixels along the luma-gradient flow and accumulates feedback trails frame over frame.">FlowField</button>
+        </div>
 
         <!-- ============ PER-BLOB (legacy, untouched per "ignore fx") ============ -->
         <div class="stage-divider" data-stage="perblob">PER-BLOB <span class="stage-sub">fill blobs with effect</span></div>

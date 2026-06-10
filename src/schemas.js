@@ -4,15 +4,19 @@
  * Single source of truth for:
  *   - App defaults and storage key
  *   - COLOR_PARAM_SCHEMAS: knob/toggle definitions for every color effect
+ *   - FX_PARAM_SCHEMAS: knob definitions for FX RACK effects
  *   - TRACK_FX_PARAM_SCHEMAS: knob definitions for track FX effects
- *   - Effect name lists (STRUCTURE_SECTIONS, COLOR_SECTIONS)
+ *   - Effect name lists (STRUCTURE_SECTIONS, COLOR_SECTIONS, FX_SECTIONS)
  *   - BLEND_MODES: effect → Canvas 2D composite operation
- *   - Rack factory functions (makeColorRack, makeTrackFxRack, etc.)
+ *   - Rack factory functions (makeColorRack, makeFxRack, makeTrackFxRack, etc.)
  *
  * All consumers import from here. main.js owns `state` and all DOM.
  */
 
-export const STORAGE_KEY = 'lumisynth-state-v6';
+// v7: saved-state schema gains `fxRack` (FX RACK went from placeholder to a
+// real 3-slot GL rack). sanitizeLook tolerates its absence, so v6 saves load
+// cleanly through the legacy-key migration path.
+export const STORAGE_KEY = 'lumisynth-state-v7';
 export const TIMELINE_MIN_SEGMENT_SECONDS = 0.1;
 export const TIMELINE_DEFAULTS = Object.freeze({
   timelineSegments: [],
@@ -381,6 +385,29 @@ export const COLOR_PARAM_SCHEMAS = {
 };
 
 // ============================================================
+// FX RACK — same 3-slot pattern as colorRack, but for stateful feedback
+// effects that run AFTER the COLOR rack (signal flow: STRUCTURE → COLOR →
+// FX RACK). These are temporal: each effect keeps a persistent feedback
+// texture between frames (see glFx.js), unlike the stateless COLOR passes.
+// `order` maps slot params to the shader's uParams.xyzw, exactly like
+// COLOR_PARAM_SCHEMAS.
+// ============================================================
+export const FX_PARAM_SCHEMAS = {
+  flowfield: {
+    knobs: [
+      { key: 'speed',   label: 'Flow',    min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Flow speed. How far pixels advect along the luma-gradient flow field each frame. 0 = static. 1 = fast swirling drift.' },
+      { key: 'persist', label: 'Persist', min: 0, max: 1, step: 0.01, default: 0.9, tip: 'Trail persistence. How much of the previous frame\'s trails carries forward. Near 1 = long-lived accumulating trails. Low = trails die in a few frames.' },
+      { key: 'bright',  label: 'Bright',  min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Trail brightness. How strongly gradient edges inject new energy into the trail buffer each frame.' },
+      { key: 'blend',   label: 'Blend',   min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Source blend. 0 = pure trail field. 1 = source image with trails layered over it.' },
+    ],
+    toggles: [],
+    order: ['speed', 'persist', 'bright', 'blend'],
+  },
+};
+
+export const FX_SECTIONS = ['flowfield'];
+
+// ============================================================
 // TRACK FX RACK — same 3-slot pattern as colorRack but for the spec's
 // three TRACK-mode effects (echo blobs / radar sweep / heatmap residue).
 // Each slot has the same shape (id, type, enabled, params); the picker,
@@ -464,6 +491,7 @@ export const BLEND_MODES = {
   scanlines:    'source-over',
   degrade:      'source-over',
   crt:          'source-over',
+  flowfield:    'source-over',
 };
 
 // ---- Factory functions ----
@@ -496,6 +524,24 @@ export function makeColorRack() {
     // Per-slot params — factory defaults via makeFactoryParams when the
     // slot is filled. Empty slots carry an empty {} so the field is always
     // present (avoids undefined checks throughout the render path).
+    params: {},
+  }));
+}
+
+export function makeFxFactoryParams(type) {
+  const schema = FX_PARAM_SCHEMAS[type];
+  if (!schema) return {};
+  const p = {};
+  for (const k of schema.knobs)   p[k.key] = k.default;
+  for (const t of schema.toggles) p[t.key] = t.default;
+  return p;
+}
+
+export function makeFxRack() {
+  return Array.from({ length: RACK_SLOTS }, () => ({
+    id: makeSlotId(),
+    type: 'none',
+    enabled: false,
     params: {},
   }));
 }

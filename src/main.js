@@ -5,14 +5,16 @@ import { drawTrackOverlay, resetTrackOverlay } from './overlays.js';
 import { trackBlobs, resetTracker } from './kalman.js';
 import { applyASCII } from './ascii.js';
 import { applyGLFilter } from './glFilters.js';
+import { applyFxEffect, resetFxFeedback } from './glFx.js';
 import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs } from './glContext.js';
 import { applyCompose } from './glCompose.js';
 import { BlobOneEuroFilter } from './oneEuroFilter.js';
 import {
   STORAGE_KEY, RACK_SLOTS, DEFAULTS, TIMELINE_DEFAULTS, TIMELINE_MIN_SEGMENT_SECONDS,
-  COLOR_PARAM_SCHEMAS, TRACK_FX_PARAM_SCHEMAS,
-  STRUCTURE_SECTIONS, COLOR_SECTIONS, BLEND_MODES, GL_RESETS,
+  COLOR_PARAM_SCHEMAS, FX_PARAM_SCHEMAS, TRACK_FX_PARAM_SCHEMAS,
+  STRUCTURE_SECTIONS, COLOR_SECTIONS, FX_SECTIONS, BLEND_MODES, GL_RESETS,
   makeSlotId, makeFactoryParams, makeColorRack,
+  makeFxFactoryParams, makeFxRack,
   makeTrackFxFactoryParams, makeTrackFxRack,
 } from './schemas.js';
 
@@ -27,6 +29,7 @@ const state = {
   hasSource: false,
   sourceKind: null,
   colorRack: makeColorRack(),
+  fxRack: makeFxRack(),
   trackFxRack: makeTrackFxRack(),
   ...TIMELINE_DEFAULTS,
 };
@@ -189,7 +192,7 @@ function inkColorUniforms(look = currentLook()) {
   };
 }
 
-const LEGACY_STORAGE_KEYS = ['lumisynth-state-v5'];
+const LEGACY_STORAGE_KEYS = ['lumisynth-state-v6', 'lumisynth-state-v5'];
 const TIMELINE_STATE_KEYS = new Set(['timelineSegments', 'selectedTimelineSegmentId']);
 const LOOK_STATE_KEYS = Object.keys(DEFAULTS).filter((k) => k !== 'speed' && !TIMELINE_STATE_KEYS.has(k));
 const cloneData = (value) => JSON.parse(JSON.stringify(value));
@@ -202,6 +205,30 @@ function sanitizeColorRack(rack) {
     }
     const type = (slot.type === 'none' || COLOR_SECTIONS.includes(slot.type)) ? slot.type : 'none';
     const factoryP = makeFactoryParams(type);
+    const params = { ...factoryP };
+    if (slot.params && typeof slot.params === 'object') {
+      for (const k of Object.keys(factoryP)) {
+        const v = slot.params[k];
+        if (typeof v === 'number' && Number.isFinite(v)) params[k] = v;
+      }
+    }
+    return {
+      id: slot.id || makeSlotId(),
+      type,
+      enabled: !!slot.enabled && type !== 'none',
+      params,
+    };
+  });
+}
+
+function sanitizeFxRack(rack) {
+  if (!Array.isArray(rack) || rack.length !== RACK_SLOTS) return makeFxRack();
+  return rack.map((slot) => {
+    if (!slot || typeof slot !== 'object') {
+      return { id: makeSlotId(), type: 'none', enabled: false, params: {} };
+    }
+    const type = (slot.type === 'none' || FX_SECTIONS.includes(slot.type)) ? slot.type : 'none';
+    const factoryP = makeFxFactoryParams(type);
     const params = { ...factoryP };
     if (slot.params && typeof slot.params === 'object') {
       for (const k of Object.keys(factoryP)) {
@@ -254,6 +281,7 @@ function sanitizeLook(raw = {}) {
   look.inkCreamHex = normalizeHexColor(look.inkCreamHex, DEFAULTS.inkCreamHex);
   look.colorKeyHex = normalizeHexColor(look.colorKeyHex, DEFAULTS.colorKeyHex);
   look.colorRack = sanitizeColorRack(raw.colorRack);
+  look.fxRack = sanitizeFxRack(raw.fxRack);
   look.trackFxRack = sanitizeTrackFxRack(raw.trackFxRack);
   return look;
 }
@@ -262,6 +290,7 @@ function makeLookSnapshot(source = state) {
   const raw = {};
   for (const k of LOOK_STATE_KEYS) raw[k] = source[k];
   raw.colorRack = cloneData(source.colorRack || makeColorRack());
+  raw.fxRack = cloneData(source.fxRack || makeFxRack());
   raw.trackFxRack = cloneData(source.trackFxRack || makeTrackFxRack());
   return sanitizeLook(raw);
 }
@@ -276,6 +305,7 @@ function applyLookToState(look) {
   const safe = sanitizeLook(look);
   for (const k of LOOK_STATE_KEYS) state[k] = safe[k];
   state.colorRack = cloneData(safe.colorRack);
+  state.fxRack = cloneData(safe.fxRack);
   state.trackFxRack = cloneData(safe.trackFxRack);
   applyStateToUI();
 }
@@ -690,6 +720,9 @@ function applyCloudPreset(preset) {
   if (Array.isArray(preset.state.colorRack) && preset.state.colorRack.length === RACK_SLOTS) {
     state.colorRack = preset.state.colorRack;
   }
+  if (Array.isArray(preset.state.fxRack) && preset.state.fxRack.length === RACK_SLOTS) {
+    state.fxRack = sanitizeFxRack(preset.state.fxRack);
+  }
   if (Array.isArray(preset.state.trackFxRack) && preset.state.trackFxRack.length === RACK_SLOTS) {
     state.trackFxRack = preset.state.trackFxRack;
   }
@@ -1054,6 +1087,16 @@ function runColorEffect(name, params, opts) {
   return applyGLFilter(name, canvas.width, canvas.height, tuple, opts);
 }
 
+// Dispatch a single FX RACK effect. Same shape as runColorEffect but routes
+// through glFx.js (stateful feedback passes). `key` is the rack slot id —
+// it travels in opts.fxKey so the module can keep per-slot trail state.
+function runFxEffect(name, params, opts = {}, key) {
+  const schema = FX_PARAM_SCHEMAS[name];
+  if (!schema) return;
+  const tuple = schema.order.map((k) => params[k]);
+  return applyFxEffect(name, canvas.width, canvas.height, tuple, { ...opts, fxKey: key });
+}
+
 const TOGGLE_CONFIG = [
   ['speed-group',           'speed',          parseFloat, (v) => { video.playbackRate = v; }],
   ['structure-group',       'structure',      String,     onStructureChange],
@@ -1083,6 +1126,12 @@ function resolveActivePipeline(look = currentLook()) {
     colors:    look.colorRack
       .filter((s) => s.enabled && s.type !== 'none')
       .map((s) => ({ type: s.type, params: s.params })),
+    // FX RACK stages run after the COLOR rack (STRUCTURE → COLOR → FX).
+    // `key` is the slot id — glFx.js keys each slot's persistent feedback
+    // buffers on it, so two slots with the same effect trail independently.
+    fx: (look.fxRack || [])
+      .filter((s) => s.enabled && s.type !== 'none')
+      .map((s) => ({ type: s.type, params: s.params, key: s.id })),
   };
 }
 
@@ -1689,6 +1738,344 @@ colorRackEl?.addEventListener('drop', (e) => {
 });
 
 // ============================================================
+// FX RACK — parallel to colorRack with its own DOM/picker state. Reuses
+// the same .color-rack-* classes; slots live in #fx-rack and the picker in
+// #fx-picker-popover. Effects are stateful GL feedback passes (glFx.js)
+// that run after the COLOR rack — see resolveActivePipeline / renderFrame.
+// Slot mutations that change WHAT an enabled slot renders (swap / clear)
+// also reset that slot's feedback buffers so stale trails from the old
+// effect never bleed into the new one.
+// ============================================================
+const fxRackEl   = document.getElementById('fx-rack');
+const fxPickerEl = document.getElementById('fx-picker-popover');
+
+const FX_LABEL = { flowfield: 'FlowField' };
+const FX_SWATCH_GRADIENTS = {
+  flowfield: 'linear-gradient(90deg, #020c14, #0f4a6b, #2fa3c7, #c7f0ff)',
+};
+const FX_CHIP_TIP = {
+  flowfield: 'Flow Field in this slot. Pixels advect along the luma-gradient flow, accumulating feedback trails frame over frame. Click to swap.',
+};
+
+let _openFxPickerSlotId = null;
+const _expandedFxSlots  = new Set();
+
+function renderFxRack() {
+  if (!fxRackEl) return;
+  fxRackEl.innerHTML = '';
+  for (let i = 0; i < state.fxRack.length; i++) {
+    const slot     = state.fxRack[i];
+    const filled   = slot.type !== 'none';
+    const expanded = filled && _expandedFxSlots.has(slot.id);
+
+    const el = document.createElement('div');
+    el.className = 'color-rack-slot';
+    el.setAttribute('role', 'listitem');
+    el.dataset.slotId  = slot.id;
+    el.dataset.slotIdx = String(i);
+    el.dataset.empty   = filled ? 'false' : 'true';
+    el.dataset.enabled = (slot.enabled && filled) ? 'true' : 'false';
+    el.dataset.expanded = expanded ? 'true' : 'false';
+    el.draggable = true;
+
+    const row = document.createElement('div');
+    row.className = 'color-rack-slot-row';
+    el.appendChild(row);
+
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'color-rack-handle';
+    handle.setAttribute('aria-label', 'Drag to reorder slot');
+    handle.dataset.tip = 'Drag to reorder this FX stage in the chain.';
+    handle.textContent = '≡';
+    row.appendChild(handle);
+
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'color-rack-chip';
+    chip.setAttribute('aria-haspopup', 'true');
+    chip.setAttribute('aria-expanded', _openFxPickerSlotId === slot.id ? 'true' : 'false');
+    chip.dataset.action = 'open-picker';
+    if (filled) {
+      chip.dataset.tip = FX_CHIP_TIP[slot.type] || '';
+      const swatch = document.createElement('span');
+      swatch.className = 'color-rack-chip-swatch';
+      swatch.style.background = FX_SWATCH_GRADIENTS[slot.type] || '';
+      const label = document.createElement('span');
+      label.className = 'color-rack-chip-label';
+      label.textContent = FX_LABEL[slot.type] || slot.type;
+      chip.appendChild(swatch);
+      chip.appendChild(label);
+    } else {
+      chip.dataset.tip = 'Empty slot. Click to pick an FX effect — it runs after the COLOR rack, reading the previous stage\'s output.';
+      const empty = document.createElement('span');
+      empty.className = 'color-rack-chip-empty';
+      empty.textContent = '+ add fx';
+      chip.appendChild(empty);
+    }
+    row.appendChild(chip);
+
+    if (filled) {
+      const chev = document.createElement('button');
+      chev.type = 'button';
+      chev.className = 'color-rack-chevron';
+      chev.dataset.action = 'expand';
+      chev.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      chev.dataset.tip = expanded ? 'Hide this slot\'s controls.' : 'Show this slot\'s controls.';
+      chev.textContent = expanded ? '▴' : '▾';
+      row.appendChild(chev);
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'color-rack-toggle';
+      toggle.dataset.action = 'toggle';
+      toggle.setAttribute('aria-pressed', slot.enabled ? 'true' : 'false');
+      toggle.dataset.tip = slot.enabled ? 'Disable this slot.' : 'Enable this slot.';
+      toggle.textContent = slot.enabled ? '✓' : '⊘';
+      row.appendChild(toggle);
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'color-rack-remove';
+      remove.dataset.action = 'remove';
+      remove.dataset.tip = 'Clear this slot.';
+      remove.textContent = '×';
+      row.appendChild(remove);
+    }
+
+    if (expanded) {
+      const panel = renderFxSlotPanel(slot);
+      el.appendChild(panel);
+    }
+
+    fxRackEl.appendChild(el);
+  }
+}
+
+function renderFxSlotPanel(slot) {
+  const schema = FX_PARAM_SCHEMAS[slot.type];
+  const panel = document.createElement('div');
+  panel.className = 'color-rack-slot-panel';
+  if (!schema) return panel;
+
+  const phead = document.createElement('div');
+  phead.className = 'color-rack-slot-panel-head';
+  const ptitle = document.createElement('span');
+  ptitle.className = 'color-rack-slot-panel-title';
+  ptitle.textContent = `${FX_LABEL[slot.type] || slot.type} controls`;
+  phead.appendChild(ptitle);
+  const presetBtn = document.createElement('button');
+  presetBtn.type = 'button';
+  presetBtn.className = 'color-rack-slot-reset';
+  presetBtn.dataset.action = 'reset-params';
+  presetBtn.dataset.tip = 'Reset only THIS slot\'s controls to factory.';
+  presetBtn.textContent = '⟲';
+  phead.appendChild(presetBtn);
+  panel.appendChild(phead);
+
+  const controlStack = document.createElement('div');
+  controlStack.className = 'control-stack color-rack-slot-controls';
+  const sliderStack = document.createElement('div');
+  sliderStack.className = 'slider-stack';
+  const knobCluster = document.createElement('div');
+  knobCluster.className = 'knob-cluster color-rack-slot-knob-grid';
+  for (const k of schema.knobs) {
+    const knobId = `fx-${slot.id}-${k.key}`;
+    const valId  = `${knobId}-val`;
+    const knobEl = document.createElement('div');
+    knobEl.className = 'knob slot-knob';
+    knobEl.id = knobId;
+    knobEl.dataset.knob = '';
+    knobEl.dataset.min     = String(k.min);
+    knobEl.dataset.max     = String(k.max);
+    knobEl.dataset.step    = String(k.step);
+    knobEl.dataset.default = String(k.default);
+    if (k.control) knobEl.dataset.control = k.control;
+    knobEl.dataset.tip     = k.tip;
+    knobEl.tabIndex = 0;
+    knobEl.setAttribute('aria-label', `${FX_LABEL[slot.type]} ${k.label}`);
+    const labelEl = document.createElement('span');
+    labelEl.className = 'knob-label';
+    labelEl.textContent = k.label;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'knob-val';
+    valSpan.id = valId;
+    valSpan.textContent = String(slot.params[k.key] ?? k.default);
+    knobEl.appendChild(labelEl);
+    knobEl.appendChild(valSpan);
+    if (k.control === 'slider') sliderStack.appendChild(knobEl);
+    else                        knobCluster.appendChild(knobEl);
+
+    initKnob(knobEl, {
+      writeValue:   (v) => { slot.params[k.key] = v; },
+      initialValue: slot.params[k.key] ?? k.default,
+    });
+  }
+  if (sliderStack.childElementCount) controlStack.appendChild(sliderStack);
+  if (knobCluster.childElementCount) controlStack.appendChild(knobCluster);
+  if (controlStack.childElementCount) panel.appendChild(controlStack);
+
+  return panel;
+}
+
+// ---- Slot mutation helpers (parallel to colorRack) ----
+function setFxSlotType(slotId, type) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
+  if (!slot) return;
+  if (type === 'none') {
+    slot.type = 'none';
+    slot.enabled = false;
+    slot.params = {};
+  } else {
+    slot.type = type;
+    slot.enabled = true;
+    slot.params = makeFxFactoryParams(type);
+  }
+  // The slot's accumulated trails belong to the old effect — restart from
+  // black so the new pick doesn't inherit them.
+  resetFxFeedback(slotId);
+  _expandedFxSlots.delete(slotId);
+  renderFxRack();
+  schedulePersist();
+}
+function toggleFxSlot(slotId) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
+  if (!slot || slot.type === 'none') return;
+  slot.enabled = !slot.enabled;
+  // Disable freezes rendering but the buffers hold the last trails; reset
+  // so re-enabling starts clean instead of ghosting frames from minutes ago.
+  if (!slot.enabled) resetFxFeedback(slotId);
+  renderFxRack();
+  schedulePersist();
+}
+function clearFxSlot(slotId) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
+  if (!slot) return;
+  slot.type = 'none';
+  slot.enabled = false;
+  slot.params = {};
+  resetFxFeedback(slotId);
+  _expandedFxSlots.delete(slotId);
+  renderFxRack();
+  schedulePersist();
+}
+function resetFxSlotParams(slotId) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
+  if (!slot || slot.type === 'none') return;
+  slot.params = makeFxFactoryParams(slot.type);
+  renderFxRack();
+  schedulePersist();
+}
+function reorderFxSlot(srcIdx, dstIdx) {
+  if (srcIdx === dstIdx) return;
+  const arr = state.fxRack.slice();
+  const [moved] = arr.splice(srcIdx, 1);
+  arr.splice(dstIdx, 0, moved);
+  state.fxRack = arr;
+  renderFxRack();
+  schedulePersist();
+}
+
+function openFxPicker(slotEl) {
+  const slotId = slotEl.dataset.slotId;
+  _openFxPickerSlotId = slotId;
+  const r = slotEl.getBoundingClientRect();
+  fxPickerEl.classList.remove('hidden');
+  const pr = fxPickerEl.getBoundingClientRect();
+  let top  = r.bottom + 4;
+  let left = r.right - pr.width;
+  if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 4;
+  if (left < 8) left = 8;
+  fxPickerEl.style.top  = `${top}px`;
+  fxPickerEl.style.left = `${left}px`;
+  const chip = slotEl.querySelector('.color-rack-chip');
+  if (chip) chip.setAttribute('aria-expanded', 'true');
+}
+function closeFxPicker() {
+  if (!_openFxPickerSlotId) return;
+  _openFxPickerSlotId = null;
+  fxPickerEl.classList.add('hidden');
+  for (const chip of fxRackEl.querySelectorAll('.color-rack-chip')) {
+    chip.setAttribute('aria-expanded', 'false');
+  }
+}
+
+fxRackEl?.addEventListener('click', (e) => {
+  const slotEl = e.target.closest('.color-rack-slot');
+  if (!slotEl) return;
+  const action = e.target.closest('[data-action]')?.dataset.action;
+  if (!action) return;
+  const slotId = slotEl.dataset.slotId;
+  if (action === 'open-picker') {
+    if (_openFxPickerSlotId === slotId) { closeFxPicker(); return; }
+    openFxPicker(slotEl);
+  } else if (action === 'toggle') {
+    toggleFxSlot(slotId);
+  } else if (action === 'remove') {
+    clearFxSlot(slotId);
+  } else if (action === 'expand') {
+    if (_expandedFxSlots.has(slotId)) _expandedFxSlots.delete(slotId);
+    else                              _expandedFxSlots.add(slotId);
+    renderFxRack();
+  } else if (action === 'reset-params') {
+    resetFxSlotParams(slotId);
+  }
+});
+
+fxPickerEl?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-pick-fx]');
+  if (!btn || !_openFxPickerSlotId) return;
+  setFxSlotType(_openFxPickerSlotId, btn.dataset.pickFx);
+  closeFxPicker();
+});
+
+document.addEventListener('mousedown', (e) => {
+  if (!_openFxPickerSlotId) return;
+  if (fxPickerEl.contains(e.target)) return;
+  if (e.target.closest(`#fx-rack .color-rack-slot[data-slot-id="${_openFxPickerSlotId}"]`)) return;
+  closeFxPicker();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _openFxPickerSlotId) closeFxPicker();
+});
+
+// Independent drag-state for the fx rack so a drag here doesn't confuse
+// the colorRack / trackFx drag-state and vice versa.
+let _fxDragSrcIdx = null;
+fxRackEl?.addEventListener('dragstart', (e) => {
+  const slotEl = e.target.closest('.color-rack-slot');
+  if (!slotEl) { e.preventDefault(); return; }
+  _fxDragSrcIdx = parseInt(slotEl.dataset.slotIdx, 10);
+  slotEl.classList.add('dragging');
+  e.dataTransfer.setData('text/plain', String(_fxDragSrcIdx));
+  e.dataTransfer.effectAllowed = 'move';
+});
+fxRackEl?.addEventListener('dragend', () => {
+  _fxDragSrcIdx = null;
+  for (const el of fxRackEl.querySelectorAll('.color-rack-slot')) {
+    el.classList.remove('dragging', 'drop-target');
+  }
+});
+fxRackEl?.addEventListener('dragover', (e) => {
+  if (_fxDragSrcIdx === null) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const slotEl = e.target.closest('.color-rack-slot');
+  for (const el of fxRackEl.querySelectorAll('.color-rack-slot')) {
+    el.classList.toggle('drop-target', el === slotEl && el !== e.currentTarget.querySelector('.dragging'));
+  }
+});
+fxRackEl?.addEventListener('drop', (e) => {
+  if (_fxDragSrcIdx === null) return;
+  e.preventDefault();
+  const slotEl = e.target.closest('.color-rack-slot');
+  if (!slotEl) return;
+  const dstIdx = parseInt(slotEl.dataset.slotIdx, 10);
+  reorderFxSlot(_fxDragSrcIdx, dstIdx);
+  _fxDragSrcIdx = null;
+});
+
+// ============================================================
 // TRACK FX RACK — parallel to colorRack with its own DOM/picker state.
 // Reuses the same .color-rack-* classes (no new visuals per "ignore visual
 // style"); slots live in #track-fx-rack and the picker in
@@ -2044,6 +2431,7 @@ function applyStateToUI() {
     // loop. Both run inside the _applyingState guard so any future side
     // effects on render don't double-fire during state restore.
     renderColorRack();
+    renderFxRack();
     renderTrackFxRack();
   } finally {
     _applyingState = false;
@@ -2135,9 +2523,13 @@ function loadPersistedState() {
     // types. STORAGE_KEY bumped to v3 so first-load-after-this-commit
     // sees no parsed.trackFxRack and uses the fresh rack from state init.
     if (parsed.trackFxRack) parsed.trackFxRack = sanitizeTrackFxRack(parsed.trackFxRack);
+    // FX rack — same defensive migration. v6-and-earlier saves have no
+    // fxRack at all; state init's fresh makeFxRack() stands in that case.
+    if (parsed.fxRack) parsed.fxRack = sanitizeFxRack(parsed.fxRack);
     if (parsed.timelineSegments) parsed.timelineSegments = sanitizeTimelineSegments(parsed.timelineSegments);
     for (const k of Object.keys(DEFAULTS)) if (k in parsed) state[k] = parsed[k];
     if (parsed.colorRack)    state.colorRack    = parsed.colorRack;
+    if (parsed.fxRack)       state.fxRack       = parsed.fxRack;
     if (parsed.trackFxRack)  state.trackFxRack  = parsed.trackFxRack;
     if (Array.isArray(parsed.timelineSegments)) state.timelineSegments = parsed.timelineSegments;
     state.selectedTimelineSegmentId = parsed.selectedTimelineSegmentId || null;
@@ -2151,10 +2543,13 @@ function loadPersistedState() {
 let resetConfirmTimer = 0;
 function performFullReset() {
   for (const k of Object.keys(DEFAULTS)) state[k] = DEFAULTS[k];
-  // colorRack + trackFxRack live outside DEFAULTS (per-instance ids);
-  // reset explicitly so each session has fresh slot ids and factory params.
+  // colorRack + fxRack + trackFxRack live outside DEFAULTS (per-instance
+  // ids); reset explicitly so each session has fresh slot ids and factory
+  // params.
   state.colorRack   = makeColorRack();
+  state.fxRack      = makeFxRack();
   state.trackFxRack = makeTrackFxRack();
+  resetFxFeedback();
   state.timelineSegments = [];
   state.selectedTimelineSegmentId = null;
   applyStateToUI();
@@ -2618,6 +3013,9 @@ function loadImageSource(url, label) {
 
 function resetAllState() {
   resetFrameHistory(); resetTracker(); resetTrackOverlay();
+  // FX feedback trails belong to the old source / timeline segment — a new
+  // one starts from black, same as every other temporal cache here.
+  resetFxFeedback();
   cachedBlobs = []; frameCount = 0;
   _pendingTimelineStart = null;
   _timelineCursorPinnedTime = null;
@@ -2826,12 +3224,14 @@ function renderTimelinePanel() {
   if (timelineDetails) {
     if (selected) {
       const activeColors = selected.look.colorRack.filter((s) => s.enabled && s.type !== 'none').map((s) => RACK_LABEL[s.type] || s.type);
+      const activeFx = (selected.look.fxRack || []).filter((s) => s.enabled && s.type !== 'none').map((s) => FX_LABEL[s.type] || s.type);
       const activeTrackFx = selected.look.trackFxRack.filter((s) => s.enabled && s.type !== 'none').map((s) => TRACK_FX_LABEL[s.type] || s.type);
       timelineDetails.classList.remove('hidden');
       timelineDetails.textContent = [
         `${selected.name} expanded`,
         `Structure: ${selected.look.structure}`,
         `Color: ${activeColors.length ? activeColors.join(' > ') : 'none'}`,
+        `FX: ${activeFx.length ? activeFx.join(' > ') : 'none'}`,
         `Track FX: ${activeTrackFx.length ? activeTrackFx.join(' > ') : 'none'}`,
       ].join(' · ');
     } else {
@@ -3477,9 +3877,15 @@ function renderFrame(nowDOMHi) {
   //
   //   video → STRUCTURE → [compose if structure blend = screen]
   //                 ↓                 ↓
-  //              COLOR[0] → COLOR[1] → COLOR[2] → screen
-  //                                                composite blend =
-  //                                                terminal stage's BLEND_MODES
+  //              COLOR[0..2] → FX[0..2] → screen
+  //                                        composite blend =
+  //                                        terminal stage's BLEND_MODES
+  //
+  // COLOR and FX stages share the same ping-pong mechanics, so they're
+  // merged into one `chained` list below. FX stages (glFx.js) additionally
+  // keep per-slot feedback textures between frames — internal to the
+  // module; the chain just sees a stage that reads inputTex and writes
+  // outputFBO like any other.
   //
   // Stages are ping-ponged through the two chain FBOs (chain.a ↔ chain.b).
   // Each non-terminal stage writes to whichever FBO is the current write
@@ -3495,7 +3901,14 @@ function renderFrame(nowDOMHi) {
   //
   // Per-blob (Inv / Thermal) layers on top of all of this — see block below.
   const pipe = resolveActivePipeline(look);
-  const totalStages = (pipe.structure ? 1 : 0) + pipe.colors.length;
+  // COLOR and FX stages have identical chain mechanics (read inputTex,
+  // write outputFBO) — only the dispatcher differs. Normalize them into
+  // one ordered list: colors first, then fx (STRUCTURE → COLOR → FX).
+  const chained = [
+    ...pipe.colors.map((c) => ({ type: c.type, run: (opts) => runColorEffect(c.type, c.params, opts) })),
+    ...pipe.fx.map((f)     => ({ type: f.type, run: (opts) => runFxEffect(f.type, f.params, opts, f.key) })),
+  ];
+  const totalStages = (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
     uploadVideoFrame(srcEl);
@@ -3507,9 +3920,9 @@ function renderFrame(nowDOMHi) {
         runEffect(pipe.structure);
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
       } else {
-        const c = pipe.colors[0];
-        runColorEffect(c.type, c.params);
-        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[c.type] || 'source-over');
+        const stage = chained[0];
+        stage.run({});
+        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[stage.type] || 'source-over');
       }
     } else {
       // Multi-stage chain. Ping-pong through chain.a ↔ chain.b.
@@ -3538,21 +3951,21 @@ function renderFrame(nowDOMHi) {
         }
       }
 
-      // COLORS — chained. Each reads currentTex (or raw video if STRUCTURE
-      // was None and this is the first color), writes to the next slot in
-      // the ping-pong, then becomes the source for the next iteration.
-      // Last color writes to the default framebuffer instead of a chain FBO
-      // so its output ends up on the shared GL canvas for compositing.
-      for (let i = 0; i < pipe.colors.length; i++) {
-        const isLast = (i === pipe.colors.length - 1);
+      // COLOR + FX — chained. Each reads currentTex (or raw video if
+      // STRUCTURE was None and this is the first stage), writes to the next
+      // slot in the ping-pong, then becomes the source for the next
+      // iteration. The last stage writes to the default framebuffer instead
+      // of a chain FBO so its output ends up on the shared GL canvas for
+      // compositing.
+      for (let i = 0; i < chained.length; i++) {
+        const isLast = (i === chained.length - 1);
         const outFB  = isLast ? null : writeFBOs[writeIdx];
-        // currentTex is null when no STRUCTURE and this is the first color
+        // currentTex is null when no STRUCTURE and this is the first stage
         // → effect module's `inputTex || getVideoTex()` defaults to the
         // shared video texture. Don't pass inputTex in that case.
         const opts = currentTex ? { inputTex: currentTex, outputFBO: outFB }
                                 : { outputFBO: outFB };
-        const c = pipe.colors[i];
-        runColorEffect(c.type, c.params, opts);
+        chained[i].run(opts);
         if (!isLast) {
           currentTex = readTexs[writeIdx];
           writeIdx ^= 1;
@@ -3560,11 +3973,11 @@ function renderFrame(nowDOMHi) {
       }
 
       // Terminal-stage rule: composite blend mode is whatever the LAST
-      // stage in the chain naturally wants. Last color when colors exist,
-      // otherwise STRUCTURE (which means we got here only when STRUCTURE
-      // is the only stage — already handled by the totalStages===1 branch
-      // above, so this is just the COLOR case).
-      const terminal = pipe.colors[pipe.colors.length - 1].type;
+      // stage in the chain naturally wants. Last chained stage (color or
+      // fx) when any exist, otherwise STRUCTURE (which means we got here
+      // only when STRUCTURE is the only stage — already handled by the
+      // totalStages===1 branch above, so this is just the chained case).
+      const terminal = chained[chained.length - 1].type;
       compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[terminal] || 'source-over');
     }
   }

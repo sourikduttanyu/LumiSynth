@@ -784,40 +784,10 @@ label.section-label { cursor: pointer; }
   border-color: var(--orange-signal);
 }
 
-/* ============================================================
-   FX RACK SLOTS — placeholder pedalboard. P1 ships visual-only;
-   the rack mechanics + real FX effects land in P3 along with the
-   STRUCTURE → COLOR FBO chain. Empty slots read as deprecated /
-   pending: dashed border, no hover, faint text.
-   ============================================================ */
-.fx-rack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-.fx-rack-slot {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-stage);
-  border: 1px dashed var(--border-hairline);
-  border-radius: 6px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  min-height: 28px;
-}
-.fx-rack-slot-num {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-  min-width: 12px;
-}
-.fx-rack-slot-empty {
-  color: var(--text-faint);
-  font-style: italic;
-}
+/* FX RACK (P3) is a live rack now — #fx-rack reuses the .color-rack-*
+   classes wholesale, same as #track-fx-rack. The old placeholder
+   pedalboard styles (.fx-rack, .fx-rack-slot-*) were removed with the
+   placeholder markup. */
 
 /* ============================================================
    ACTION + TOGGLE BUTTONS

@@ -1,18 +1,18 @@
 import { test, expect } from '@playwright/test';
 
-const STORAGE_KEY = 'lumisynth-state-v6';
-const LEGACY_STORAGE_KEY = 'lumisynth-state-v5';
+const STORAGE_KEY = 'lumisynth-state-v7';
+const LEGACY_STORAGE_KEYS = ['lumisynth-state-v6', 'lumisynth-state-v5'];
 const INTRO_DISMISSED_KEY = 'lumisynth-intro-dismissed';
 
 const byValue = (group, value) => `${group} .toggle-btn[data-value="${value}"]`;
 
 async function gotoClean(page) {
   await page.goto('/');
-  await page.evaluate(([stateKey, legacyStateKey, introKey]) => {
+  await page.evaluate(([stateKey, legacyStateKeys, introKey]) => {
     localStorage.removeItem(stateKey);
-    localStorage.removeItem(legacyStateKey);
+    for (const key of legacyStateKeys) localStorage.removeItem(key);
     localStorage.removeItem(introKey);
-  }, [STORAGE_KEY, LEGACY_STORAGE_KEY, INTRO_DISMISSED_KEY]);
+  }, [STORAGE_KEY, LEGACY_STORAGE_KEYS, INTRO_DISMISSED_KEY]);
   await page.reload();
   await expect(page.locator('#app')).toBeVisible();
 }
@@ -137,6 +137,37 @@ test('help overlay opens and closes', async ({ page }) => {
 
   await page.locator('#help-close').click();
   await expect(page.locator('#help-overlay')).toBeHidden();
+});
+
+test('fx rack fills a slot with flowfield and persists it', async ({ page }) => {
+  await gotoDismissed(page);
+
+  // Three empty slots render in the FX rack.
+  await expect(page.locator('#fx-rack .color-rack-slot')).toHaveCount(3);
+  await expect(page.locator('#fx-rack .color-rack-slot[data-empty="true"]')).toHaveCount(3);
+
+  // Pick FlowField into slot 0 via the picker popover.
+  await page.locator('#fx-rack .color-rack-slot').first().locator('.color-rack-chip').click();
+  await expect(page.locator('#fx-picker-popover')).toBeVisible();
+  await page.locator('#fx-picker-popover [data-pick-fx="flowfield"]').click();
+
+  const slot0 = page.locator('#fx-rack .color-rack-slot').first();
+  await expect(slot0).toHaveAttribute('data-empty', 'false');
+  await expect(slot0).toHaveAttribute('data-enabled', 'true');
+  await expect(slot0.locator('.color-rack-chip-label')).toHaveText('FlowField');
+
+  // Expanding reveals the slot's four knobs.
+  await slot0.locator('.color-rack-chevron').click();
+  await expect(slot0.locator('.color-rack-slot-panel .knob')).toHaveCount(4);
+
+  // The pick lands in persisted state and survives reload.
+  await expect.poll(() => page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key) || '{}');
+    return raw.fxRack && raw.fxRack[0] && raw.fxRack[0].type;
+  }, STORAGE_KEY)).toBe('flowfield');
+
+  await page.reload();
+  await expect(page.locator('#fx-rack .color-rack-slot').first().locator('.color-rack-chip-label')).toHaveText('FlowField');
 });
 
 test('intro overlay dismisses and stays dismissed', async ({ page }) => {
