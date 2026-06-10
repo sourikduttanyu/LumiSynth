@@ -841,6 +841,58 @@ void main() {
   fragColor = vec4(clamp(col, 0.0, 2.0), 1.0);
 }`;
 
+const FRAG_BLACKBODY = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  float val = texture(u_video, vUV).r;
+  float g = mix(0.5, 1.6, uParams.y);
+  float v = pow(clamp(val, 0.0, 1.0), g);
+  float t = uParams.x;
+  vec3 c0 = vec3(0.0);
+  vec3 c1 = vec3(0.30, 0.01, 0.0);
+  vec3 c2 = mix(vec3(0.88, 0.22, 0.01), vec3(1.0, 0.75, 0.05), t * 0.7);
+  vec3 c3 = mix(vec3(1.0, 0.88, 0.10), vec3(1.0, 0.97, 0.86), t);
+  vec3 c4 = mix(vec3(1.0, 0.97, 0.90), mix(vec3(0.88, 0.94, 1.0), vec3(0.72, 0.82, 1.0), t), t);
+  float p1 = 0.12, p2 = 0.40, p3 = 0.72;
+  vec3 col;
+  if (v < p1)      col = mix(c0, c1, v / p1);
+  else if (v < p2) col = mix(c1, c2, (v - p1) / (p2 - p1));
+  else if (v < p3) col = mix(c2, c3, (v - p2) / (p3 - p2));
+  else             col = mix(c3, c4, (v - p3) / (1.0 - p3));
+  vec3 coronaCol = mix(vec3(0.55, 0.28, 0.02), vec3(0.06, 0.18, 0.60), t);
+  col += coronaCol * uParams.z * smoothstep(0.72, 1.0, v) * 0.85;
+  col += vec3(0.35, 0.04, 0.0) * uParams.w * smoothstep(0.30, 0.45, v) * (1.0 - smoothstep(0.45, 0.60, v)) * 0.65;
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+const FRAG_HUBBLE = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  float val = texture(u_video, vUV).r;
+  float g = mix(0.5, 1.5, uParams.y);
+  float v = pow(clamp(val, 0.0, 1.0), g);
+  float pal = uParams.x;
+  float sii  = smoothstep(0.0, 0.30, v) * (1.0 - smoothstep(0.35, 0.65, v));
+  float ha   = smoothstep(0.12, 0.48, v) * (1.0 - smoothstep(0.60, 0.90, v));
+  float oiii = smoothstep(0.32, 0.72, v);
+  vec3 sho = vec3(sii * 0.85 + ha * 0.15, ha * 0.78, oiii * 0.92);
+  vec3 hoo = vec3(ha * 0.82, oiii * 0.68, oiii * 0.92);
+  vec3 col = mix(sho, hoo, pal);
+  col *= smoothstep(0.0, 0.07, v) * (1.0 + v * 0.45);
+  float grey = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(grey), col, uParams.z);
+  col *= smoothstep(0.0, mix(0.04, 0.25, uParams.w), v);
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
 const FRAG_DECAYFLOW = `#version 300 es
 precision highp float;
 in vec2 vUV;
@@ -1208,6 +1260,8 @@ const FRAGS = {
   infrared:     FRAG_INFRARED,
   neontube:     FRAG_NEONTUBE,
   deepfield:    FRAG_DEEPFIELD,
+  blackbody:    FRAG_BLACKBODY,
+  hubble:       FRAG_HUBBLE,
   decayflow:    FRAG_DECAYFLOW,
   feedbackwarp: FRAG_FEEDBACKWARP,
   bloom:        FRAG_BLOOM,

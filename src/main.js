@@ -1338,6 +1338,8 @@ const COLOR_SWATCH_GRADIENTS = {
   solarize:   'linear-gradient(90deg, #050505, #f6f1d3, #1d1b2f, #ff7a4d)',
   cyanotype:  'linear-gradient(90deg, #061423, #063f7a, #3fa7c7, #d7f3ee)',
   infrared:   'linear-gradient(90deg, #05081a, #234e7c, #d02775, #ffb1a3)',
+  blackbody:  'linear-gradient(90deg, #000, #3d0100, #c84000, #ffdd00, #e8efff)',
+  hubble:     'linear-gradient(90deg, #020008, #6d1500, #2a7a00, #00b5bb)',
   // UNIQUE tab
   nebula:     'linear-gradient(90deg, #05000d, #321a5c, #b13c74, #f4a36d)',
   aurorastorm:'linear-gradient(90deg, #00120b, #00d86a, #5ddcff, #d855ff)',
@@ -1350,6 +1352,7 @@ const COLOR_SWATCH_GRADIENTS = {
 const COLOR_LABEL = {
   oxide: 'Oxide', synth: 'Synth', biolum: 'BioLum', thermo: 'Thermo', falsecolor: 'FalseClr',
   acidwash: 'AcidWash', xray: 'X-Ray', solarize: 'Solarize', cyanotype: 'Cyanotype', infrared: 'Infrared',
+  blackbody: 'Blackbody', hubble: 'Hubble',
   nebula: 'Nebula', aurorastorm: 'Aurora', deepfield: 'DeepField', neontube: 'NeonTube',
   prismatic: 'Prismatic', heatbleed: 'HeatBleed', depthstack: 'DepthStack',
   chroma: 'ChromaEngine',
@@ -1367,6 +1370,8 @@ const COLOR_MAP_TIPS = {
   solarize:   'Solarization / Sabattier effect. Tone folding at a luminance threshold.',
   cyanotype:  'Blueprint paper aesthetic. Deep cobalt to pale cyan with paper grain.',
   infrared:   'Aerochrome infrared film. Magentas in foliage zones, deep blue shadows.',
+  blackbody:  'Planckian temperature ramp. Maps luma to stellar color temperatures — deep ember through orange-yellow to blue-white hot plasma.',
+  hubble:     'Hubble SHO emission palette. Maps luma bands to Sulphur (red), Hydrogen (green), Oxygen (blue). Toggle to HOO for a cyan-heavy Orion Nebula variant.',
   nebula:     'Cosmic gas cloud palette. Emission, reflection, or planetary nebula aesthetics.',
   aurorastorm:'Violent solar storm aurora. Vertical curtain streaks with extreme color bands.',
   deepfield:  'Hubble Ultra Deep Field aesthetic. Dark void with warm redshifted galaxy colors.',

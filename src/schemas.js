@@ -293,6 +293,26 @@ export const COLOR_PARAM_SCHEMAS = {
     toggles: [],
     order: ['intens', 'blueshift', 'contrast', 'grain'],
   },
+  blackbody: {
+    knobs: [
+      { key: 'temp',   label: 'Temp',   min: 0, max: 1, step: 0.01, default: 0.3,  tip: '0 = ember/molten metal (red→orange→yellow). 1 = stellar plasma (yellow→white→blue-white). Planckian temperature scale.' },
+      { key: 'gamma',  label: 'Gamma',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Ramp gamma. 0 = bright-compressed bias. 1 = expanded dark regions with punchy highlights.' },
+      { key: 'corona', label: 'Corona', min: 0, max: 1, step: 0.01, default: 0.25, tip: 'Luminosity glow at peak highlights. 0 = clean. 1 = bright plasma corona.' },
+      { key: 'emiss',  label: 'Emiss',  min: 0, max: 1, step: 0.01, default: 0,    tip: 'Adds a faint Hα-like red emission band at mid-values. Gives a nebular plasma quality.' },
+    ],
+    toggles: [],
+    order: ['temp', 'gamma', 'corona', 'emiss'],
+  },
+  hubble: {
+    knobs: [
+      { key: 'palette', label: 'Palette', min: 0, max: 1, step: 0.01, default: 0,    tip: '0 = SHO (Sulphur→Red, Hydrogen→Green, Oxygen→Blue). 1 = HOO (Hydrogen→Red, Oxygen→Blue-green). Iconic Hubble telescope emission palettes.' },
+      { key: 'gamma',   label: 'Gamma',   min: 0, max: 1, step: 0.01, default: 0.45, tip: 'Emission brightness/gamma. 0 = bright compressed. 1 = dark expanded with vivid contrast.' },
+      { key: 'sat',     label: 'Sat',     min: 0, max: 1, step: 0.01, default: 0.9,  tip: '0 = greyscale dust. 1 = fully saturated SHO emission colors.' },
+      { key: 'dust',    label: 'Dust',    min: 0, max: 1, step: 0.01, default: 0.15, tip: '0 = soft fade to black. 1 = hard dust lane cutoff like the Pillars of Creation.' },
+    ],
+    toggles: [],
+    order: ['palette', 'gamma', 'sat', 'dust'],
+  },
   neontube: {
     knobs: [
       { key: 'hue',    label: 'Hue',    min: 0, max: 1, step: 0.01, default: 0.85, tip: 'Neon color hue. 0.85 = hot pink, 0.55 = cyan, 0.15 = amber.' },
@@ -497,6 +517,7 @@ export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'watershed', 'pixelsort', '
 export const COLOR_MAP_SECTIONS = [
   'oxide','synth','biolum','thermo','falsecolor',
   'acidwash','xray','solarize','cyanotype','infrared',
+  'blackbody','hubble',
 ];
 // The UNIQUE tab — effects that BUILD something: they sample neighbors, add
 // elements (stars, halos, streaks), displace, or glow. Grouped into labeled
@@ -544,6 +565,8 @@ export const BLEND_MODES = {
   aurorastorm:  'source-over',
   cyanotype:    'source-over',
   infrared:     'source-over',
+  blackbody:    'source-over',
+  hubble:       'source-over',
   neontube:     'source-over',
   deepfield:    'source-over',
   decayflow:    'source-over',
