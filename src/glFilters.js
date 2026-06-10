@@ -1058,27 +1058,28 @@ precision highp float;
 in vec2 vUV;
 uniform sampler2D u_video;
 uniform vec4 uParams;
+uniform float uTime;
 out vec4 fragColor;
 void main() {
   vec2 uv = vUV;
-  vec2 res = vec2(textureSize(u_video, 0));
   float freq = mix(3.0, 40.0, uParams.x);
-  float roll = uParams.w * 2.0;
+  // uTime drives real scrolling; speed=0 freezes it
+  float roll = uParams.w * uTime * 2.0;
   vec3 selfColor = texture(u_video, uv).rgb;
   float luma = dot(selfColor, vec3(0.299,0.587,0.114));
-  float lumaFactor = mix(1.0, luma, uParams.z);
+  float lumaFactor = mix(1.0, luma, 0.5);
   float phase = uv.y * freq + roll;
   float wave = sin(phase * 6.2832);
   float amp = uParams.y * 0.05 * lumaFactor;
   float disp = wave * amp;
-  float chromaAmt = 0.015;
+  float chromaAmt = uParams.z * 0.02;
   float rOffset = disp + chromaAmt * wave;
   float gOffset = disp;
   float bOffset = disp - chromaAmt * wave;
   vec3 result;
-  result.r = texture(u_video, vec2(uv.x + rOffset, uv.y)).r;
-  result.g = texture(u_video, vec2(uv.x + gOffset, uv.y)).g;
-  result.b = texture(u_video, vec2(uv.x + bOffset, uv.y)).b;
+  result.r = texture(u_video, clamp(vec2(uv.x + rOffset, uv.y), 0.0, 1.0)).r;
+  result.g = texture(u_video, clamp(vec2(uv.x + gOffset, uv.y), 0.0, 1.0)).g;
+  result.b = texture(u_video, clamp(vec2(uv.x + bOffset, uv.y), 0.0, 1.0)).b;
   fragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
 }`;
 
@@ -1379,6 +1380,7 @@ function getProgram(name) {
     prog,
     video:  gl.getUniformLocation(prog, 'u_video'),
     params: gl.getUniformLocation(prog, 'uParams'),
+    uTime:  gl.getUniformLocation(prog, 'uTime'),
     outputMode: gl.getUniformLocation(prog, 'uOutputMode'),
     inkLow: gl.getUniformLocation(prog, 'uInkLow'),
     inkHigh: gl.getUniformLocation(prog, 'uInkHigh'),
@@ -1417,6 +1419,7 @@ export function applyGLFilter(name, cw, ch, params = [0.5, 0.5, 0.5, 0.5], opts 
   gl.bindTexture(gl.TEXTURE_2D, inTex);
   gl.uniform1i(entry.video, 0);
   gl.uniform4f(entry.params, params[0], params[1], params[2], params[3]);
+  if (entry.uTime != null) gl.uniform1f(entry.uTime, performance.now() / 1000);
   if (entry.outputMode) gl.uniform1f(entry.outputMode, opts.outputMode ?? 0);
   if (entry.inkLow && entry.inkHigh) {
     const inkLow = opts.inkLow ?? [0.04, 0.035, 0.03];

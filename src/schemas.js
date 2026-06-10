@@ -440,11 +440,11 @@ export const FX_PARAM_SCHEMAS = {
     knobs: [
       { key: 'freq',   label: 'Freq',   min: 0, max: 1, step: 0.01, default: 0.3, tip: '0 = single giant wave. 1 = tight rapid rippling.' },
       { key: 'amp',    label: 'Amp',    min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Horizontal displacement amplitude. 0 = none. 1 = heavy distortion.' },
-      { key: 'lumod',  label: 'LuMod',  min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Luma modulation. 0 = uniform wave. 1 = bright areas wobble more.' },
-      { key: 'speed',  label: 'Speed',  min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Rolling speed. 0 = static wave. 1 = fast rolling.' },
+      { key: 'chroma', label: 'Chroma', min: 0, max: 1, step: 0.01, default: 0.4, tip: 'R/B chromatic separation on the wave crests. 0 = clean. 1 = full color split.' },
+      { key: 'speed',  label: 'Speed',  min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Rolling speed over time. 0 = frozen wave. 1 = fast scrolling distortion.' },
     ],
     toggles: [],
-    order: ['freq', 'amp', 'lumod', 'speed'],
+    order: ['freq', 'amp', 'chroma', 'speed'],
   },
   scanlines: {
     knobs: [
