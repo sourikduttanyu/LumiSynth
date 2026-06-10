@@ -20,19 +20,22 @@ No linter. The app is vanilla JS + Vite with Playwright smoke tests — verify v
 
 **Hard no** (see `PRD_DECISIONS.md`): TypeScript, React/Svelte/Solid, Tailwind, shadcn, three.js, any framework. This is intentionally vanilla JS + raw WebGL2 + Vite. Don't introduce build-time transpilation or component libraries.
 
-State lives in plain objects. Persistence is `localStorage` (`STORAGE_KEY = 'lumisynth-state-v7'`). Bump the storage key and explain why if the saved-state schema changes (v6 added timeline segments; v7 added `fxRack`).
+State lives in plain objects. Persistence is `localStorage` (`STORAGE_KEY = 'lumisynth-state-v8'`). Bump the storage key and explain why if the saved-state schema changes (v6 added timeline segments; v7 added `fxRack`; v8 collapsed the 3-slot `colorRack` into the single COLOR stage — `color` + `colorParams` + `colorHue`/`colorSat`).
 
 ## Architecture
 
-Signal flow: **STRUCTURE → COLOR rack → FX RACK → PER-BLOB overlays**
+Signal flow: **STRUCTURE → COLOR (single stage) → GRADE → FX RACK → PER-BLOB overlays**
 
 ```
 Video / webcam
   ↓ blobDetector.js   grid local-maxima, 6 modes (motion/luma/dark/sat/edge/sharp)
   ↓ kalman.js          Kalman + nearest-neighbour tracker, keeps blob identities stable
   ↓ STRUCTURE pass     one full-frame WebGL effect (or none)
-  ↓ COLOR rack         0–3 slots chained in series, each an independent WebGL pass
-  ↓ FX RACK            0–3 slots chained after COLOR — stateful GL feedback passes (glFx.js)
+  ↓ COLOR stage        ONE selected color effect (map / unique / chroma) — v8 retired the rack;
+  ↓                    layering happens on the timeline, one look per segment
+  ↓ GRADE pass         always-on hue-rotate + saturation (active when knobs off neutral,
+  ↓                    even with color = none)
+  ↓ FX RACK            0–3 slots chained after GRADE — stateful GL feedback passes (glFx.js)
   ↓ PER-BLOB pass      CPU-side filter (inv / thermal) inside blob bounding boxes
   ↓ overlays.js        Canvas 2D shapes, labels, connection lines drawn on top
 ```
@@ -63,25 +66,27 @@ Every effect vertex shader **must** call `gl.bindAttribLocation(prog, 0, 'a_pos'
    - Only runs when source is playing (not paused/still)
    - Runs every `updateInterval` frames
 4. smoothBlobs(cachedBlobs) — One Euro Filter sub-pixel smoothing
-5. GL dispatch — resolveActivePipeline() determines active stages. COLOR + FX
-   slots are normalized into one ordered `chained` list (colors first, then fx):
+5. GL dispatch — resolveActivePipeline() determines active stages. COLOR,
+   GRADE, and FX are normalized into one ordered `chained` list:
    a. totalStages === 0: no GL runs, raw video on display
    b. totalStages === 1: single fast path — effect → compositeToCanvas2D(blend)
    c. totalStages > 1:  multi-stage ping-pong via chain.a ↔ chain.b FBOs
       - STRUCTURE (if any): reads raw video → writes chain.a
         - If STRUCTURE blend = 'screen': applyCompose(structTex, chain.b) to bake screen blend
-      - CHAINED (colors then fx): each reads previous tex → writes to next FBO;
-        last writes to null (GL canvas)
+      - CHAINED (color, grade, then fx): each reads previous tex → writes to
+        next FBO; last writes to null (GL canvas)
       - compositeToCanvas2D with the terminal stage's blend mode
 6. PER-BLOB CPU pass (inv/thermal): getImageData → applyFilterToSubregion → putImageData
 7. TRACK mode overlay: drawTrackOverlay(ctx, blobs, ...) — Canvas 2D on top
 ```
 
-**`resolveActivePipeline()`** returns `{ structure: string|null, colors: [{type, params}], fx: [{type, params, key}] }` — only enabled, non-empty slots make it in. `key` is the fx slot id; glFx.js keys per-slot feedback buffers on it. This is called once per frame and drives the entire GL dispatch.
+**`resolveActivePipeline()`** returns `{ structure: string|null, color: {type, params}|null, grade: {hue, sat}|null, fx: [{type, params, key}] }`. `color` is the single selected effect with its params from `colorParams` (fallback to factory, never mutating the look). `grade` is non-null whenever either grade knob is off neutral. `key` is the fx slot id; glFx.js keys per-slot feedback buffers on it. Called once per frame; drives the entire GL dispatch.
 
 **`runEffect(name, opts)`** dispatches STRUCTURE effects: `'ascii'` → `applyASCII`, `'erode'` → `applyGLFilter('erode', ...)`.
 
-**`runColorEffect(type, params, opts)`** dispatches COLOR effects: all go through `applyGLFilter(type, cw, ch, orderedParams, opts)` where `orderedParams` is built from `COLOR_PARAM_SCHEMAS[type].order`.
+**`runColorEffect(type, params, opts)`** dispatches COLOR effects through `applyGLFilter(type, cw, ch, orderedParams, opts)` where `orderedParams` is built from `COLOR_PARAM_SCHEMAS[type].order` (padded to 4). For `chroma`, the 4 ramp-stop hex params additionally travel as vec3 uniforms via `opts.stops` (same out-of-band mechanism as the ink colors).
+
+**`runGradeEffect(grade, opts)`** runs the internal `grade` shader with `[hue, sat, 0, 0]`.
 
 **`runFxEffect(type, params, opts, key)`** dispatches FX RACK effects through `applyFxEffect(type, cw, ch, orderedParams, { ...opts, fxKey: key })` in `glFx.js`, with `orderedParams` built from `FX_PARAM_SCHEMAS[type].order`.
 
@@ -115,6 +120,8 @@ All fragment shaders have the same interface:
 | `thermo` | `glFilters.js` | x=contrast, y=hot(bias), z=cold(floor), w=whitePt | 5-stop thermal ramp black→blue→cyan→yellow→red→white |
 | `falsecolor` | `glFilters.js` | x=palette(0–1 cross-fades thermal/neon/acid/ice), y=band(0/1), z=bandcnt, w=bright | 4 built-in palettes cross-faded by x |
 | `ascii` | `ascii.js` | x=cellSize, y=contrast, z=blackThreshold, w=glyphStrength | 5×7 bitmap font; 26 glyphs encoded as hex bitmasks in GLSL |
+| `chroma` | `glFilters.js` | x=driver(0-4), y=bands, z=gamma | CUSTOM tab (ChromaEngine). 4 ramp stops as vec3 uniforms uStop0..3 via opts.stops; driver = luma/inv/sat/edge/radial |
+| `grade` | `glFilters.js` | x=hueRotate, y=sat(0.5 neutral) | Internal post pass for the GRADE knobs — Rodrigues hue rotation about the grey axis + sat lerp. Not in any picker |
 | `flowfield` | `glFx.js` | x=flowSpeed, y=trailPersistence, z=trailBrightness, w=sourceBlend | FX RACK. Stateful: 2 samplers (u_video + u_feedback), per-slot ping-pong feedback FBOs |
 | compose pass | `glCompose.js` | no uParams — 2 samplers: u_video + u_struct | Screen blend formula: `1-(1-a)*(1-b)` |
 
@@ -145,10 +152,10 @@ Exported API:
 | File | Role |
 |---|---|
 | `src/main.js` | App entry, `state` object, render loop, all UI wiring. Imports all schemas from `schemas.js` |
-| `src/schemas.js` | Pure data leaf: `DEFAULTS`, `STORAGE_KEY`, `RACK_SLOTS`, `COLOR_PARAM_SCHEMAS`, `TRACK_FX_PARAM_SCHEMAS`, `STRUCTURE_SECTIONS`, `COLOR_SECTIONS`, `BLEND_MODES`, `GL_RESETS`, rack factory functions. No DOM, no imports |
+| `src/schemas.js` | Pure data leaf: `DEFAULTS`, `STORAGE_KEY`, `RACK_SLOTS`, `COLOR_PARAM_SCHEMAS`, `FX_PARAM_SCHEMAS`, `TRACK_FX_PARAM_SCHEMAS`, `STRUCTURE_SECTIONS`, `COLOR_MAP_SECTIONS`, `COLOR_UNIQUE_SECTIONS`, `COLOR_SECTIONS`, `FX_SECTIONS`, `BLEND_MODES`, `GL_RESETS`, factory functions. No DOM, no imports |
 | `src/glContext.js` | Shared GL context + chain FBO allocator. Read the contract comment at the top before touching any GL module |
 | `src/glCompose.js` | STRUCTURE → COLOR compose pass (screen-blend STRUCTURE output over raw video) |
-| `src/glFilters.js` | Stateless full-frame GL effects: shatter, erode, oxide, synth, biolum, thermo, falsecolor |
+| `src/glFilters.js` | Stateless full-frame GL effects: all COLOR maps + unique effects, `chroma` (ChromaEngine), the internal `grade` pass, the stateless FX RACK effects, and most STRUCTURE shaders |
 | `src/glFx.js` | FX RACK effects — stateful GL feedback passes (flowfield). Per-slot ping-pong feedback FBOs keyed by slot id; `resetFxFeedback()` wired into resetAllState + slot mutations |
 | `src/blobDetector.js` | CPU blob detection, all 6 modes |
 | `src/kalman.js` | 1D Kalman filter + nearest-neighbour tracker |
@@ -163,20 +170,70 @@ Exported API:
 
 Voronoi / cellular / wave were removed; they are not in the current `src/`.
 
-### Color rack (COLOR_PARAM_SCHEMAS)
+### COLOR stage (single, v8)
 
-3 fixed slots. Each slot holds one color effect (oxide / synth / biolum / thermo / falsecolor) or is empty. Each slot has its own independent copy of that effect's knob params. Slots run in series — slot 0 output feeds slot 1, etc. Disabled slots are skipped entirely. Schemas live in `COLOR_PARAM_SCHEMAS` in `src/schemas.js`; `order` array must match shader uniform order exactly.
+The 3-slot color rack is gone. `state.color` selects ONE effect; layering
+color looks over time happens via timeline segments (each segment's look
+carries its own color + grade). The picker is three tabs sharing that one
+selection:
+
+- **MAPS** — pure per-pixel color mapping (`COLOR_MAP_SECTIONS`): ramps,
+  grades, palette swaps with no neighbor sampling. Swatch grid built at
+  startup from data in `main.js` (`COLOR_SWATCH_GRADIENTS`, `COLOR_LABEL`,
+  `COLOR_MAP_TIPS`) — adding a map needs no index.html edits.
+- **UNIQUE** — effects that BUILD something (neighbor sampling, added
+  elements, displacement): nebula, aurorastorm, deepfield, neontube,
+  prismatic, heatbleed, depthstack. Organized by `COLOR_UNIQUE_SECTIONS`
+  in `schemas.js` — categories (Atmosphere / Light / Dimension) render as
+  in-grid headers; add an effect to a category row (or add a new category)
+  and the grid builds itself. Still stateless single-frame passes —
+  anything that accumulates across frames belongs in the FX RACK.
+- **CUSTOM** — the `chroma` effect (ChromaEngine): driver select
+  (luma/inv/sat/edge/radial) + 4 user ramp stops (hex strings in params,
+  passed as vec3 uniforms via `opts.stops`) + Bands/Gamma knobs.
+
+Key mechanics:
+
+- **Per-effect knob memory**: `state.colorParams[type]` holds each effect's
+  params, lazily seeded with factory defaults (`getColorParams`). Switching
+  effects and returning keeps your tweaks. Sanitized by `sanitizeColorParams`
+  (numbers per schema; hex validation for chroma stops).
+- **GRADE knobs** (`colorHue`/`colorSat`): static state knobs, always
+  visible, post-applied as their own chained `grade` pass whenever off
+  neutral — including with color = 'none'.
+- **Activation rule**: clicking a map/preset/driver selects that tab's
+  effect via `setColor`/`renderColorPanel` (DOM rebuild); knob drags
+  activate via `activateColor` (class toggles only — rebuilding mid-drag
+  would kill the gesture, so it never does).
+- **Migration**: `migrateColorRack` collapses v5–v7 `colorRack` saves
+  (first enabled slot wins) — wired into `sanitizeLook` (covers timeline
+  segments + presets) and `loadPersistedState`.
+
+`COLOR_PARAM_SCHEMAS` in `src/schemas.js` stays the source of truth for
+knobs/toggles/colors and the `order` array, which must match the shader's
+`uParams.xyzw` exactly.
 
 ### FX rack (FX_PARAM_SCHEMAS)
 
-3 fixed slots mirroring the COLOR rack, running AFTER it in the chain (signal
-flow: STRUCTURE → COLOR → FX RACK). Effects live in `src/glFx.js` and are
-**stateful**: each enabled slot owns a persistent ping-pong feedback FBO pair
-(keyed by slot id) so the shader can sample its own previous-frame output
-(`u_feedback`) — that's what makes trails accumulate. Two slots running the
-same effect trail independently.
+3 fixed slots running AFTER the COLOR stage + GRADE (signal flow:
+STRUCTURE → COLOR → GRADE → FX RACK). Two kinds of effect live here,
+distinguished by the schema's `feedback` flag — `runFxEffect` dispatches on
+it:
 
-Rules for FX effects:
+- **Stateless signal/texture effects** (no flag): bloom, decayflow,
+  feedbackwarp, crt, crtrolling, scanlines, degrade, noise. Single-frame
+  passes whose shaders live in `glFilters.js` `FRAGS`; dispatched through
+  `applyGLFilter` exactly like COLOR effects, just racked after the color
+  stage. Adding one = shader + `FRAGS` entry + `FX_PARAM_SCHEMAS` +
+  `FX_SECTIONS` + `FX_LABEL`/`FX_SWATCH_GRADIENTS`/`FX_CHIP_TIP` in
+  `main.js` (the picker popover builds itself — no index.html edits).
+- **Feedback effects** (`feedback: true`): `flowfield`. Live in `src/glFx.js`;
+  each enabled slot owns a persistent ping-pong feedback FBO pair (keyed by
+  slot id) so the shader can sample its own previous-frame output
+  (`u_feedback`) — that's what makes trails accumulate. Two slots running
+  the same effect trail independently.
+
+Rules for feedback FX effects:
 
 - Shader interface adds `uniform sampler2D u_feedback` on top of the standard
   `u_video` + `uParams` shape. Param order lives in `FX_PARAM_SCHEMAS[type].order`.
@@ -191,8 +248,9 @@ Rules for FX effects:
   disable (`resetFxFeedback(slotId)`), and resize (size-mismatch check in
   `glFx.js`). Knob tweaks must NOT reset trails.
 
-Current FX effects: `flowfield` (luma-gradient advection trails — the real
-feedback version of what the COLOR effect `decayflow` fakes statelessly).
+Note: `decayflow` and `feedbackwarp` are stateless approximations of feedback
+behavior — natural candidates to upgrade to real `feedback: true` effects
+later.
 
 ### Design system
 
@@ -240,4 +298,4 @@ Exports are gated in `main.js`: Snap/Rec require an authenticated user. Real Clo
 
 ## Active work context
 
-See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. Curved hub lines are implemented as a general TRACK Lines style (`hubcurve`). Cloudflare Pages Functions + D1 auth/presets/export-gating scaffolding exists, with localhost-only internal login for testing before real D1 setup. P3 has STARTED: the FX RACK is a real GL rack (3 slots, drag-reorder, per-slot params, timeline-look + preset + persistence integration) with `flowfield` as its first effect — see `src/glFx.js`. Remaining P3: more FX effects, and Inv/Thermal moving from PER-BLOB into the FX RACK. `PRD_DECISIONS.md` logs what is deliberately out of scope.
+See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. Curved hub lines are implemented as a general TRACK Lines style (`hubcurve`). Cloudflare Pages Functions + D1 auth/presets/export-gating scaffolding exists, with localhost-only internal login for testing before real D1 setup. P3 has STARTED: the FX RACK is a real GL rack (3 slots, drag-reorder, per-slot params, timeline-look + preset + persistence integration) with `flowfield` as its first effect — see `src/glFx.js`. v8 replaced the COLOR rack with the single tabbed COLOR stage (MAPS / UNIQUE / CUSTOM + GRADE) — see the COLOR stage section above — and the signal/texture effects (bloom, decayflow, feedbackwarp, crt, crtrolling, scanlines, degrade, noise) moved from COLOR into the FX RACK as stateless stages. Remaining P3: more FX effects (incl. upgrading decayflow/feedbackwarp to real feedback), and Inv/Thermal moving from PER-BLOB into the FX RACK. `PRD_DECISIONS.md` logs what is deliberately out of scope.

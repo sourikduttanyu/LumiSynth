@@ -61,51 +61,71 @@ uniform float uOutputMode;
 
 and map their scalar structure result through the existing `applyStructureOutput(structure, src, mode)` helper pattern.
 
-## COLOR Rack
+## COLOR Stage (single, v8)
 
-COLOR is a fixed three-slot rack stored in `state.colorRack`.
+COLOR is ONE selected effect stored in `state.color` ('none' | any
+`COLOR_SECTIONS` name). The 3-slot rack is gone — layering color looks
+happens via timeline segments, not chained slots. Per-effect knob values
+live in `state.colorParams[type]` (lazily factory-seeded; switching effects
+and returning keeps tweaks).
 
-Each slot has:
+The picker is three tabs sharing the one selection:
 
-```js
-{ id, type, enabled, params }
-```
+- **MAPS**: pure per-pixel color mapping (`COLOR_MAP_SECTIONS`) as a swatch
+  grid, built at startup from data in `main.js`. The membership rule: the
+  shader looks at ONE pixel and recolors it — no neighbor sampling, no
+  added elements.
+- **UNIQUE**: effects that BUILD something — neighbor sampling, added
+  elements (stars, halos, streaks), displacement, glow. Organized by
+  `COLOR_UNIQUE_SECTIONS` in `schemas.js`: an array of
+  `{ key, label, effects }` categories (Atmosphere / Light / Dimension)
+  rendered as in-grid headers. Still stateless single-frame passes —
+  anything that accumulates across frames is an FX RACK feedback effect
+  instead.
+- **CUSTOM**: the `chroma` effect (ChromaEngine) — driver select
+  (luma/inv/sat/edge/radial), 4 user ramp stops (hex strings in params →
+  vec3 uniforms `uStop0..3` via `opts.stops`), Bands/Gamma knobs.
 
-Only enabled, non-empty slots render. Slots run in order; slot 0 feeds slot 1, slot 1 feeds slot 2. Each slot owns its own params, so two slots can use the same effect with different knob values.
+GRADE (always-on `colorHue`/`colorSat` knobs) post-processes whatever is
+selected as its own internal `grade` chained pass — active even when
+color = 'none'.
 
 Important files:
 
-- `src/schemas.js`: `COLOR_PARAM_SCHEMAS`, `COLOR_SECTIONS`, `BLEND_MODES`, `makeFactoryParams()`, `makeColorRack()`.
-- `src/glFilters.js`: all current COLOR fragment shaders and the `FRAGS` registry.
-- `src/main.js`: `runColorEffect()`, `renderColorRack()`, `renderSlotPanel()`, picker state, rack labels, swatches, and chip tips.
-- `index.html`: static `#color-picker-popover` buttons using `data-pick-color`.
+- `src/schemas.js`: `COLOR_PARAM_SCHEMAS`, `COLOR_MAP_SECTIONS`, `COLOR_UNIQUE_SECTIONS`, `COLOR_SECTIONS`, `BLEND_MODES`, `makeFactoryParams()`.
+- `src/glFilters.js`: all COLOR fragment shaders (incl. `chroma` and the internal `grade`) and the `FRAGS` registry.
+- `src/main.js`: `runColorEffect()`, `runGradeEffect()`, `getColorParams()`, `setColor()`, `renderColorPanel()`, `buildColorMapsGrid()`, `buildColorUniqueGrid()`, `COLOR_SWATCH_GRADIENTS` / `COLOR_LABEL` / `COLOR_MAP_TIPS`.
+- `index.html`: the static tab containers only — the grids, driver group, and knob panels are all built from data.
 
-To add COLOR:
+To add a COLOR effect (map or unique — only step 5 differs):
 
 1. Choose a lowercase slug already absent from `COLOR_SECTIONS`.
 2. Convert the TouchDesigner shader to the shared WebGL2 interface.
-3. Add `const FRAG_<SLUG> = ...` in `src/glFilters.js`.
-4. Add `<slug>: FRAG_<SLUG>` to `FRAGS`.
-5. Add `COLOR_PARAM_SCHEMAS[slug]`.
-6. Add slug to `COLOR_SECTIONS`.
-7. Add slug to `BLEND_MODES` as `source-over` unless the implementation deliberately needs another existing blend behavior.
-8. Add `RACK_SWATCH_GRADIENTS[slug]`, `RACK_LABEL[slug]`, and `RACK_CHIP_TIP[slug]` in `src/main.js`.
-9. Add an `index.html` picker button:
+3. Add `const FRAG_<SLUG> = ...` in `src/glFilters.js` and register it in `FRAGS`.
+4. Add `COLOR_PARAM_SCHEMAS[slug]`.
+5. Route by behavior: per-pixel-only → add the slug to `COLOR_MAP_SECTIONS`; builds something → add it to a category's `effects` array in `COLOR_UNIQUE_SECTIONS` (or add a new category row). Never edit `COLOR_SECTIONS` directly — it derives from both.
+6. Add the slug to `BLEND_MODES` as `source-over` unless the implementation deliberately needs another existing blend behavior.
+7. Add `COLOR_SWATCH_GRADIENTS[slug]`, `COLOR_LABEL[slug]`, and `COLOR_MAP_TIPS[slug]` in `src/main.js`. No index.html edits — both grids build themselves.
 
-```html
-<button type="button" class="color-pick" data-pick-color="slug" data-tip="...">Label</button>
-```
+`runColorEffect(name, params, opts)` builds the uniform tuple from `COLOR_PARAM_SCHEMAS[name].order` (padded to 4), so the schema order must exactly match the shader's `uParams.xyzw` usage. If a schema declares `colors` (like chroma), those params are hex strings delivered as vec3 uniforms via `opts.stops`.
 
-`runColorEffect(name, params, opts)` builds the uniform tuple from `COLOR_PARAM_SCHEMAS[name].order`, so the schema order must exactly match the shader's `uParams.xyzw` usage.
-
-Common miss: adding the shader and schema but forgetting the picker button or `RACK_LABEL`/`RACK_CHIP_TIP`. That compiles but makes the effect hard or impossible to select cleanly.
+Common miss: adding the shader and schema but forgetting `COLOR_LABEL`/`COLOR_SWATCH_GRADIENTS`/`COLOR_MAP_TIPS`. That compiles but the grid button renders unlabeled/unswatched.
 
 ## FX RACK
 
-FX is a fixed three-slot rack stored in `state.fxRack`, same slot shape as the
-COLOR rack (`{ id, type, enabled, params }`), running AFTER the COLOR rack in
-the chain. Effects are STATEFUL feedback passes — the one place in the app
-where a shader may sample its own previous-frame output.
+FX is a fixed three-slot rack stored in `state.fxRack`, slots shaped
+`{ id, type, enabled, params }`, running AFTER the COLOR stage + GRADE pass
+in the chain. Two kinds of effect live here, split by the schema's
+`feedback` flag (which `runFxEffect` dispatches on):
+
+- **Stateless signal/texture effects** (no flag): bloom, decayflow,
+  feedbackwarp, crt, crtrolling, scanlines, degrade, noise. Shaders live in
+  `glFilters.js` `FRAGS` and dispatch through `applyGLFilter` — identical
+  mechanics to COLOR effects, just racked after the color stage. Follow the
+  stateless FX checklist in SKILL.md; nothing below about feedback applies.
+- **Feedback effects** (`feedback: true`): STATEFUL passes in `glFx.js` —
+  the one place in the app where a shader may sample its own
+  previous-frame output. The rest of this section describes these.
 
 Important files:
 
@@ -135,15 +155,17 @@ segment change (`resetAllState` → `resetFxFeedback()`), slot swap / clear /
 disable (`resetFxFeedback(slotId)` in the slot mutation helpers), and canvas
 resize (size check inside `glFx.js`). Knob tweaks must NOT reset trails.
 
-To add FX:
+To add a feedback FX effect:
 
 1. Choose a lowercase slug already absent from `FX_SECTIONS`.
 2. Convert the TouchDesigner shader: feedback TOP input → `u_feedback`, primary input → `u_video`, keep the math verbatim.
 3. Add `const FRAG_<SLUG> = ...` in `src/glFx.js` and register it in `FX_FRAGS`.
-4. Add `FX_PARAM_SCHEMAS[slug]` with an `order` array matching `uParams.xyzw`.
+4. Add `FX_PARAM_SCHEMAS[slug]` with `feedback: true` (this routes dispatch to glFx.js) and an `order` array matching `uParams.xyzw`.
 5. Add the slug to `FX_SECTIONS` and `BLEND_MODES` (normally `source-over`).
-6. Add `FX_SWATCH_GRADIENTS[slug]`, `FX_LABEL[slug]`, `FX_CHIP_TIP[slug]` in `src/main.js`.
-7. Add an `index.html` picker button: `<button type="button" class="color-pick" data-pick-fx="slug" data-tip="...">Label</button>`.
+6. Add `FX_SWATCH_GRADIENTS[slug]`, `FX_LABEL[slug]`, `FX_CHIP_TIP[slug]` in `src/main.js`. No index.html edits — the picker popover is built from `FX_SECTIONS` at startup.
+
+To add a stateless FX effect: same steps, but the shader goes in
+`src/glFilters.js` `FRAGS` and the schema has NO `feedback` flag.
 
 Reference implementation: `flowfield` (luma-gradient advection trails). Note
 the contrast with the COLOR effect `decayflow`, which is a stateless
@@ -203,7 +225,7 @@ Multiple stages:
 
 - STRUCTURE writes to `chain.a`.
 - If the STRUCTURE blend mode is `screen`, `applyCompose()` screen-blends it over raw video into `chain.b`.
-- COLOR then FX stages ping-pong between `chain.a` and `chain.b` (one merged `chained` list, colors first).
+- COLOR, then GRADE (when the grade knobs are off neutral), then FX stages ping-pong between `chain.a` and `chain.b` (one merged `chained` list).
 - The last chained stage writes to the default framebuffer.
 - `compositeToCanvas2D` uses the terminal stage blend mode.
 - FX stages additionally write their own persistent feedback FBOs internally (glFx.js) — invisible to the chain, which just sees inputTex → outputFBO.
@@ -228,10 +250,10 @@ Translate only what is present in the supplied code.
 
 For COLOR:
 
-- Effect appears in the picker.
-- Selecting it fills a slot, enables it, and factory params appear when expanded.
-- Knobs/toggles update only that slot.
-- Reordering slots changes the chain order without crashing.
+- Map appears in the MAPS grid with its swatch and label.
+- Clicking it selects it (orange active border) and its knobs render below the grid.
+- Knob tweaks render live and persist per effect — switch to another map and back, values held.
+- The GRADE Hue/Sat knobs re-tint the map's output.
 - Build passes.
 
 For STRUCTURE:
@@ -239,11 +261,17 @@ For STRUCTURE:
 - Effect appears in the STRUCTURE picker.
 - Selecting it reveals only its controls card.
 - Knobs/toggles update rendering.
-- COLOR rack can process the STRUCTURE output.
+- The COLOR stage can process the STRUCTURE output.
 - `mono`, `source`, and `ink` output modes work if supported.
 - Build passes.
 
-For FX:
+For FX (stateless):
+
+- Effect appears in the FX picker and fills a slot with factory params.
+- Works in any slot, chained before/after other FX, and as the terminal stage.
+- Build passes.
+
+For FX (feedback):
 
 - Effect appears in the FX picker and fills a slot with factory params.
 - Trails/feedback visibly accumulate over time on a moving source.
