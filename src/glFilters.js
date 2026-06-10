@@ -453,6 +453,60 @@ void main() {
   fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
+const FRAG_ABYSS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+vec3 cosPalette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+  return a + b * cos(6.28318 * (c * t + d));
+}
+void main() {
+  vec2 uv = vUV;
+  vec2 texel = 1.0 / vec2(textureSize(u_video, 0));
+  float val = texture(u_video, uv).r;
+  float vL = texture(u_video, uv - vec2(texel.x, 0.0)).r;
+  float vR = texture(u_video, uv + vec2(texel.x, 0.0)).r;
+  float vD = texture(u_video, uv - vec2(0.0, texel.y)).r;
+  float vU = texture(u_video, uv + vec2(0.0, texel.y)).r;
+  vec2 grad = vec2(vR - vL, vU - vD);
+  float edgeMag = length(grad);
+  float gradAngle = atan(vU - vD, vR - vL);
+  float depthPull = mix(1.0, 3.5, uParams.x);
+  float depth = pow(val, depthPull);
+  float stereo = uParams.y * 0.015;
+  vec2 totalDisp = vec2(depth * stereo, 0.0) + grad * stereo * 3.0;
+  float rDepth = pow(texture(u_video, clamp(uv - totalDisp, 0.0, 1.0)).r, depthPull);
+  float gDepth = depth;
+  float bDepth = pow(texture(u_video, clamp(uv + totalDisp, 0.0, 1.0)).r, depthPull);
+  float hue = uParams.w;
+  // Hue sweep: 0=bright electric blue, 0.5=vivid magenta, 1=warm rose
+  float rOut = mix(mix(0.01, 0.06, hue), mix(0.90, 1.0, hue), rDepth);
+  float gPeak = smoothstep(0.6, 1.0, gDepth);
+  float gOut  = mix(0.01, mix(0.50, 0.70, hue), gPeak) + gDepth * mix(0.02, 0.12, hue);
+  // Blue: vivid in void when cold (electric blue), fades as hue warms
+  float bOut = mix(mix(0.55, 0.06, hue), mix(1.0, 0.72, hue), bDepth);
+  bOut += (1.0 - bDepth) * mix(0.12, 0.03, hue);
+  vec3 col = vec3(rOut, gOut, bOut);
+  // Surface glow: sweeps from electric-blue bloom to violet-magenta to rose
+  float glow = pow(depth, 0.7) * uParams.z;
+  vec3 glowCol = hue < 0.5
+    ? mix(vec3(0.10, 0.18, 0.90), vec3(0.50, 0.10, 0.65), hue * 2.0)
+    : mix(vec3(0.50, 0.10, 0.65), vec3(0.72, 0.30, 0.50), (hue - 0.5) * 2.0);
+  col += glowCol * glow * 0.4;
+  // Chromatic edge glow using cosine palette
+  float edgeGlow = smoothstep(0.01, 0.06, edgeMag);
+  vec3 edgeCol = cosPalette(gradAngle / 6.2832 + depth * 2.0,
+    vec3(0.5,0.3,0.5), vec3(0.5,0.3,0.5), vec3(1.5,1.0,1.5), vec3(0.8,0.33,0.67));
+  col += edgeCol * edgeGlow * uParams.y * 0.4;
+  // Peak blowout: blue-white at cold, pink-white at warm
+  col = mix(col, mix(vec3(0.80, 0.88, 1.0), vec3(1.0, 0.85, 0.95), hue), smoothstep(0.85, 1.0, depth) * 0.5);
+  // Void floor: deep electric blue at cold, deep purple at warm
+  col = max(col, mix(vec3(0.01, 0.005, 0.065), vec3(0.015, 0.005, 0.035), hue));
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
 const FRAG_ACIDWASH = `#version 300 es
 precision highp float;
 in vec2 vUV;
@@ -1249,6 +1303,7 @@ const FRAGS = {
   melt:         FRAG_MELT,
   // COLOR additions
   depthstack:   FRAG_DEPTHSTACK,
+  abyss:        FRAG_ABYSS,
   prismatic:    FRAG_PRISMATIC,
   acidwash:     FRAG_ACIDWASH,
   xray:         FRAG_XRAY,

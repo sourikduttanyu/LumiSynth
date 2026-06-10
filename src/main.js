@@ -1348,13 +1348,14 @@ const COLOR_SWATCH_GRADIENTS = {
   prismatic:  'linear-gradient(90deg, #fff2bf, #ff9aa7, #a68cff, #9ffcff)',
   heatbleed:  'linear-gradient(90deg, #110006, #8a001f, #ff5500, #ffea00, #fff)',
   depthstack: 'linear-gradient(90deg, #050814, #23356f, #7354b8, #e8f3ff)',
+  abyss:      'linear-gradient(90deg, #010010, #0a0050, #7a006e, #ff00aa, #ff8acd)',
 };
 const COLOR_LABEL = {
   oxide: 'Oxide', synth: 'Synth', biolum: 'BioLum', thermo: 'Thermo', falsecolor: 'FalseClr',
   acidwash: 'AcidWash', xray: 'X-Ray', solarize: 'Solarize', cyanotype: 'Cyanotype', infrared: 'Infrared',
   blackbody: 'Blackbody', hubble: 'Hubble',
   nebula: 'Nebula', aurorastorm: 'Aurora', deepfield: 'DeepField', neontube: 'NeonTube',
-  prismatic: 'Prismatic', heatbleed: 'HeatBleed', depthstack: 'DepthStack',
+  prismatic: 'Prismatic', heatbleed: 'HeatBleed', depthstack: 'DepthStack', abyss: 'Abyss',
   chroma: 'ChromaEngine',
 };
 
@@ -1379,6 +1380,7 @@ const COLOR_MAP_TIPS = {
   prismatic:  'Warm spectral dispersion. Prismatic chromatic aberration with yellow-pink spectrum.',
   heatbleed:  'Thermal color that bleeds spatially based on intensity. Hot colors spread outward.',
   depthstack: 'Holographic spectral depth planes. Banded color zones shift with luminance gradients.',
+  abyss:      'Stereoscopic void. Real R/B chromatic displacement creates 3D depth. Hue sweeps electric blue → vivid magenta → warm rose.',
 };
 
 // Per-effect knob memory access. Ensures state.colorParams[type] exists and

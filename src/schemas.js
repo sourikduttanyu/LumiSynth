@@ -199,6 +199,16 @@ export const COLOR_PARAM_SCHEMAS = {
     toggles: [],
     order: ['layers', 'parallax', 'glow', 'range'],
   },
+  abyss: {
+    knobs: [
+      { key: 'depth',  label: 'Depth',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: '0 = shallow depth curve. 1 = extreme void crush — darks collapse to pure black.' },
+      { key: 'stereo', label: 'Stereo', min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'R/B chromatic displacement. 0 = flat. 1 = heavy stereoscopic 3D separation along edges.' },
+      { key: 'glow',   label: 'Glow',   min: 0, max: 1, step: 0.01, default: 0.5,  tip: '0 = matte void. 1 = surfaces emit colored light out of the depth.' },
+      { key: 'hue',    label: 'Hue',    min: 0, max: 1, step: 0.01, default: 0.5,  tip: '0 = bright electric blue bloom. 0.5 = vivid magenta. 1 = warm rose. Sweeps the void palette.' },
+    ],
+    toggles: [],
+    order: ['depth', 'stereo', 'glow', 'hue'],
+  },
   prismatic: {
     knobs: [
       { key: 'disp',   label: 'Dispersion', min: 0, max: 1, step: 0.01, default: 0.5, tip: 'How wide the prismatic spread is. 0 = tight. 1 = wide chromatic separation.' },
@@ -529,7 +539,7 @@ export const COLOR_MAP_SECTIONS = [
 export const COLOR_UNIQUE_SECTIONS = [
   { key: 'atmosphere', label: 'Atmosphere', effects: ['nebula', 'aurorastorm', 'deepfield'] },
   { key: 'light',      label: 'Light',      effects: ['neontube', 'prismatic', 'heatbleed'] },
-  { key: 'dimension',  label: 'Dimension',  effects: ['depthstack'] },
+  { key: 'dimension',  label: 'Dimension',  effects: ['depthstack', 'abyss'] },
 ];
 export const COLOR_UNIQUE_FLAT = COLOR_UNIQUE_SECTIONS.flatMap((c) => c.effects);
 // Every valid value of state.color (except 'none'): maps + unique effects +
@@ -556,6 +566,7 @@ export const BLEND_MODES = {
   thermo:       'source-over',
   falsecolor:   'source-over',
   depthstack:   'source-over',
+  abyss:        'source-over',
   prismatic:    'source-over',
   acidwash:     'source-over',
   xray:         'source-over',
