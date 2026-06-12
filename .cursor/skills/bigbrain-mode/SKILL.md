@@ -15,7 +15,7 @@ When the user says `use BigBrain mode` in any casing, enter this workflow before
 Help developers convert real TouchDesigner GLSL/code into LumiSynth WebGL2 effects and wire them into the app as one of:
 
 - `COLOR (MAPS)`: a pure per-pixel color map in the COLOR stage's MAPS tab — ramps, grades, palette swaps; the shader looks at one pixel only. Stateless single-frame pass. (v8 retired the color rack; one color is selected at a time and looks are layered via timeline segments.)
-- `COLOR (UNIQUE)`: an effect in the COLOR stage's UNIQUE tab — it BUILDS something: samples neighbors, adds elements (stars, halos, streaks), displaces, glows. Stateless single-frame pass, organized into labeled categories (Atmosphere / Light / Dimension / new ones as needed).
+- `COLOR (UNIQUE)`: an effect in the COLOR stage's UNIQUE tab — it BUILDS something: samples neighbors, adds elements (stars, halos, streaks), displaces, glows, animates (uTime), or responds to motion (u_prev). Stateless single-frame pass, organized into labeled categories (Atmosphere / Light / Dimension / Deep Sea / Print / Motion / new ones as needed).
 - `STRUCTURE`: the single geometry/pattern stage that feeds the COLOR stage. Stateless single-frame pass.
 - `FX`: a rack slot effect in the FX RACK, which runs AFTER COLOR + GRADE. Two kinds: stateless signal/texture passes (bloom, CRT, grain — single-frame, shaders in glFilters.js), and feedback passes (`feedback: true` in the schema, shaders in glFx.js) where each slot keeps a persistent feedback texture between frames (`u_feedback`) — the right target for TouchDesigner networks built around a Feedback TOP (trails, decay, recursive warps).
 
@@ -45,7 +45,7 @@ Routing rule: if the supplied TouchDesigner code samples a feedback input (e.g. 
 - Do not invent mock shaders, placeholder palettes, or sample parameter values. Use values from the supplied code or ask the user to choose.
 - If the user does not say whether the effect is COLOR, STRUCTURE, or FX, ask before editing — except when the code clearly depends on a feedback input, which routes to FX (see routing rule above).
 - Require real source material: TouchDesigner GLSL/code, intended effect name, COLOR vs STRUCTURE vs FX target, and parameter mapping for each exposed knob/toggle.
-- If the TouchDesigner code depends on time, multiple non-feedback TOP inputs, external textures, or more than four user parameters, identify that dependency before coding. Single-feedback-input dependency is supported via the FX RACK.
+- Supported dependencies: time (declare `uniform float uTime` — auto-uploaded by both dispatchers), a single feedback input (FX RACK, `u_feedback`), and a single previous-raw-frame input (`uniform sampler2D u_prev`, ~4 frames back, glFilters only — also add the effect to renderFrame's `captureFrameHistory()` condition in main.js). If the code needs multiple non-feedback TOP inputs, external textures, or more than four user parameters, identify that dependency before coding. For 8-param TD shaders (uParams + uLook), the house pattern: keep the four most interactive as knobs, bake the rest with a comment.
 
 ## Developer Prompt Shape
 

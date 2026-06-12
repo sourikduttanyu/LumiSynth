@@ -63,12 +63,13 @@ void main() {
   fragColor = vec4(applyStructureOutput(out_v, src, uOutputMode), 1.0);
 }`;
 
-// FREQMOD — analog FM oscillography. Each scan row is a continuous waveform
-// trace whose frequency AND amplitude follow the video's luminance: dark
-// regions flatline (or gate out entirely below Thresh), bright regions surge
-// into fast full-swing oscillation — like an oscilloscope reading the image
-// as a signal. Layer with Drag in the FX rack for phosphor smears.
-// uParams: x=Rows, y=Mod (frequency response), z=Wave (amplitude), w=Thresh
+// FREQMOD — analog FM oscillography. 240 scan rows (fixed — NTSC 240p line
+// count), each a continuous waveform trace whose frequency AND amplitude
+// follow the video's luminance: dark regions flatline (or gate out entirely
+// below Thresh), bright regions surge into fast full-swing oscillation —
+// like an oscilloscope reading the image as a signal. Dir rotates the whole
+// scan axis 0–180°. Layer with Drag in the FX rack for phosphor smears.
+// uParams: x=Dir (scan angle), y=Mod (frequency response), z=Wave, w=Thresh
 const FRAG_FREQMOD = `#version 300 es
 precision highp float;
 in vec2 vUV;
@@ -90,11 +91,20 @@ vec3 applyStructureOutput(float structure, vec3 src, float mode) {
 
 void main() {
   vec2 uv = vUV;
-  float rows = floor(mix(14.0, 72.0, uParams.x));
-  float rowIdx = floor(uv.y * rows);
+  const float rows = 240.0;
+
+  // Dir rotates the scan frame: rows + carrier run along the rotated axes.
+  float ang = uParams.x * 3.14159265;
+  float ca = cos(ang), sa = sin(ang);
+  mat2 R  = mat2(ca, -sa,  sa, ca);
+  mat2 Ri = mat2(ca,  sa, -sa, ca);
+  vec2 ruv = R * (uv - 0.5) + 0.5;
+
+  float rowIdx = floor(ruv.y * rows);
   float rowCenter = (rowIdx + 0.5) / rows;
   vec3 src = texture(u_video, uv).rgb;
-  float L = dot(texture(u_video, vec2(uv.x, rowCenter)).rgb, vec3(0.299, 0.587, 0.114));
+  vec2 samplePos = clamp(Ri * (vec2(ruv.x, rowCenter) - 0.5) + 0.5, 0.0, 1.0);
+  float L = dot(texture(u_video, samplePos).rgb, vec3(0.299, 0.587, 0.114));
 
   // Signal gate: below Thresh the trace dies out entirely; a soft knee just
   // above it lets quiet signals fade in as dim flat lines before they swing.
@@ -102,16 +112,20 @@ void main() {
 
   // FM: both carrier frequency and swing follow the signal level.
   float freq = mix(30.0, 260.0, uParams.y * L);
-  float phase = uv.x * freq + rowIdx * 2.39996 + uTime * 1.2;
+  float phase = ruv.x * freq + rowIdx * 2.39996 + uTime * 1.2;
   float wave = sin(phase);
 
-  float dy = (fract(uv.y * rows) - 0.5) * 2.0;
+  float dy = (fract(ruv.y * rows) - 0.5) * 2.0;
   float amp = uParams.z * 0.80 * gate * (0.25 + 0.75 * L);
   float d = abs(dy - wave * amp);
 
-  // Crisp trace core + soft phosphor skirt — a line, not grain.
-  float core = 1.0 - smoothstep(0.0, 0.22, d);
-  float skirt = (1.0 - smoothstep(0.0, 0.85, d)) * 0.22;
+  // Pixel-aware minimum trace width: at 240 rows a fixed-ratio core would
+  // collapse below one pixel and alias into grain, so widen it relative to
+  // the actual row height on this canvas.
+  float rowHalfPx = float(textureSize(u_video, 0).y) / (rows * 2.0);
+  float coreW = max(0.22, 1.25 / max(rowHalfPx, 0.001));
+  float core = 1.0 - smoothstep(0.0, coreW, d);
+  float skirt = (1.0 - smoothstep(0.0, min(coreW * 3.5, 1.0), d)) * 0.22;
   float structure = (core + skirt) * gate * (0.45 + 0.55 * L);
   fragColor = vec4(applyStructureOutput(structure, src, uOutputMode), 1.0);
 }`;

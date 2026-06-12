@@ -10,7 +10,7 @@ Minimum input required before editing:
 - Whether the effect is `COLOR`, `STRUCTURE`, or `FX` (feedback effects route to FX automatically).
 - Real TouchDesigner GLSL/code.
 - Mapping for each exposed parameter into `uParams.xyzw`.
-- Any required nonstandard dependency, such as time, multiple non-feedback inputs, or external textures. A single feedback input is supported — it becomes `u_feedback` in an FX RACK effect.
+- Any required nonstandard dependency. Supported: time (`uTime`, auto-uploaded), one feedback input (`u_feedback` in an FX RACK effect), one previous-raw-frame input (`u_prev`, ~4 frames back, glFilters only). Unsupported: multiple non-feedback inputs, external textures.
 
 Do not add partial integrations. A shader is not complete until it is registered in the GL dispatcher, exposed in the UI, backed by schema/default state, and verified with the build.
 
@@ -61,6 +61,30 @@ uniform float uOutputMode;
 
 and map their scalar structure result through the existing `applyStructureOutput(structure, src, mode)` helper pattern.
 
+Two OPTIONAL uniforms are auto-wired by the dispatchers (`applyGLFilter` in
+glFilters.js and `applyFxEffect` in glFx.js) — declare them and they work,
+omit them and they cost nothing (cached location is null, upload skipped):
+
+```glsl
+uniform float uTime;        // seconds (performance.now()/1000) — animation
+uniform sampler2D u_prev;   // video frame from ~4 frames ago (glFilters only)
+```
+
+`u_prev` is backed by the frame-history ring in `glContext.js` (4 GPU-side
+copies written by passthrough draws — no extra CPU uploads). `renderFrame`
+calls `captureFrameHistory()` ONLY while a motion effect is active, so a new
+motion effect must be added to that condition in `main.js`:
+
+```js
+if (pipe.structure === 'motionedge' || pipe.color?.type === 'predator') {
+  captureFrameHistory();
+}
+```
+
+The ring re-primes on source/segment change (`resetMotionHistory()` inside
+`resetAllState`). Reference implementations: `motionedge` (STRUCTURE),
+`predator` (COLOR UNIQUE / Motion).
+
 ## COLOR Stage (single, v8)
 
 COLOR is ONE selected effect stored in `state.color` ('none' | any
@@ -76,12 +100,13 @@ The picker is three tabs sharing the one selection:
   shader looks at ONE pixel and recolors it — no neighbor sampling, no
   added elements.
 - **UNIQUE**: effects that BUILD something — neighbor sampling, added
-  elements (stars, halos, streaks), displacement, glow. Organized by
-  `COLOR_UNIQUE_SECTIONS` in `schemas.js`: an array of
-  `{ key, label, effects }` categories (Atmosphere / Light / Dimension)
-  rendered as in-grid headers. Still stateless single-frame passes —
-  anything that accumulates across frames is an FX RACK feedback effect
-  instead.
+  elements (stars, halos, streaks), displacement, glow, animation (uTime),
+  motion response (u_prev). Organized by `COLOR_UNIQUE_SECTIONS` in
+  `schemas.js`: an array of `{ key, label, effects }` categories
+  (Atmosphere / Light / Dimension / Deep Sea / Print / Motion — add new
+  rows as needed) rendered as in-grid headers. Still stateless single-frame
+  passes — anything that accumulates across frames is an FX RACK feedback
+  effect instead.
 - **CUSTOM**: the `chroma` effect (ChromaEngine) — driver select
   (luma/inv/sat/edge/radial), 4 user ramp stops (hex strings in params →
   vec3 uniforms `uStop0..3` via `opts.stops`), Bands/Gamma knobs.
@@ -118,14 +143,17 @@ FX is a fixed three-slot rack stored in `state.fxRack`, slots shaped
 in the chain. Two kinds of effect live here, split by the schema's
 `feedback` flag (which `runFxEffect` dispatches on):
 
-- **Stateless signal/texture effects** (no flag): bloom, decayflow,
+- **Stateless signal/texture effects** (no flag): bloom, godrays, decayflow,
   feedbackwarp, crt, crtrolling, scanlines, degrade, noise. Shaders live in
   `glFilters.js` `FRAGS` and dispatch through `applyGLFilter` — identical
   mechanics to COLOR effects, just racked after the color stage. Follow the
   stateless FX checklist in SKILL.md; nothing below about feedback applies.
 - **Feedback effects** (`feedback: true`): STATEFUL passes in `glFx.js` —
-  the one place in the app where a shader may sample its own
-  previous-frame output. The rest of this section describes these.
+  flowfield, drag, tunnel, burnin, wobbletape. The one place in the app
+  where a shader may sample its own previous-frame output. `applyFxEffect`
+  also auto-uploads `uTime` to feedback shaders that declare it
+  (wobbletape's flutter waves use this). The rest of this section
+  describes these.
 
 Important files:
 
@@ -167,10 +195,15 @@ To add a feedback FX effect:
 To add a stateless FX effect: same steps, but the shader goes in
 `src/glFilters.js` `FRAGS` and the schema has NO `feedback` flag.
 
-Reference implementation: `flowfield` (luma-gradient advection trails). Note
-the contrast with the COLOR effect `decayflow`, which is a stateless
-approximation of the same TouchDesigner network — feedback effects flattened
-into COLOR never accumulate; that is what the FX RACK exists for.
+Reference implementations: `flowfield` (luma-gradient advection trails),
+`drag` (directional smear), `tunnel` (zoom/rotate re-sampling of own output),
+`burnin` (heat stored AS the visible phosphor color, recovered from feedback
+luma — the palette must stay luma-monotonic for that trick to work), and
+`wobbletape` (displacement that accumulates because each frame re-displaces
+the already-displaced feedback). Note the contrast with the COLOR effect
+`decayflow`, which is a stateless approximation of the same TouchDesigner
+network — feedback effects flattened into COLOR never accumulate; that is
+what the FX RACK exists for.
 
 ## STRUCTURE
 
@@ -183,6 +216,10 @@ Current STRUCTURE effects:
 - `watershed`
 - `pixelsort`
 - `melt`
+- `freqmod` — FM oscillography: 240 fixed scan rows of luminance-driven
+  waveform traces, Dir knob rotates the scan axis, animated via uTime
+- `motionedge` — spatial edges + temporal motion via u_prev (requires the
+  frame-history capture condition in renderFrame — see Shared Shader Shape)
 
 Important files:
 
@@ -241,9 +278,16 @@ Translate only what is present in the supplied code.
 - Map UVs (`vUV.st`) to `vUV`.
 - Map output color to `fragColor`; `TDOutputSwizzle(...)` is identity — drop the wrapper.
 - `textureSize(sTD2DInputs[0], 0)` → `textureSize(u_video, 0)`; `uTDOutputInfo.res` equivalents derive from `textureSize` too.
-- Pack up to four user parameters into `uParams.xyzw`.
+- Pack up to four user parameters into `uParams.xyzw`. The house pattern for
+  TD shaders with 8 params (uParams + uLook): keep the most interactive four
+  as knobs and bake the rest as constants with a comment noting the baked
+  values.
 - If more than four parameters are required, ask before extending the shader interface.
-- If TouchDesigner code depends on time, multiple non-feedback inputs, or external textures, identify the missing requirement before editing.
+- Time IS supported: declare `uniform float uTime` and both dispatchers
+  upload seconds automatically. A single previous-raw-frame input (~4 frames
+  back) is supported in glFilters via `uniform sampler2D u_prev` plus the
+  renderFrame capture condition. Multiple non-feedback inputs or external
+  textures remain unsupported — identify that requirement before editing.
 - STRUCTURE and COLOR effects are stateless single-frame passes. Feedback/temporal behavior belongs in the FX RACK (`src/glFx.js`) — do not silently flatten a feedback network into a stateless approximation.
 
 ## Verification Targets

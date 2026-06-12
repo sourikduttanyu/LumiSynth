@@ -109,6 +109,10 @@ All fragment shaders have the same interface:
 - `uniform vec4 uParams` — four packed floats; the `order` array in `COLOR_PARAM_SCHEMAS` maps slot params to xyzw positions
 - `out vec4 fragColor`
 
+Two OPTIONAL uniforms are auto-wired by the dispatchers (`applyGLFilter` AND `applyFxEffect`) — declare them and they work; omit them and they cost nothing (cached location is null, upload skipped):
+- `uniform float uTime` — seconds (`performance.now()/1000`), for animated effects (sequin, octopus, hologram, dreamstatic, freqmod, crtrolling, wobbletape)
+- `uniform sampler2D u_prev` — the video frame from ~4 frames back, bound on TEXTURE2 (glFilters only). Backed by the frame-history ring in glContext.js; `renderFrame` calls `captureFrameHistory()` only while a motion effect is active, so **new motion effects must be added to that condition in main.js** (currently `motionedge` / `predator`). Ring re-primes on source change via `resetMotionHistory()` in `resetAllState`.
+
 **Shaders by effect:**
 
 | Effect | File | uParams mapping | Notes |
@@ -141,6 +145,9 @@ Exported API:
 - `uploadVideoFrame(video)` → delegates to `glUtil.uploadVideoTexture` (allocate-once + `texSubImage2D` fast-path)
 - `compositeToCanvas2D(ctx, cw, ch, op)` — `drawImage(S.canvas)` with given composite op
 - `getChainFBOs()` → `{ a, b }` — lazy alloc
+- `captureFrameHistory()` — writes the current videoTex into a 4-slot GPU ring (passthrough draw, no CPU upload); called by renderFrame only when a motion effect is active. First capture (or after reset) seeds all 4 slots so initial diffs are zero, not a flash.
+- `getMotionTex()` — oldest ring entry (~4 frames back); falls back to videoTex before first capture
+- `resetMotionHistory()` — re-primes the ring on source/segment change (wired into resetAllState)
 - `getGL()`, `getCanvas()`, `getVideoTex()`, `getQuadVAO()` — accessors for module use
 
 ### BLEND_MODES
@@ -182,12 +189,15 @@ selection:
   startup from data in `main.js` (`COLOR_SWATCH_GRADIENTS`, `COLOR_LABEL`,
   `COLOR_MAP_TIPS`) — adding a map needs no index.html edits.
 - **UNIQUE** — effects that BUILD something (neighbor sampling, added
-  elements, displacement): nebula, aurorastorm, deepfield, neontube,
-  prismatic, heatbleed, depthstack. Organized by `COLOR_UNIQUE_SECTIONS`
-  in `schemas.js` — categories (Atmosphere / Light / Dimension) render as
-  in-grid headers; add an effect to a category row (or add a new category)
-  and the grid builds itself. Still stateless single-frame passes —
-  anything that accumulates across frames belongs in the FX RACK.
+  elements, displacement, animation, motion response). Organized by
+  `COLOR_UNIQUE_SECTIONS` in `schemas.js` — categories render as in-grid
+  headers; add an effect to a category row (or add a new category) and
+  the grid builds itself. Current categories: Atmosphere (nebula,
+  aurorastorm, deepfield, dreamstatic), Light (neontube, prismatic,
+  heatbleed, sequin, hologram), Dimension (depthstack, abyss), Deep Sea
+  (octopus), Print (risograph, newsprint), Motion (predator — uses
+  u_prev). Still stateless single-frame passes — anything that
+  accumulates across frames belongs in the FX RACK.
 - **CUSTOM** — the `chroma` effect (ChromaEngine): driver select
   (luma/inv/sat/edge/radial) + 4 user ramp stops (hex strings in params,
   passed as vec3 uniforms via `opts.stops`) + Bands/Gamma knobs.
@@ -220,18 +230,23 @@ STRUCTURE → COLOR → GRADE → FX RACK). Two kinds of effect live here,
 distinguished by the schema's `feedback` flag — `runFxEffect` dispatches on
 it:
 
-- **Stateless signal/texture effects** (no flag): bloom, decayflow,
+- **Stateless signal/texture effects** (no flag): bloom, godrays, decayflow,
   feedbackwarp, crt, crtrolling, scanlines, degrade, noise. Single-frame
   passes whose shaders live in `glFilters.js` `FRAGS`; dispatched through
   `applyGLFilter` exactly like COLOR effects, just racked after the color
   stage. Adding one = shader + `FRAGS` entry + `FX_PARAM_SCHEMAS` +
   `FX_SECTIONS` + `FX_LABEL`/`FX_SWATCH_GRADIENTS`/`FX_CHIP_TIP` in
   `main.js` (the picker popover builds itself — no index.html edits).
-- **Feedback effects** (`feedback: true`): `flowfield`. Live in `src/glFx.js`;
-  each enabled slot owns a persistent ping-pong feedback FBO pair (keyed by
-  slot id) so the shader can sample its own previous-frame output
-  (`u_feedback`) — that's what makes trails accumulate. Two slots running
-  the same effect trail independently.
+- **Feedback effects** (`feedback: true`): `flowfield`, `drag`, `tunnel`,
+  `burnin`, `wobbletape`. Live in `src/glFx.js`; each enabled slot owns a
+  persistent ping-pong feedback FBO pair (keyed by slot id) so the shader
+  can sample its own previous-frame output (`u_feedback`) — that's what
+  makes trails accumulate. Two slots running the same effect trail
+  independently. `applyFxEffect` also auto-uploads `uTime` to feedback
+  shaders that declare it. Design note from `burnin`: the feedback buffer
+  is BOTH the display output and the state, so any "hidden state" (like
+  heat) must be recoverable from the visible color — burnin keeps its
+  phosphor palette luma-monotonic so heat ≈ luma(feedback).
 
 Rules for feedback FX effects:
 
@@ -254,11 +269,11 @@ later.
 
 ### Design system
 
-Tokens defined in `DESIGN.md` / `DESIGN.json`. Key palette: warm-grey graphite chassis (`--bg-stage: #1f1c19`), orange signal (`#ff5722`). Typography: Inter, 9–13px, heavy letter-spacing. Stage accent colors: OSC = amber (`#b89669`), FILTER = rose (`#b66575`), FX = slate-blue (`#7a96b1`). CSS variables are the source of truth — don't hardcode color values.
+Tokens defined in `DESIGN.md` / `DESIGN.json`. June 2026 pivot: the chassis is now **Teenage Engineering K.O. II cream** — light warm-bone surfaces (hue 85), dark silkscreen text, full-orange active keys (`#ff5722` with dark legends), and near-black display surfaces (canvas / top bar / toast / help) kept dark so they read as LCDs set into the cream body. On the light chassis "raised" = lighter (white plastic keys) and hover darkens one step (pressed key). Typography: Inter, 9–13px, heavy letter-spacing. CSS variables are the source of truth — don't hardcode color values; the dark-graphite values quoted in older docs are superseded by the tokens in `style.css`.
 
 ### Two top-level modes
 
-`state.mode` is `'synth'` or `'track'`. `body[data-mode]` attribute controls which sidebar sections are visible via CSS. SYNTH mode shows STRUCTURE / COLOR rack pipeline. TRACK mode shows the blob-tracking controls and track FX rack.
+`state.mode` is `'synth'` or `'track'`. `body[data-mode]` attribute controls which sidebar sections are visible via CSS. SYNTH mode shows the STRUCTURE / COLOR / FX RACK pipeline. TRACK mode shows the blob-tracking controls, track FX rack, and the PER-BLOB overlay picker (PER-BLOB rendering still runs in both modes; only its UI is track-scoped). The Speed control was removed entirely — playbackRate is pinned to 1.
 
 ### Track FX rack (TRACK_FX_PARAM_SCHEMAS)
 
@@ -296,6 +311,18 @@ Local/internal testing before D1 exists: the frontend has a localhost-only fallb
 
 Exports are gated in `main.js`: Snap/Rec require an authenticated user. Real Cloudflare sessions record an `export_events` row; internal login bypasses the API and allows local testing.
 
+## Timeline UI (single transport bar)
+
+The timeline is ONE bar at the bottom of the canvas (`#timeline-panel` →
+`.timeline-bar`): play button · scrubbable track · time readout · segment
+actions (+ Seg / Dup / Set / ✕). The track itself is the scrubber (pointer
+down + drag seeks). Segments are direct-manipulation: drag the body to move
+a segment between its neighbors (3px threshold separates click-select from
+drag-move), drag either edge to retime, click to select. "+ Seg" drops a
+1-second segment at the playhead. There are no start/end numeric inputs, no
+mark-start/mark-end flow, and no separate floating video-controls popover —
+all of that was removed. Space toggles play/pause globally.
+
 ## Active work context
 
-See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. Curved hub lines are implemented as a general TRACK Lines style (`hubcurve`). Cloudflare Pages Functions + D1 auth/presets/export-gating scaffolding exists, with localhost-only internal login for testing before real D1 setup. P3 has STARTED: the FX RACK is a real GL rack (3 slots, drag-reorder, per-slot params, timeline-look + preset + persistence integration) with `flowfield` as its first effect — see `src/glFx.js`. v8 replaced the COLOR rack with the single tabbed COLOR stage (MAPS / UNIQUE / CUSTOM + GRADE) — see the COLOR stage section above — and the signal/texture effects (bloom, decayflow, feedbackwarp, crt, crtrolling, scanlines, degrade, noise) moved from COLOR into the FX RACK as stateless stages. Remaining P3: more FX effects (incl. upgrading decayflow/feedbackwarp to real feedback), and Inv/Thermal moving from PER-BLOB into the FX RACK. `PRD_DECISIONS.md` logs what is deliberately out of scope.
+See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. Curved hub lines are implemented as a general TRACK Lines style (`hubcurve`). Cloudflare Pages Functions + D1 auth/presets/export-gating scaffolding exists, with localhost-only internal login for testing before real D1 setup. P3 is WELL UNDERWAY: the FX RACK is a real GL rack (3 slots, drag-reorder, per-slot params, timeline-look + preset + persistence integration) with five true feedback effects (`flowfield`, `drag`, `tunnel`, `burnin`, `wobbletape`) plus the stateless signal/texture set (bloom, godrays, decayflow, feedbackwarp, crt, crtrolling, scanlines, degrade, noise) — see `src/glFx.js`. v8 replaced the COLOR rack with the single tabbed COLOR stage (MAPS / UNIQUE / CUSTOM + GRADE). June 2026 additions: the dreamcore COLOR pack (octopus, hologram, surveil, newsprint, polaroid, blacklight, dreamstatic, predator + earlier blackbody/hubble/abyss/sequin/risograph), two new STRUCTURE effects (`freqmod` FM oscillography — fixed 240 scan rows, Dir/Mod/Wave/Thresh; `motionedge`), the motion infrastructure (frame-history ring + `u_prev`), the `uTime` auto-upload convention in both dispatchers, the single-bar timeline, and the TE-cream chrome redesign. Remaining P3: upgrading decayflow/feedbackwarp to real feedback, and Inv/Thermal moving from PER-BLOB into the FX RACK. `PRD_DECISIONS.md` logs what is deliberately out of scope.
