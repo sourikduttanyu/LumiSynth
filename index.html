@@ -43,6 +43,15 @@
           <button id="btn-camera" class="action-btn" type="button">Open Camera</button>
           <input type="file" id="file-input" accept="video/*,image/png,image/jpeg,image/webp" class="hidden" />
           <div id="file-status" class="file-status" aria-live="polite">No source loaded</div>
+
+          <div class="section-label" id="lbl-shader-source">Shader Library</div>
+          <div class="toggle-group filter-swatch-group" id="shader-source-group" role="radiogroup" aria-labelledby="lbl-shader-source"></div>
+          <div class="section-label" id="lbl-shader-res">Shader Res</div>
+          <div class="toggle-group" id="shader-res-group" role="radiogroup" aria-labelledby="lbl-shader-res">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="landscape" data-tip="1920×1080 landscape.">16:9</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="square"    data-tip="1080×1080 square.">1:1</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="vertical"  data-tip="1080×1920 vertical.">9:16</button>
+          </div>
         </section>
 
         <section class="control-section account-section" aria-label="Account and cloud presets">

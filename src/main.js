@@ -7,6 +7,7 @@ import { applyASCII } from './ascii.js';
 import { applyGLFilter } from './glFilters.js';
 import { applyFxEffect, resetFxFeedback } from './glFx.js';
 import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs, captureFrameHistory, resetMotionHistory } from './glContext.js';
+import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas } from './shaderSource.js';
 import { applyCompose } from './glCompose.js';
 import { BlobOneEuroFilter } from './oneEuroFilter.js';
 import {
@@ -3003,19 +3004,23 @@ document.getElementById('btn-camera').addEventListener('click', async () => {
 // instead of touching `video` directly so adding new source kinds (e.g. the
 // Subject loop) stays a single-call-site change.
 function activeSourceEl() {
+  if (state.sourceKind === 'shader') return getShaderSourceCanvas();
   return state.sourceKind === 'image' ? imageEl : video;
 }
 function activeSourceWidth() {
+  if (state.sourceKind === 'shader') return getShaderSourceCanvas()?.width || 0;
   return state.sourceKind === 'image'
     ? (imageEl.naturalWidth || 0)
     : (video.videoWidth || 0);
 }
 function activeSourceHeight() {
+  if (state.sourceKind === 'shader') return getShaderSourceCanvas()?.height || 0;
   return state.sourceKind === 'image'
     ? (imageEl.naturalHeight || 0)
     : (video.videoHeight || 0);
 }
 function activeSourceReady() {
+  if (state.sourceKind === 'shader') return !!getShaderSourceCanvas()?.width;
   if (state.sourceKind === 'image') {
     return imageEl.complete && imageEl.naturalWidth > 0;
   }
@@ -3024,7 +3029,9 @@ function activeSourceReady() {
 // For images we treat the source as "always paused" — there's no temporal
 // dimension. The detection block guards on this so motion-mode doesn't
 // thrash on a constant frame, and so cachedBlobs stay stable on stills.
+// Shader sources are the opposite: always animating, never paused.
 function activeSourcePaused() {
+  if (state.sourceKind === 'shader') return false;
   if (state.sourceKind === 'image') return true;
   return video.paused;
 }
@@ -3068,6 +3075,64 @@ function loadImageSource(url, label) {
   imageEl.src = url;
 }
 
+// ---- Shader sources (generative GLSL library) ----
+state.shaderSlug = null;
+state.shaderRes = 'landscape';
+
+function loadShaderSource(slug) {
+  const def = SHADER_SOURCES.find((s) => s.slug === slug);
+  if (!def) return;
+  const res = SHADER_RES[state.shaderRes] || SHADER_RES.landscape;
+  if (!setShaderSource(slug, res.w, res.h)) {
+    showToast('Shader source failed to compile', 'error');
+    return;
+  }
+  // tear down any active webcam / video
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  try { video.pause(); } catch (_) {}
+  video.removeAttribute('src');
+  try { video.load(); } catch (_) {}
+  resetAllState();
+  state.sourceKind = 'shader';
+  state.shaderSlug = slug;
+  setHasSource(true, def.label);
+  renderTimelinePanel();
+  resizeCanvas();
+  renderShaderSourcePicker();
+}
+
+function renderShaderSourcePicker() {
+  const group = document.getElementById('shader-source-group');
+  if (!group) return;
+  group.innerHTML = '';
+  for (const def of SHADER_SOURCES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toggle-btn';
+    btn.setAttribute('role', 'radio');
+    const active = state.sourceKind === 'shader' && state.shaderSlug === def.slug;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    btn.dataset.value = def.slug;
+    btn.dataset.tip = def.tip;
+    btn.style.background = def.gradient;
+    const span = document.createElement('span');
+    span.textContent = def.label;
+    btn.appendChild(span);
+    btn.addEventListener('click', () => loadShaderSource(def.slug));
+    group.appendChild(btn);
+  }
+}
+renderShaderSourcePicker();
+
+wireToggleGroup('shader-res-group', 'shaderRes', String, () => {
+  // re-render at the new resolution if a shader source is live
+  if (state.sourceKind === 'shader' && state.shaderSlug) loadShaderSource(state.shaderSlug);
+});
+
 function resetAllState() {
   resetFrameHistory(); resetTracker(); resetTrackOverlay();
   // FX feedback trails belong to the old source / timeline segment — a new
@@ -3110,6 +3175,9 @@ function setHasSource(val, label) {
     updateSourceLabel('No source loaded');
     renderTimelinePanel();
   }
+  // keep the shader-library picker's active state in sync across all
+  // source kinds (clears when a video/camera/image takes over)
+  renderShaderSourcePicker();
 }
 
 // ---- Timeline segments (video-only hard cuts) ----
@@ -3775,6 +3843,7 @@ function renderFrame(nowDOMHi) {
 
   const cw = canvas.width;
   const ch = canvas.height;
+  if (state.sourceKind === 'shader') renderShaderSourceFrame();
   ctx.drawImage(srcEl, 0, 0, cw, ch);
 
   const blobPipelineActive = needsBlobPipeline();

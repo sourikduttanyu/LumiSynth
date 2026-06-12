@@ -311,6 +311,31 @@ Local/internal testing before D1 exists: the frontend has a localhost-only fallb
 
 Exports are gated in `main.js`: Snap/Rec require an authenticated user. Real Cloudflare sessions record an `export_events` row; internal login bypasses the API and allows local testing.
 
+## Shader sources (generative GLSL library)
+
+`src/shaderSource.js` adds a FOURTH source kind: `state.sourceKind === 'shader'`.
+A library shader (Shadertoy-style raymarcher / procedural frag with `uTime` +
+`uRes` uniforms) renders into its OWN canvas on its OWN small WebGL2 context
+each frame, and that canvas feeds the pipeline exactly like a video element —
+`ctx.drawImage`, `uploadVideoFrame`, blob detection, STRUCTURE/COLOR/FX all
+stack on top. Key points:
+
+- The module owns a separate GL context deliberately: it is the SOURCE side,
+  upstream of the orchestrated effect context in glContext.js.
+- `SHADER_SOURCES` (slug/label/tip/gradient) is the library registry — the
+  Source-section picker grid in main.js builds itself from it. Adding a
+  library shader = write the frag, register in `SHADER_FRAGS` +
+  `SHADER_SOURCES`. No index.html edits.
+- `SHADER_RES` presets: landscape 1920×1080 / square 1080×1080 / vertical
+  1080×1920, picked via `#shader-res-group` (state.shaderRes, not part of
+  looks). Switching res while live reloads the shader at the new size.
+- renderFrame calls `renderShaderSourceFrame()` once per tick when active;
+  `activeSource*` helpers in main.js handle the kind (always "playing", so
+  motion detection and motion effects work against it).
+- First entry: `goldclouds` — raymarched volumetric cloud-tunnel flight
+  (FBM with octave rotation via ROT3 to avoid lattice artifacts, wall-carved
+  corridor density, sun-probe lighting, pastel grade).
+
 ## Timeline UI (single transport bar)
 
 The timeline is ONE bar at the bottom of the canvas (`#timeline-panel` →
