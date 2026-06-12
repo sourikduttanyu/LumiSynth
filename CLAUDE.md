@@ -322,10 +322,19 @@ stack on top. Key points:
 
 - The module owns a separate GL context deliberately: it is the SOURCE side,
   upstream of the orchestrated effect context in glContext.js.
-- `SHADER_SOURCES` (slug/label/tip/gradient) is the library registry — the
-  Source-section picker grid in main.js builds itself from it. Adding a
-  library shader = write the frag, register in `SHADER_FRAGS` +
-  `SHADER_SOURCES`. No index.html edits.
+- `SHADER_SOURCES` (slug/label/tip/gradient/knobs) is the library registry —
+  the Source-section picker grid AND the per-shader knob panel
+  (`#shader-knob-grid`, built by `renderShaderKnobs()` in main.js) build
+  themselves from it. Adding a library shader = write the frag, register in
+  `SHADER_FRAGS` + `SHADER_SOURCES`. No index.html edits.
+- Knob convention: each registry entry's `knobs` array ({key,label,tip,min,
+  max,step,default}) drives the panel. The knob keyed `speed` is special —
+  consumed JS-side as a rate multiplier on an ACCUMULATED phase clock
+  (uploaded as `uTime`), so dragging Speed glides instead of teleporting the
+  camera. All other knobs pack into `uParams.xyzw` in declaration order (max
+  4). Values live per-slug in shaderSource.js (`getShaderSourceParams` /
+  `setShaderSourceParam`) — runtime state like shaderSlug/shaderRes, NOT part
+  of saved looks.
 - `SHADER_RES` presets: landscape 1920×1080 / square 1080×1080 / vertical
   1080×1920, picked via `#shader-res-group` (state.shaderRes, not part of
   looks). Switching res while live reloads the shader at the new size.
@@ -334,7 +343,11 @@ stack on top. Key points:
   motion detection and motion effects work against it).
 - First entry: `goldclouds` — raymarched volumetric cloud-tunnel flight
   (FBM with octave rotation via ROT3 to avoid lattice artifacts, wall-carved
-  corridor density, sun-probe lighting, pastel grade).
+  corridor density, sun-probe lighting, pastel grade). Knobs: Speed (flight
+  clock), Zoom (FOV, uParams.x), Sway (path weave amplitude, uParams.y —
+  scales axisOff so camera and corridor carve stay aligned at any value),
+  Clouds (density threshold, uParams.z — 0.5 default reproduces the tuned
+  0.45..0.58 noise window exactly).
 
 ## Timeline UI (single transport bar)
 

@@ -52,6 +52,11 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="square"    data-tip="1080×1080 square.">1:1</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="vertical"  data-tip="1080×1920 vertical.">9:16</button>
           </div>
+          <!-- Per-shader knobs — built by renderShaderKnobs() from the active
+               SHADER_SOURCES entry's `knobs` array; hidden unless a shader
+               source is live. -->
+          <div class="section-label hidden" id="lbl-shader-knobs">Shader Controls</div>
+          <div class="knob-grid shader-knob-grid hidden" id="shader-knob-grid"></div>
         </section>
 
         <section class="control-section account-section" aria-label="Account and cloud presets">

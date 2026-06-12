@@ -1115,6 +1115,11 @@ label.section-label { cursor: pointer; }
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2xl) var(--space-md);   /* row gap holds the value tooltip drop; col gap breathes for 2-line labels */
 }
+/* Source-section shader knobs (built from SHADER_SOURCES[].knobs) — extra
+   bottom padding so the lowest value tooltip clears the section edge. */
+.shader-knob-grid {
+  padding: var(--space-sm) 0 var(--space-lg);
+}
 .control-stack {
   display: flex;
   flex-direction: column;

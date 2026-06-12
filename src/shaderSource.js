@@ -15,10 +15,20 @@
  * context total.
  *
  * To add a shader to the library:
- *   1. Write a fragment shader (interface: vUV in, uTime + uRes uniforms).
+ *   1. Write a fragment shader (interface: vUV in, uTime + uRes uniforms,
+ *      optional vec4 uParams for knob-driven values).
  *   2. Register it in SHADER_FRAGS and add a SHADER_SOURCES entry
- *      { slug, label, tip, gradient } — the picker grid in main.js builds
- *      itself from SHADER_SOURCES; no index.html edits.
+ *      { slug, label, tip, gradient, knobs } — the picker grid AND the knob
+ *      panel in main.js build themselves from SHADER_SOURCES; no index.html
+ *      edits.
+ *
+ * Knob convention: each entry's `knobs` array ({ key, label, tip, min, max,
+ * step, default }) drives the Source-section knob panel. The knob with key
+ * 'speed' is special — it is consumed JS-side as a clock-rate multiplier on
+ * an ACCUMULATED phase (uTime), so dragging Speed glides instead of
+ * teleporting the camera. All other knobs pack into uParams.xyzw in
+ * declaration order (max 4). Knob values are runtime state, kept per-slug,
+ * not part of saved looks.
  *
  * Resolution presets (SHADER_RES) are 1080p-class: landscape 1920×1080,
  * square 1080×1080, vertical 1080×1920.
@@ -42,6 +52,7 @@ precision highp float;
 in vec2 vUV;
 uniform float uTime;
 uniform vec2 uRes;
+uniform vec4 uParams;   // x = zoom, y = sway, z = clouds (density)
 out vec4 fragColor;
 
 float hash(vec3 p) {
@@ -70,24 +81,31 @@ float fbm(vec3 p) {
 float fbm2(vec3 p) {  // cheaper variant for the shadow probe
   return 0.65 * noise3(p) + 0.35 * noise3(ROT3 * p * 2.3);
 }
-vec2 axisOff(float z) { return vec2(sin(z * 0.13) * 0.45, cos(z * 0.11) * 0.30); }
+// Sway knob (uParams.y) scales the weave amplitude. Camera position and the
+// corridor carve share axisOff, so any sway value keeps the camera centered
+// in the clear bore.
+vec2 axisOff(float z) { return vec2(sin(z * 0.13) * 0.45, cos(z * 0.11) * 0.30) * uParams.y; }
 // Cloud corridor: a WIDE clear bore with a gentle sway; the walls are big
 // noise-carved billows (density only where wall AND noise agree, so chunky
-// lumps with sky gaps between them).
+// lumps with sky gaps between them). Clouds knob (uParams.z) slides the
+// noise threshold — at its 0.5 default this is the tuned 0.45..0.58 window.
+float cloudLo() { return 0.45 + (0.5 - uParams.z) * 0.26; }
 float density(vec3 p) {
   float r = length(p.xy - axisOff(p.z));
   float wall = smoothstep(2.0, 3.8, r);
   float n = fbm(p * 0.5);
-  float d = wall * smoothstep(0.45, 0.58, n) * 1.9;
+  float lo = cloudLo();
+  float d = wall * smoothstep(lo, lo + 0.13, n) * 1.9;
   d *= 0.8 + 0.45 * noise3(p * 2.6);               // crisp billow detail
-  d += max(0.0, n - 0.82) * 0.25 * (1.0 - wall);   // rare interior wisps only
+  d += max(0.0, n - 0.82) * 0.25 * (1.0 - wall) * (uParams.z * 2.0);  // rare interior wisps
   return clamp(d, 0.0, 1.0);
 }
 float densityCheap(vec3 p) {
   float r = length(p.xy - axisOff(p.z));
   float wall = smoothstep(2.0, 3.8, r);
   float n = fbm2(p * 0.5);
-  return clamp(wall * smoothstep(0.45, 0.58, n) * 1.9, 0.0, 1.0);
+  float lo = cloudLo();
+  return clamp(wall * smoothstep(lo, lo + 0.13, n) * 1.9, 0.0, 1.0);
 }
 
 void main() {
@@ -99,7 +117,8 @@ void main() {
   vec3 fwd = normalize(vec3(axisOff(t + 3.0) - ro.xy, 3.0));
   vec3 right = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
   vec3 up = cross(right, fwd);
-  vec3 rd = normalize(fwd + q.x * right * 0.72 + q.y * up * 0.72);
+  float spread = 0.72 / max(uParams.x, 0.001);   // zoom knob: telephoto when high
+  vec3 rd = normalize(fwd + (q.x * right + q.y * up) * spread);
   vec3 sunDir = normalize(vec3(axisOff(t + 14.0) - ro.xy, 14.0));
 
   // sky + sun seen down the tunnel
@@ -154,6 +173,16 @@ export const SHADER_SOURCES = [
     label: 'Gold Clouds',
     tip: 'POV flight through a tunnel of golden sunlit cumulus. Raymarched volumetric clouds — gold faces, blue-grey crevices, pink half-light.',
     gradient: 'linear-gradient(135deg, #5a6a96, #c498b8 30%, #ffd9a0 55%, #fff3d8 70%, #e8a86a)',
+    knobs: [
+      { key: 'speed',  label: 'Speed',  min: 0,   max: 2.5, step: 0.01, default: 1,
+        tip: 'Flight speed. How fast the camera travels down the corridor. 0 = hover in place while the clouds hold still.' },
+      { key: 'zoom',   label: 'Zoom',   min: 0.5, max: 2.5, step: 0.01, default: 1,
+        tip: 'Field of view. Low = wide-angle drift with billows wrapping past you. High = telephoto dive straight at the sun.' },
+      { key: 'sway',   label: 'Sway',   min: 0,   max: 2,   step: 0.01, default: 1,
+        tip: 'Path weave. How hard the corridor (and the camera riding it) snakes side to side. 0 = dead-straight run.' },
+      { key: 'clouds', label: 'Clouds', min: 0,   max: 1,   step: 0.01, default: 0.5,
+        tip: 'Cloud density. Low = sparse wisps and open lavender sky. High = thick canyon walls closing in.' },
+    ],
   },
 ];
 
@@ -163,7 +192,29 @@ export const SHADER_RES = {
   vertical:  { w: 1080, h: 1920, label: '9:16' },
 };
 
-let M = null; // { canvas, gl, vao, progs: {slug: {prog,time,res}}, slug, w, h }
+let M = null; // { canvas, gl, vao, progs: {slug: {prog,time,res,params}}, slug, w, h, phase, lastNow }
+
+// Per-slug knob values, seeded from the registry defaults on first access.
+// Runtime state (like shaderSlug itself) — switching shaders and back keeps
+// each one's settings for the session, but they are not part of saved looks.
+const paramsBySlug = Object.create(null);
+
+/** Knob value store for a shader (registry defaults filled in). */
+export function getShaderSourceParams(slug) {
+  if (!paramsBySlug[slug]) {
+    const store = Object.create(null);
+    const def = SHADER_SOURCES.find((s) => s.slug === slug);
+    for (const k of def?.knobs || []) store[k.key] = k.default;
+    paramsBySlug[slug] = store;
+  }
+  return paramsBySlug[slug];
+}
+
+/** Write one knob value for the ACTIVE shader. */
+export function setShaderSourceParam(key, value) {
+  if (!M || !M.slug) return;
+  getShaderSourceParams(M.slug)[key] = value;
+}
 
 function compile(gl, type, src) {
   const s = gl.createShader(type);
@@ -192,7 +243,7 @@ function ensureModule() {
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
-  M = { canvas, gl, vao, progs: Object.create(null), slug: null, w: 0, h: 0 };
+  M = { canvas, gl, vao, progs: Object.create(null), slug: null, w: 0, h: 0, phase: 0, lastNow: null };
   return M;
 }
 
@@ -215,8 +266,9 @@ function getProgram(slug) {
   }
   m.progs[slug] = {
     prog,
-    time: gl.getUniformLocation(prog, 'uTime'),
-    res:  gl.getUniformLocation(prog, 'uRes'),
+    time:   gl.getUniformLocation(prog, 'uTime'),
+    res:    gl.getUniformLocation(prog, 'uRes'),
+    params: gl.getUniformLocation(prog, 'uParams'),
   };
   return m.progs[slug];
 }
@@ -242,11 +294,31 @@ export function renderShaderSourceFrame() {
   const entry = M.progs[M.slug];
   if (!entry) return;
   const { gl, vao, w, h } = M;
+  const store = getShaderSourceParams(M.slug);
+
+  // Accumulated clock: Speed scales dt, so knob drags glide the flight
+  // rather than teleporting (uTime * speed would jump position on change).
+  const now = performance.now() / 1000;
+  const dt = M.lastNow == null ? 0 : Math.min(now - M.lastNow, 0.1);
+  M.lastNow = now;
+  M.phase += dt * (store.speed ?? 1);
+
   gl.viewport(0, 0, w, h);
   gl.bindVertexArray(vao);
   gl.useProgram(entry.prog);
-  if (entry.time != null) gl.uniform1f(entry.time, performance.now() / 1000);
+  if (entry.time != null) gl.uniform1f(entry.time, M.phase);
   if (entry.res != null) gl.uniform2f(entry.res, w, h);
+  if (entry.params != null) {
+    // Non-speed knobs pack into uParams.xyzw in registry declaration order.
+    const def = SHADER_SOURCES.find((s) => s.slug === M.slug);
+    const p = [0, 0, 0, 0];
+    let i = 0;
+    for (const k of def?.knobs || []) {
+      if (k.key === 'speed') continue;
+      if (i < 4) p[i++] = store[k.key] ?? k.default;
+    }
+    gl.uniform4f(entry.params, p[0], p[1], p[2], p[3]);
+  }
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 

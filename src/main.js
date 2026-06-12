@@ -7,7 +7,7 @@ import { applyASCII } from './ascii.js';
 import { applyGLFilter } from './glFilters.js';
 import { applyFxEffect, resetFxFeedback } from './glFx.js';
 import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs, captureFrameHistory, resetMotionHistory } from './glContext.js';
-import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas } from './shaderSource.js';
+import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas, getShaderSourceParams, setShaderSourceParam } from './shaderSource.js';
 import { applyCompose } from './glCompose.js';
 import { BlobOneEuroFilter } from './oneEuroFilter.js';
 import {
@@ -3124,6 +3124,55 @@ function renderShaderSourcePicker() {
     btn.appendChild(span);
     btn.addEventListener('click', () => loadShaderSource(def.slug));
     group.appendChild(btn);
+  }
+  renderShaderKnobs();
+}
+
+// Per-shader knob panel in the Source section. Slot-knob pattern (writeValue
+// → shaderSource param store, NOT global look state): knob values live
+// per-slug in shaderSource.js for the session and are not part of saved
+// looks, same as shaderSlug/shaderRes themselves.
+function renderShaderKnobs() {
+  const grid = document.getElementById('shader-knob-grid');
+  const lbl = document.getElementById('lbl-shader-knobs');
+  if (!grid) return;
+  const def = state.sourceKind === 'shader' && state.shaderSlug
+    ? SHADER_SOURCES.find((s) => s.slug === state.shaderSlug)
+    : null;
+  const knobs = def?.knobs || [];
+  grid.innerHTML = '';
+  const show = knobs.length > 0;
+  grid.classList.toggle('hidden', !show);
+  if (lbl) lbl.classList.toggle('hidden', !show);
+  if (!show) return;
+  const params = getShaderSourceParams(def.slug);
+  for (const k of knobs) {
+    const knobId = `shader-knob-${k.key}`;
+    const el = document.createElement('div');
+    el.className = 'knob slot-knob';
+    el.id = knobId;
+    el.dataset.knob = '';
+    el.dataset.min     = String(k.min);
+    el.dataset.max     = String(k.max);
+    el.dataset.step    = String(k.step);
+    el.dataset.default = String(k.default);
+    el.dataset.tip     = k.tip;
+    el.tabIndex = 0;
+    el.setAttribute('aria-label', `${def.label} ${k.label}`);
+    const labelEl = document.createElement('span');
+    labelEl.className = 'knob-label';
+    labelEl.textContent = k.label;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'knob-val';
+    valSpan.id = `${knobId}-val`;
+    valSpan.textContent = String(params[k.key] ?? k.default);
+    el.appendChild(labelEl);
+    el.appendChild(valSpan);
+    grid.appendChild(el);
+    initKnob(el, {
+      writeValue:   (v) => setShaderSourceParam(k.key, v),
+      initialValue: params[k.key] ?? k.default,
+    });
   }
 }
 renderShaderSourcePicker();
