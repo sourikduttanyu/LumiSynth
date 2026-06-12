@@ -343,6 +343,76 @@ export const COLOR_PARAM_SCHEMAS = {
     toggles: [],
     order: ['hueA', 'hueB', 'reg', 'halftone'],
   },
+  octopus: {
+    knobs: [
+      { key: 'ink',     label: 'Ink',     min: 0, max: 1, step: 0.01, default: 0.6,  tip: 'How violently the dark zones billow with violet ink. 0 = still black depths. 1 = heavy churning ink clouds.' },
+      { key: 'shimmer', label: 'Shimmer', min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Chromatophore cells flickering on lit skin — like octopus camouflage firing. 0 = calm. 1 = constant color-cell shimmer.' },
+      { key: 'skinhue', label: 'Skin',    min: 0, max: 1, step: 0.01, default: 0.35, tip: 'Skin tone of the bright regions. 0 = warm coral. 1 = deep rose-magenta.' },
+      { key: 'pulse',   label: 'Pulse',   min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'How fast the ink breathes and the cells flicker. 0 = nearly frozen. 1 = agitated.' },
+    ],
+    toggles: [],
+    order: ['ink', 'shimmer', 'skinhue', 'pulse'],
+  },
+  hologram: {
+    knobs: [
+      { key: 'hue',     label: 'Hue',      min: 0, max: 1, step: 0.01, default: 0.15, tip: 'Projection color. 0 = classic cyan hologram. 1 = pink-magenta projection.' },
+      { key: 'bands',   label: 'Bands',    min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Density of the drifting interference scanbands. 0 = wide soft bands. 1 = tight fine interference.' },
+      { key: 'flicker', label: 'Flicker',  min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'Projector instability. 0 = rock solid. 1 = heavy brightness stutter.' },
+      { key: 'solid',   label: 'Solidity', min: 0, max: 1, step: 0.01, default: 0.7,  tip: '0 = faint ghostly projection. 1 = fully solid light.' },
+    ],
+    toggles: [],
+    order: ['hue', 'bands', 'flicker', 'solid'],
+  },
+  dreamstatic: {
+    knobs: [
+      { key: 'thresh', label: 'Thresh', min: 0, max: 1, step: 0.01, default: 0.35, tip: 'Luminance below this dissolves into static. 0 = almost nothing dissolves. 1 = only the brightest content survives.' },
+      { key: 'grain',  label: 'Grain',  min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Static cell size. 0 = fine TV snow. 1 = chunky pixel blocks.' },
+      { key: 'drift',  label: 'Drift',  min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'How fast the static crawls. 0 = slow dreamy shimmer. 1 = fast broadcast noise.' },
+      { key: 'pastel', label: 'Pastel', min: 0, max: 1, step: 0.01, default: 0.7,  tip: '0 = raw RGB static. 1 = soft pastel snow in pink, blue, and lavender.' },
+    ],
+    toggles: [],
+    order: ['thresh', 'grain', 'drift', 'pastel'],
+  },
+  newsprint: {
+    knobs: [
+      { key: 'scale', label: 'Dots',  min: 0, max: 1, step: 0.01, default: 0.45, tip: 'Halftone dot size. 0 = fine print. 1 = giant pop-art dots.' },
+      { key: 'hueA',  label: 'Ink A', min: 0, max: 1, step: 0.01, default: 0.95, tip: 'Shadow-screen ink hue. Default hot pink-red — the pop duotone classic.' },
+      { key: 'hueB',  label: 'Ink B', min: 0, max: 1, step: 0.01, default: 0.62, tip: 'Midtone-screen ink hue. Default blue. Pairs against Ink A for the two-color pop print.' },
+      { key: 'drift', label: 'Drift', min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'Screen registration drift. 0 = perfectly aligned. 1 = cheap-press misregistration.' },
+    ],
+    toggles: [],
+    order: ['scale', 'hueA', 'hueB', 'drift'],
+  },
+  surveil: {
+    knobs: [
+      { key: 'palette', label: 'Palette', min: 0, max: 1, step: 0.01, default: 0.2,  tip: '0 = drone IR white-hot (grey-green). 1 = naval sonar (navy→cyan→white).' },
+      { key: 'bands',   label: 'Bands',   min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Quantization steps (4–16). Fewer = harder banding.' },
+      { key: 'zone',    label: 'Target',  min: 0, max: 1, step: 0.01, default: 0.75, tip: 'Which luminance zone the detection system locks onto. Sweep it to scan the image.' },
+      { key: 'tgthue',  label: 'Lock',    min: 0, max: 1, step: 0.01, default: 0.08, tip: 'Detection highlight color. Default threat-orange. 0.3 = acid green, 0 = red.' },
+    ],
+    toggles: [],
+    order: ['palette', 'bands', 'zone', 'tgthue'],
+  },
+  polaroid: {
+    knobs: [
+      { key: 'age',      label: 'Age',   min: 0, max: 1, step: 0.01, default: 0.55, tip: 'Decades in the shoebox. Drives tint strength and fading. 0 = fresh print. 1 = heavily aged.' },
+      { key: 'chem',     label: 'Chem',  min: 0, max: 1, step: 0.01, default: 0.6,  tip: 'Film chemistry. 0 = cool cyan shadows. 1 = warm green shadows with yellowed highlights.' },
+      { key: 'milk',     label: 'Milk',  min: 0, max: 1, step: 0.01, default: 0.45, tip: 'Milky black lift. 0 = true blacks. 1 = nothing darker than warm grey haze.' },
+      { key: 'vignette', label: 'Vign',  min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Corner darkening, like the flash never reached the edges.' },
+    ],
+    toggles: [],
+    order: ['age', 'chem', 'milk', 'vignette'],
+  },
+  blacklight: {
+    knobs: [
+      { key: 'depth', label: 'Depth', min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'How deep the purple-black room is. 0 = dim violet wash everywhere. 1 = crushed black with isolated glow.' },
+      { key: 'fluor', label: 'Fluor', min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'How much of the image fluoresces. 0 = only the very brightest. 1 = everything mid-and-up glows.' },
+      { key: 'paint', label: 'Paint', min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'Neon paint hue. Sweeps electric violet → hot pink → red-orange → acid green.' },
+      { key: 'glow',  label: 'Glow',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Paint brightness boost. 1 = blinding UV-reactive ink.' },
+    ],
+    toggles: [],
+    order: ['depth', 'fluor', 'paint', 'glow'],
+  },
   neontube: {
     knobs: [
       { key: 'hue',    label: 'Hue',    min: 0, max: 1, step: 0.01, default: 0.85, tip: 'Neon color hue. 0.85 = hot pink, 0.55 = cyan, 0.15 = amber.' },
@@ -569,6 +639,7 @@ export const COLOR_MAP_SECTIONS = [
   'oxide','synth','biolum','thermo','falsecolor',
   'acidwash','xray','solarize','cyanotype','infrared',
   'blackbody','hubble',
+  'surveil','polaroid','blacklight',
 ];
 // The UNIQUE tab — effects that BUILD something: they sample neighbors, add
 // elements (stars, halos, streaks), displace, or glow. Grouped into labeled
@@ -578,10 +649,11 @@ export const COLOR_MAP_SECTIONS = [
 // passes: anything that needs to ACCUMULATE across frames belongs in the
 // FX RACK instead.
 export const COLOR_UNIQUE_SECTIONS = [
-  { key: 'atmosphere', label: 'Atmosphere', effects: ['nebula', 'aurorastorm', 'deepfield'] },
-  { key: 'light',      label: 'Light',      effects: ['neontube', 'prismatic', 'heatbleed', 'sequin'] },
+  { key: 'atmosphere', label: 'Atmosphere', effects: ['nebula', 'aurorastorm', 'deepfield', 'dreamstatic'] },
+  { key: 'light',      label: 'Light',      effects: ['neontube', 'prismatic', 'heatbleed', 'sequin', 'hologram'] },
   { key: 'dimension',  label: 'Dimension',  effects: ['depthstack', 'abyss'] },
-  { key: 'print',      label: 'Print',      effects: ['risograph'] },
+  { key: 'deepsea',    label: 'Deep Sea',   effects: ['octopus'] },
+  { key: 'print',      label: 'Print',      effects: ['risograph', 'newsprint'] },
 ];
 export const COLOR_UNIQUE_FLAT = COLOR_UNIQUE_SECTIONS.flatMap((c) => c.effects);
 // Every valid value of state.color (except 'none'): maps + unique effects +
@@ -622,6 +694,13 @@ export const BLEND_MODES = {
   blackbody:    'source-over',
   hubble:       'source-over',
   risograph:    'source-over',
+  octopus:      'source-over',
+  hologram:     'source-over',
+  surveil:      'source-over',
+  newsprint:    'source-over',
+  polaroid:     'source-over',
+  blacklight:   'source-over',
+  dreamstatic:  'source-over',
   neontube:     'source-over',
   deepfield:    'source-over',
   decayflow:    'source-over',

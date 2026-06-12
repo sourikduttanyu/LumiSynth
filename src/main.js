@@ -1341,6 +1341,13 @@ const COLOR_SWATCH_GRADIENTS = {
   abyss:      'linear-gradient(90deg, #010010, #0a0050, #7a006e, #ff00aa, #ff8acd)',
   sequin:     'linear-gradient(90deg, #00aaff, #6600ff, #cc00ff, #ff0088, #ff5500, #ffcc00)',
   risograph:  'linear-gradient(90deg, #f5ead8, #e8b89a, #c86060, #a04080, #f5ead8)',
+  octopus:    'linear-gradient(90deg, #05010c, #2a0f4a, #7a2a6e, #ff7a5c, #ffd2c0)',
+  hologram:   'linear-gradient(90deg, #01060c, #073a4a, #19c8e8, #9ff4ff)',
+  surveil:    'linear-gradient(90deg, #020503, #2c3a2e, #7d9682, #e8f0e8 72%, #ff8400 78%, #e8f0e8 84%)',
+  newsprint:  'linear-gradient(90deg, #f7f2e6, #e85d75, #f7f2e6, #5560c8, #f7f2e6)',
+  polaroid:   'linear-gradient(90deg, #2e3b34, #6a7a6a, #c9bfa3, #f2e6c4)',
+  blacklight: 'linear-gradient(90deg, #050008, #2a0a55, #7a1fd0, #ff3df0, #b6ff4d)',
+  dreamstatic:'linear-gradient(90deg, #0a0a14, #8898d8, #e8a8c8, #b8a8e8, #f0e8ff)',
 };
 const COLOR_LABEL = {
   oxide: 'Oxide', synth: 'Synth', biolum: 'BioLum', thermo: 'Thermo', falsecolor: 'FalseClr',
@@ -1350,6 +1357,8 @@ const COLOR_LABEL = {
   prismatic: 'Prismatic', heatbleed: 'HeatBleed', depthstack: 'DepthStack', abyss: 'Abyss',
   sequin: 'Sequin',
   risograph: 'Riso',
+  octopus: 'Octopus', hologram: 'Hologram', surveil: 'Surveil', newsprint: 'Newsprint',
+  polaroid: 'Polaroid', blacklight: 'Blacklight', dreamstatic: 'DreamStatic',
   chroma: 'ChromaEngine',
 };
 
@@ -1377,6 +1386,13 @@ const COLOR_MAP_TIPS = {
   sequin:     'Three hue-bounded shimmer profiles: Cyan, Cyan-Magenta, or Ember. Sparkle dots twinkle at peaks; Speed oscillates the palette without ever bleeding into green.',
   abyss:      'Stereoscopic void. Real R/B chromatic displacement creates 3D depth. Hue sweeps electric blue → vivid magenta → warm rose.',
   risograph:  'Two-color indie risograph print. Ink A covers shadows, Ink B the midtones — misregistration drifts them apart; halftone adds the dot-screen texture.',
+  octopus:    'Deep-sea dreamcore. Dark zones billow with animated violet ink; bright regions become coral skin with flickering camouflage cells.',
+  hologram:   'Sci-fi light projection. Translucent self-luminous cyan (or pink) with drifting interference bands, electric edge fringe, projector flicker.',
+  surveil:    'Drone thermal targeting. Hard-quantized false-color bands; one luminance zone locks in a detection color. Sweep Target to scan.',
+  newsprint:  'Pop-art halftone duotone. Two rotated dot screens — shadow ink + midtone ink — over warm paper. The TV Girl album-cover print.',
+  polaroid:   'Instant-film chemistry. Cyan-green shadows, yellowed highlights, milky lifted blacks, corner vignette. Found in a shoebox.',
+  blacklight: 'UV poster room. Deep purple-black base; only bright regions fluoresce in hot neon paint. Sweep Paint from violet to acid green.',
+  dreamstatic:'Shadows dissolve into slowly crawling pastel static while bright content stays solid. A signal coming through from a dream.',
 };
 
 // Per-effect knob memory access. Ensures state.colorParams[type] exists and

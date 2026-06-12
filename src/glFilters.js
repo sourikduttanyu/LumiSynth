@@ -1021,6 +1021,210 @@ void main() {
   fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
+// ABYSSAL OCTOPUS — dreamcore deep-sea creature. Dark regions billow with
+// animated purple-black ink; bright regions become coral/rose skin with
+// chromatophore shimmer cells flickering like octopus camouflage.
+// uParams: x=Ink, y=Shimmer, z=Skin hue (coral→magenta), w=Pulse speed
+const FRAG_OCTOPUS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uTime;
+out vec4 fragColor;
+float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i), b = hash21(i + vec2(1.0, 0.0)), c = hash21(i + vec2(0.0, 1.0)), d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+void main() {
+  vec2 uv = vUV;
+  float L = dot(texture(u_video, uv).rgb, vec3(0.299, 0.587, 0.114));
+  float t = uTime * mix(0.1, 0.9, uParams.w);
+  float n = vnoise(uv * 6.0 + vec2(t * 0.7, -t * 0.4)) * 0.65
+          + vnoise(uv * 13.0 - vec2(t * 0.3, t * 0.6)) * 0.35;
+  vec3 inkDeep   = vec3(0.03, 0.01, 0.07);
+  vec3 inkViolet = vec3(0.24, 0.08, 0.42);
+  vec3 ink = mix(inkDeep, inkViolet, n * uParams.x);
+  vec3 skinA = mix(vec3(0.95, 0.45, 0.30), vec3(0.85, 0.25, 0.58), uParams.z);
+  vec3 skinB = mix(vec3(1.0, 0.80, 0.64), vec3(1.0, 0.64, 0.88), uParams.z);
+  vec3 skin = mix(skinA, skinB, smoothstep(0.30, 0.85, L));
+  // chromatophore cells: sparse hue-rotated flicker on lit skin
+  float cell = hash21(floor(uv * 42.0) + floor(t * 3.0));
+  float shim = uParams.y * smoothstep(0.40, 0.80, L) * step(0.72, cell);
+  skin = mix(skin, skin.brg, shim * 0.6);
+  vec3 col = mix(ink, skin, smoothstep(0.20, 0.45, L));
+  float rim = smoothstep(0.20, 0.32, L) * (1.0 - smoothstep(0.32, 0.48, L));
+  col += vec3(0.35, 0.15, 0.55) * rim * uParams.x * 0.8;
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// HOLOGRAM — sci-fi light projection. Image becomes translucent self-luminous
+// cyan (or pink) light with drifting interference bands, electric edge fringe,
+// and occasional projector flicker.
+// uParams: x=Hue (cyan→pink), y=Bands, z=Flicker, w=Solidity
+const FRAG_HOLOGRAM = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uTime;
+out vec4 fragColor;
+float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+vec3 hsv2rgb(vec3 c) { vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0); vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www); return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y); }
+float lum(vec2 uv) { return dot(texture(u_video, uv).rgb, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  vec2 uv = vUV;
+  vec2 texel = 1.0 / vec2(textureSize(u_video, 0));
+  float L = lum(uv);
+  float gx = lum(uv + vec2(texel.x, 0.0)) - lum(uv - vec2(texel.x, 0.0));
+  float gy = lum(uv + vec2(0.0, texel.y)) - lum(uv - vec2(0.0, texel.y));
+  float edge = clamp(length(vec2(gx, gy)) * 4.0, 0.0, 1.0);
+  float hue = mix(0.52, 0.87, uParams.x);
+  vec3 col = hsv2rgb(vec3(hue, 0.75, pow(L, 0.85) * 1.15));
+  float bands = sin((uv.y + uTime * 0.05) * mix(120.0, 420.0, uParams.y)) * 0.5 + 0.5;
+  col *= mix(0.55, 1.0, bands);
+  float roll = smoothstep(0.0, 0.25, abs(fract(uv.y - uTime * 0.07) - 0.5)) * 0.35 + 0.65;
+  col *= roll;
+  col += hsv2rgb(vec3(hue + 0.06, 0.9, 1.0)) * edge * 0.9;
+  float fl = 1.0 - uParams.z * 0.5 * step(0.92, hash21(vec2(floor(uTime * 18.0), 3.7)));
+  col *= fl;
+  col = vec3(0.01, 0.02, 0.04) + col * mix(0.45, 1.0, uParams.w);
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// SURVEIL — drone-footage thermal targeting. Hard-quantized false-color bands
+// with one luminance zone lit up in a contrasting "detection" color.
+// uParams: x=Palette (drone IR → naval sonar), y=Bands, z=Target zone, w=Target hue
+const FRAG_SURVEIL = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+vec3 hsv2rgb(vec3 c) { vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0); vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www); return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y); }
+void main() {
+  float L = dot(texture(u_video, vUV).rgb, vec3(0.299, 0.587, 0.114));
+  float n = floor(mix(4.0, 16.0, uParams.y));
+  float band = clamp(floor(L * n), 0.0, n - 1.0);
+  float q = band / (n - 1.0);
+  vec3 pA = vec3(q) * vec3(0.82, 1.0, 0.82);
+  vec3 pB = q < 0.5
+    ? mix(vec3(0.02, 0.05, 0.15), vec3(0.10, 0.70, 0.80), q * 2.0)
+    : mix(vec3(0.10, 0.70, 0.80), vec3(0.95, 1.0, 1.0), (q - 0.5) * 2.0);
+  vec3 col = mix(pA, pB, uParams.x);
+  float zoneBand = clamp(floor(uParams.z * n), 0.0, n - 1.0);
+  if (band == zoneBand) col = mix(col, hsv2rgb(vec3(uParams.w, 0.95, 1.0)), 0.85);
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// NEWSPRINT — pop-art CMYK-style halftone duotone. Two rotated dot screens
+// (shadow ink + midtone ink) over warm paper with registration drift — the
+// TV Girl album-cover print technique, punchier than risograph.
+// uParams: x=Dot scale, y=Ink A hue, z=Ink B hue, w=Drift
+const FRAG_NEWSPRINT = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+vec3 hsv2rgb(vec3 c) { vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0); vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www); return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y); }
+float dotMask(vec2 uv, float ang, float scale, float v) {
+  mat2 r = mat2(cos(ang), -sin(ang), sin(ang), cos(ang));
+  vec2 p = r * uv * scale;
+  float d = length(fract(p) - 0.5);
+  float radius = sqrt(clamp(v, 0.0, 1.0)) * 0.68;
+  return smoothstep(radius + 0.07, radius - 0.07, d);
+}
+void main() {
+  vec2 uv = vUV;
+  float L = dot(texture(u_video, uv).rgb, vec3(0.299, 0.587, 0.114));
+  float scale = mix(220.0, 60.0, uParams.x);
+  vec2 off = vec2(0.010, -0.006) * uParams.w;
+  float aA = dotMask(uv + off * 0.5, 0.262, scale, 1.0 - L);
+  float aB = dotMask(uv - off * 0.5, 0.785, scale, L * (1.0 - L) * 3.2);
+  vec3 colA = hsv2rgb(vec3(uParams.y, 0.80, 0.85));
+  vec3 colB = hsv2rgb(vec3(uParams.z, 0.75, 0.95));
+  vec3 col = vec3(0.97, 0.95, 0.90);
+  col = mix(col, col * colA, aA);
+  col = mix(col, col * colB, aB * 0.8);
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// POLAROID 600 — instant-film chemistry. Cyan-green shadows, warm yellowed
+// highlights, milky lifted blacks, corner vignette. The shoebox-photo grade.
+// uParams: x=Age, y=Chemistry (cool→warm), z=Milk, w=Vignette
+const FRAG_POLAROID = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  vec3 c = texture(u_video, vUV).rgb;
+  float L = dot(c, vec3(0.299, 0.587, 0.114));
+  c = mix(c, vec3(0.82, 0.78, 0.70), uParams.z * 0.38 * (1.0 - smoothstep(0.0, 0.5, L)));
+  vec3 shadowTint = mix(vec3(0.78, 0.96, 1.0), vec3(0.76, 1.0, 0.86), uParams.y);
+  vec3 highTint   = mix(vec3(0.96, 0.98, 1.0), vec3(1.0, 0.95, 0.78), uParams.y);
+  c *= mix(vec3(1.0), shadowTint, (1.0 - smoothstep(0.10, 0.60, L)) * uParams.x * 0.7);
+  c *= mix(vec3(1.0), highTint, smoothstep(0.50, 0.95, L) * uParams.x * 0.6);
+  float g = dot(c, vec3(0.299, 0.587, 0.114));
+  c = mix(c, vec3(g), uParams.x * 0.30);
+  float d = distance(vUV, vec2(0.5));
+  c *= 1.0 - uParams.w * smoothstep(0.40, 0.82, d) * 0.7;
+  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`;
+
+// BLACKLIGHT — UV poster room. Deep purple-black base; only the brightest
+// regions fluoresce in hot neon paint like blacklight-reactive ink at a rave.
+// uParams: x=UV depth, y=Fluorescence, z=Paint hue, w=Glow
+const FRAG_BLACKLIGHT = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+vec3 hsv2rgb(vec3 c) { vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0); vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www); return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y); }
+void main() {
+  float L = dot(texture(u_video, vUV).rgb, vec3(0.299, 0.587, 0.114));
+  float v = pow(clamp(L, 0.0, 1.0), mix(0.9, 2.2, uParams.x));
+  vec3 base = mix(vec3(0.012, 0.0, 0.045), vec3(0.16, 0.05, 0.36), v);
+  float hue = fract(mix(0.72, 1.33, uParams.z));
+  vec3 paint = hsv2rgb(vec3(hue, 0.95, 1.0));
+  float fl = smoothstep(mix(0.78, 0.45, uParams.y), 0.95, L);
+  vec3 col = base + paint * fl * (1.0 + uParams.w * 1.6);
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// DREAM STATIC — shadows dissolve into slowly crawling pastel noise while
+// bright content stays solid. A signal coming through from a dream.
+// uParams: x=Threshold, y=Grain size, z=Drift speed, w=Pastel
+const FRAG_DREAMSTATIC = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uTime;
+out vec4 fragColor;
+float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+void main() {
+  vec3 src = texture(u_video, vUV).rgb;
+  float L = dot(src, vec3(0.299, 0.587, 0.114));
+  float mask = 1.0 - smoothstep(uParams.x - 0.12, uParams.x + 0.12, L);
+  float scale = mix(380.0, 60.0, uParams.y);
+  vec2 cell = floor(vUV * scale);
+  float tt = floor(uTime * mix(2.0, 14.0, uParams.z));
+  vec3 noise = vec3(hash21(cell + tt), hash21(cell + tt + 7.3), hash21(cell + tt + 19.7));
+  float pick = hash21(cell * 1.7 + tt);
+  vec3 baseHue = pick < 0.33 ? vec3(0.95, 0.65, 0.80)
+               : pick < 0.66 ? vec3(0.65, 0.70, 0.95)
+                             : vec3(0.80, 0.65, 0.95);
+  vec3 stat = mix(noise, baseHue * (0.40 + 0.60 * noise.r), uParams.w);
+  fragColor = vec4(clamp(mix(src, stat, mask), 0.0, 1.0), 1.0);
+}`;
+
 const FRAG_DECAYFLOW = `#version 300 es
 precision highp float;
 in vec2 vUV;
@@ -1428,6 +1632,13 @@ const FRAGS = {
   blackbody:    FRAG_BLACKBODY,
   hubble:       FRAG_HUBBLE,
   risograph:    FRAG_RISOGRAPH,
+  octopus:      FRAG_OCTOPUS,
+  hologram:     FRAG_HOLOGRAM,
+  surveil:      FRAG_SURVEIL,
+  newsprint:    FRAG_NEWSPRINT,
+  polaroid:     FRAG_POLAROID,
+  blacklight:   FRAG_BLACKLIGHT,
+  dreamstatic:  FRAG_DREAMSTATIC,
   decayflow:    FRAG_DECAYFLOW,
   feedbackwarp: FRAG_FEEDBACKWARP,
   bloom:        FRAG_BLOOM,
