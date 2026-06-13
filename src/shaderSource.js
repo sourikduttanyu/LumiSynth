@@ -285,10 +285,103 @@ void main() {
   fragColor = vec4(v * 0.01, 1.0);
 }`;
 
+// HYPERKART — neon tube-racer flythrough. Flies a curving SDF tunnel lined
+// with red/blue squiggling light strips and a boxy lattice, glow-accumulated
+// then bounced once for wet reflections — a synthwave kart-racer feel.
+// Shadertoy port: iTime → uTime, iResolution → uRes; the camera right-vector
+// `vec3(Z.z,0,-Z)` is corrected to `vec3(Z.z,0,-Z.x)` (the 5-component form
+// does not compile). lights is explicitly zeroed (drivers don't guarantee it).
+const FRAG_HYPERKART = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform float uTime;
+uniform vec2 uRes;
+uniform float uParams[8];
+out vec4 fragColor;
+// [0] Glow [1] Roll [2] Hue [3] Reflect [4] Zoom
+
+#define T (sin(uTime*.6)*64.+uTime*2e2)
+#define P(z) (vec3(cos((z)*.015)*16.+cos((z)*.006)*64., \\
+                   cos((z)*.011)*24.+cos((z)*.009)*32., (z)))
+#define R(a) mat2(cos(a+vec4(0,33,11,0)))
+#define N normalize
+
+vec4 lights;
+
+float boxen(vec3 p) {
+  p = abs(fract(p / 4e1) * 4e1 - 2e1) - 2.;
+  return min(p.x, min(p.y, p.z));
+}
+float map(vec3 p) {
+  vec3 q = P(p.z);
+  float m, g = q.y - p.y + 6.;
+  m = boxen(p);
+  p.xy -= q.xy;
+  float red, blue;
+  float e = min(red  = length(p.xy - sin(p.y / 12. + vec2(5., 1.)) * 12.) - 1.,
+                blue = length(p.xy - sin(p.y / 12. + vec2(0, 1.)) * 12.) - 1.);
+  lights += vec4(2, 1e1, 1e1, 0) / (.1 + abs(red) / 1e1);
+  lights += vec4(1e1, 2, 1e1, 0) / (.1 + abs(blue) / 1e1);
+  p = abs(p);
+  float tex = abs(length(sin(p * cos(p.yzx / 3e1) * 4.) / (p * 4.)));
+  float tun = min(64. - p.x - p.y + m, 32. - p.y - m);
+  float d = max(min(m, g), tun) - tex;
+  return min(e, d);
+}
+vec3 hueShift(vec3 c, float h) {
+  const vec3 k = vec3(0.57735);
+  float a = h * 6.28318530718, ca = cos(a);
+  return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca);
+}
+
+void main() {
+  float glow = uParams[0], roll = uParams[1], hue = uParams[2], refl = uParams[3];
+  float zoom = max(uParams[4], 0.05);
+
+  vec2 u = (vUV - 0.5) * vec2(uRes.x / uRes.y, 1.0);
+  u.y -= .2;
+  u /= zoom;
+
+  vec4 o = vec4(0);
+  lights = vec4(0);
+  vec3 p = P(T), ro = p,
+       Z = N(P(T + 1e1) - p),
+       X = N(vec3(Z.z, 0, -Z.x)),
+       D = N(vec3(R(sin(T * .005) * roll * .4) * u, 1) * mat3(-X, cross(X, Z), Z));
+
+  float i = 0., s = 0., d = 0.;
+  for (; i++ < 128.;)
+    p = ro + D * d,
+    d += s = map(p) * .8,
+    o += lights + 1. / max(s, .01);
+
+  const float h = 0.005;
+  const vec2 k = vec2(1, -1);
+  vec3 n = N(k.xyy * map(p + k.xyy * h) +
+             k.yyx * map(p + k.yyx * h) +
+             k.yxy * map(p + k.yxy * h) +
+             k.xxx * map(p + k.xxx * h));
+
+  o *= (.1 + max(dot(n, -D), 0.));
+
+  vec4 ref = vec4(0);
+  lights = vec4(0);
+  for (p += n * .05, D = reflect(D, n), s = i = 0.; i++ < 4e1;)
+    p += D * s,
+    s = map(p) * .8,
+    ref += lights + 1. / max(s, .01);
+
+  o += o * ref * refl;
+  o.rgb = hueShift(o.rgb, hue);
+  o = tanh(o * glow / 6e6 / d);
+  fragColor = vec4(max(o.rgb, 0.0), 1.0);
+}`;
+
 const SHADER_FRAGS = {
   diveclouds:  FRAG_DIVECLOUDS,
   phantomstar: FRAG_PHANTOMSTAR,
   starnest:    FRAG_STARNEST,
+  hyperkart:   FRAG_HYPERKART,
 };
 
 // Library metadata — the source picker grid builds itself from this.
@@ -357,6 +450,26 @@ export const SHADER_SOURCES = [
         tip: 'Color saturation. 0 = silvery monochrome starfield, 1 = full nebula color.' },
       { key: 'spin',  label: 'Spin',  min: 0,    max: 1,    step: 0.01,  default: 0.2,
         tip: 'Auto-tumble rate (replaces the original mouse look). 0 = fixed orientation, just drifting forward. High = slow rolling tumble through space.' },
+    ],
+  },
+  {
+    slug: 'hyperkart',
+    label: 'Hyperkart',
+    tip: 'Neon tube-racer flythrough — a curving lattice tunnel lined with red/blue light strips, glow-accumulated and bounced for wet synthwave reflections. After a Shadertoy original.',
+    gradient: 'linear-gradient(120deg, #04030a, #1828d8 28%, #20e6ff 52%, #ff2a96 78%, #04030a)',
+    knobs: [
+      { key: 'speed',   label: 'Speed',   min: 0,   max: 2.5, step: 0.01, default: 1,
+        tip: 'Race speed. How fast you fly the tunnel — scales the whole clock. 0 = parked, lights frozen.' },
+      { key: 'glow',    label: 'Glow',    min: 0.2, max: 4,   step: 0.01, default: 1,
+        tip: 'Neon exposure. Low = moody dim strips. High = blown-out blazing light tubes.' },
+      { key: 'roll',    label: 'Roll',    min: 0,   max: 2,   step: 0.01, default: 1,
+        tip: 'Banking. How hard the camera leans into the curves. 0 = locked level, high = aggressive kart roll.' },
+      { key: 'hue',     label: 'Hue',     min: 0,   max: 1,   step: 0.01, default: 0,
+        tip: 'Color rotation. 0 = the original red/blue neon. Sweep for cyan, gold, magenta tube palettes.' },
+      { key: 'reflect', label: 'Reflect', min: 0,   max: 2,   step: 0.01, default: 1,
+        tip: 'Wet-floor reflection strength. 0 = matte tunnel, high = mirror-slick chrome bounce.' },
+      { key: 'zoom',    label: 'Zoom',    min: 0.3, max: 3,   step: 0.01, default: 1,
+        tip: 'Field of view. Low = wide fisheye speed-rush. High = telephoto tight on the track.' },
     ],
   },
 ];

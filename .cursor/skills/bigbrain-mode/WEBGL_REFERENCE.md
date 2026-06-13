@@ -344,6 +344,14 @@ Reference implementations:
   pointer input in the library, so the mouse-driven rotation became an
   auto-tumble Spin knob driven by `uTime`. Use this approach for any
   iMouse-dependent Shadertoy shader.
+- `hyperkart` — neon tube-racer flythrough. Two porting gotchas worth
+  remembering: (1) `#define` macros that span lines need a literal backslash
+  in the GLSL string, so write `\\` at the line end inside the JS template
+  literal (a single `\` would be a JS line-continuation and get eaten).
+  (2) "Golfed" Shadertoy code sometimes has constructor arity that only
+  compiles on lenient drivers — `vec3(Z.z,0,-Z)` (5 components) had to become
+  `vec3(Z.z,0,-Z.x)`. Also: globals like `vec4 lights;` relied on implicit
+  zero-init on Shadertoy — explicitly assign `lights = vec4(0.)` in `main`.
 
 If a generator needs external textures or multiple inputs (beyond time,
 resolution, and up to 8 knobs), flag that before coding — the source
