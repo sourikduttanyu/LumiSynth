@@ -334,7 +334,7 @@ stack on top. Key points:
   (uploaded as `uTime`), so dragging Speed glides instead of teleporting the
   camera. All other knobs upload into the float array
   `uniform float uParams[8]` in declaration order (so a shader can expose up
-  to 8 controls — no 4-knob ceiling; goldclouds reads uParams[0..2],
+  to 8 controls — no 4-knob ceiling; diveclouds reads uParams[0..3],
   phantomstar uParams[0..6]). Values live per-slug in shaderSource.js
   (`getShaderSourceParams` / `setShaderSourceParam`) — runtime state like
   shaderSlug/shaderRes, NOT part of saved looks.
@@ -345,11 +345,12 @@ stack on top. Key points:
   `activeSource*` helpers in main.js handle the kind (always "playing", so
   motion detection and motion effects work against it).
 - Library entries:
-  - `goldclouds` — raymarched volumetric cloud-tunnel flight (FBM with octave
-    rotation via ROT3 to avoid lattice artifacts, wall-carved corridor
-    density, sun-probe lighting, pastel grade). Knobs: Speed (flight clock),
-    Zoom (FOV, uParams[0]), Sway (path weave, uParams[1] — scales axisOff so
-    camera and corridor stay aligned), Clouds (density threshold, uParams[2]).
+  - `diveclouds` — POV dive through a vast sunlit cumulus layer on a banked
+    flight path, low sun burning through (volumetric FBM clouds, front-to-back
+    march with opacity early-out; ported from Shadertoy 4sXGRM). Knobs: Speed
+    (flight clock), Coverage (cloud threshold, uParams[0]), Zoom (FOV,
+    uParams[1]), Sun (glare + scatter, uParams[2]), Tint (cool↔warm sky,
+    uParams[3]).
   - `phantomstar` — kaleidoscopic IFS-fractal star tunnel (folded box fractal
     → N-fold radial pmod symmetry → volumetric neon accumulation with a
     travelling pulse; after aiekick's Phantom Star). 8 knobs: Speed, Fly
@@ -378,4 +379,4 @@ all of that was removed. Space toggles play/pause globally.
 
 ## Active work context
 
-See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. Curved hub lines are implemented as a general TRACK Lines style (`hubcurve`). Cloudflare Pages Functions + D1 auth/presets/export-gating scaffolding exists, with localhost-only internal login for testing before real D1 setup. P3 is WELL UNDERWAY: the FX RACK is a real GL rack (3 slots, drag-reorder, per-slot params, timeline-look + preset + persistence integration) with six true feedback effects (`flowfield`, `drag`, `lumadrag`, `tunnel`, `burnin`, `wobbletape`) plus the stateless signal/texture set (bloom, godrays, decayflow, feedbackwarp, crt, crtrolling, scanlines, degrade, noise) — see `src/glFx.js`. v8 replaced the COLOR rack with the single tabbed COLOR stage (MAPS / UNIQUE / CUSTOM + GRADE). June 2026 additions: the dreamcore COLOR pack (octopus, hologram, surveil, newsprint, sketch, polaroid, blacklight, dreamstatic, predator + earlier blackbody/hubble/abyss/sequin/risograph), two new STRUCTURE effects (`freqmod` FM oscillography — Dir/Mod/Wave/Thresh + Density knob for 120–300 scan rows via the optional `uParam4` 5th-param uniform; `motionedge`), the motion infrastructure (frame-history ring + `u_prev`), the `uTime` auto-upload convention in both dispatchers, the single-bar timeline, the TE-cream chrome redesign, and the generative SHADER LIBRARY source kind (`src/shaderSource.js` — `goldclouds`, `phantomstar`, `starnest`; raymarched/Shadertoy-style generators with registry-driven per-shader knobs: Speed glides via an accumulated phase clock, others upload via a `uParams[8]` float array, up to 8 controls each). Remaining P3: upgrading decayflow/feedbackwarp to real feedback, and Inv/Thermal moving from PER-BLOB into the FX RACK. `PRD_DECISIONS.md` logs what is deliberately out of scope.
+See `lumisynthprd.md` for implementation status vs the original PRD. P2 (STRUCTURE → COLOR FBO chain) shipped. Track FX rack (echo/radar/heatmap) is implemented in TRACK mode. Curved hub lines are implemented as a general TRACK Lines style (`hubcurve`). Cloudflare Pages Functions + D1 auth/presets/export-gating scaffolding exists, with localhost-only internal login for testing before real D1 setup. P3 is WELL UNDERWAY: the FX RACK is a real GL rack (3 slots, drag-reorder, per-slot params, timeline-look + preset + persistence integration) with six true feedback effects (`flowfield`, `drag`, `lumadrag`, `tunnel`, `burnin`, `wobbletape`) plus the stateless signal/texture set (bloom, godrays, decayflow, feedbackwarp, crt, crtrolling, scanlines, degrade, noise) — see `src/glFx.js`. v8 replaced the COLOR rack with the single tabbed COLOR stage (MAPS / UNIQUE / CUSTOM + GRADE). June 2026 additions: the dreamcore COLOR pack (octopus, hologram, surveil, newsprint, sketch, polaroid, blacklight, dreamstatic, predator + earlier blackbody/hubble/abyss/sequin/risograph), two new STRUCTURE effects (`freqmod` FM oscillography — Dir/Mod/Wave/Thresh + Density knob for 120–300 scan rows via the optional `uParam4` 5th-param uniform; `motionedge`), the motion infrastructure (frame-history ring + `u_prev`), the `uTime` auto-upload convention in both dispatchers, the single-bar timeline, the TE-cream chrome redesign, and the generative SHADER LIBRARY source kind (`src/shaderSource.js` — `diveclouds`, `phantomstar`, `starnest`; raymarched/Shadertoy-style generators with registry-driven per-shader knobs: Speed glides via an accumulated phase clock, others upload via a `uParams[8]` float array, up to 8 controls each). Remaining P3: upgrading decayflow/feedbackwarp to real feedback, and Inv/Thermal moving from PER-BLOB into the FX RACK. `PRD_DECISIONS.md` logs what is deliberately out of scope.

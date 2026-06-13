@@ -328,11 +328,12 @@ Knob convention:
 is live reloads it at the new size.
 
 Reference implementations:
-- `goldclouds` — raymarched volumetric cloud-tunnel flight. FBM density uses
-  an octave-rotation matrix (`ROT3`) to kill the axis-aligned lattice cross
-  that value noise otherwise produces; knobs Speed (phase clock), Zoom (FOV →
-  uParams[0]), Sway (path-weave → uParams[1], scaling the shared `axisOff`),
-  Clouds (density threshold → uParams[2]).
+- `diveclouds` — POV dive through a sunlit cumulus layer (volumetric FBM
+  clouds, front-to-back march). Ported from Shadertoy 4sXGRM with an opacity
+  early-out (`if (sum.a > 0.99) break;`) to tame the long fixed-step march —
+  the standard way to make a heavy Shadertoy volumetric viable as a real-time
+  source. Knobs Speed (phase clock), Coverage (threshold → uParams[0]), Zoom
+  (FOV → uParams[1]), Sun (uParams[2]), Tint (uParams[3]).
 - `phantomstar` — kaleidoscopic IFS-fractal star tunnel ported from a
   Shadertoy (aiekick): `iTime`→`uTime`, `iResolution`→`uRes`,
   `mainImage(out,in)` → `main()` reading `vUV * uRes` as fragCoord. Eight

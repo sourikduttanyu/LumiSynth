@@ -162,8 +162,9 @@ NO `index.html` edits, NO `main.js` plumbing — just the two registrations.
      `shaderSlug` / `shaderRes`, NOT part of saved looks. Do not add them to
      `DEFAULTS` or the look schema.
 4. Anti-lattice note for FBM/value-noise raymarchers: rotate the domain each
-   octave (see `goldclouds`' `ROT3` matrix) or axis-aligned noise reads as a
-   fake cross.
+   octave (a per-octave rotation matrix) or axis-aligned noise reads as a fake
+   cross. Heavy fixed-step volumetric marches (e.g. `diveclouds`) want an
+   opacity early-out (`if (sum.a > 0.99) break;`) to stay real-time.
 5. Verify: the shader appears in the Source > Shader Library grid, clicking
    it makes it the live source (`state.sourceKind === 'shader'`), its knobs
    render in the Source section and drive the render live, Speed glides

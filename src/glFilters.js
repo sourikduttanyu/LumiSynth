@@ -478,14 +478,14 @@ void main() {
   vec3 src = texture(u_video, uv).rgb;
   float srcVal = src.r;
   float threshold = mix(0.02, 0.8, uParams.x);
-  int maxLen = int(uParams.y * 200.0);
+  int maxLen = int(uParams.y * 200.0);   // knob 0..5 → up to 1000px streaks
   float opacity = uParams.z;
   float angle = uParams.w * 6.2832;
   vec2 streakDir = vec2(sin(angle), cos(angle));
   vec2 lookStep = -streakDir * texel;
   float bestVal = 0.0;
   float bestDist = -1.0;
-  for (int i = 1; i <= 200; i++) {
+  for (int i = 1; i <= 1000; i++) {
     if (i > maxLen) break;
     vec2 sUV = uv + lookStep * float(i);
     if (sUV.x < 0.0 || sUV.y < 0.0 || sUV.x > 1.0 || sUV.y > 1.0) break;
