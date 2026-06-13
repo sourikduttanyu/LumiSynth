@@ -68,7 +68,14 @@ omit them and they cost nothing (cached location is null, upload skipped):
 ```glsl
 uniform float uTime;        // seconds (performance.now()/1000) — animation
 uniform sampler2D u_prev;   // video frame from ~4 frames ago (glFilters only)
+uniform float uParam4;      // optional 5th scalar (glFilters only) — see below
 ```
+
+`uParam4` is the escape hatch from the 4-knob house pattern: `applyGLFilter`
+uploads `params[4]` when the uniform exists and a 5th value is passed (pass a
+5-element array from `runEffect`). Keep to 4 `uParams` slots by default;
+reach for `uParam4` only when a 5th control is clearly warranted. Reference:
+`freqmod`'s Density knob (scan-row count 120–300).
 
 `u_prev` is backed by the frame-history ring in `glContext.js` (4 GPU-side
 copies written by passthrough draws — no extra CPU uploads). `renderFrame`
@@ -218,8 +225,10 @@ Current STRUCTURE effects:
 - `watershed`
 - `pixelsort`
 - `melt`
-- `freqmod` — FM oscillography: 240 fixed scan rows of luminance-driven
-  waveform traces, Dir knob rotates the scan axis, animated via uTime
+- `freqmod` — FM oscillography: luminance-driven waveform traces, Dir knob
+  rotates the scan axis, Density knob sets the scan-row count 120–300 (via
+  the optional `uParam4` 5th-param uniform — see Shared Shader Shape),
+  animated via uTime
 - `motionedge` — spatial edges + temporal motion via u_prev (requires the
   frame-history capture condition in renderFrame — see Shared Shader Shape)
 

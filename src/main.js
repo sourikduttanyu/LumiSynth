@@ -1065,7 +1065,7 @@ function runEffect(name, opts) {
     case 'melt':
       return applyGLFilter('melt', canvas.width, canvas.height, [look.meltAmount, look.meltDrip, look.meltViscosity, look.meltDir], { ...opts, outputMode, ...inkColors });
     case 'freqmod':
-      return applyGLFilter('freqmod', canvas.width, canvas.height, [look.freqmodDir, look.freqmodMod, look.freqmodWave, look.freqmodThresh], { ...opts, outputMode, ...inkColors });
+      return applyGLFilter('freqmod', canvas.width, canvas.height, [look.freqmodDir, look.freqmodMod, look.freqmodWave, look.freqmodThresh, look.freqmodDensity], { ...opts, outputMode, ...inkColors });
     case 'motionedge':
       return applyGLFilter('motionedge', canvas.width, canvas.height, [look.motionedgeEdge, look.motionedgeMotion, look.motionedgeThresh, look.motionedgeBoost], { ...opts, outputMode, ...inkColors });
     case 'oxide':

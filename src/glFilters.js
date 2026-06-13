@@ -75,6 +75,7 @@ precision highp float;
 in vec2 vUV;
 uniform sampler2D u_video;
 uniform vec4 uParams;
+uniform float uParam4;   // 5th param: line density (rows), 120–300
 uniform float uOutputMode;
 uniform vec3 uInkLow;
 uniform vec3 uInkHigh;
@@ -91,7 +92,7 @@ vec3 applyStructureOutput(float structure, vec3 src, float mode) {
 
 void main() {
   vec2 uv = vUV;
-  const float rows = 240.0;
+  float rows = uParam4;
 
   // Dir rotates the scan frame: rows + carrier run along the rotated axes.
   float ang = uParams.x * 3.14159265;
@@ -119,9 +120,9 @@ void main() {
   float amp = uParams.z * 0.80 * gate * (0.25 + 0.75 * L);
   float d = abs(dy - wave * amp);
 
-  // Pixel-aware minimum trace width: at 240 rows a fixed-ratio core would
-  // collapse below one pixel and alias into grain, so widen it relative to
-  // the actual row height on this canvas.
+  // Pixel-aware minimum trace width: at high row counts a fixed-ratio core
+  // would collapse below one pixel and alias into grain, so widen it relative
+  // to the actual row height on this canvas.
   float rowHalfPx = float(textureSize(u_video, 0).y) / (rows * 2.0);
   float coreW = max(0.22, 1.25 / max(rowHalfPx, 0.001));
   float core = 1.0 - smoothstep(0.0, coreW, d);
@@ -1865,6 +1866,9 @@ function getProgram(name) {
     // Null for shaders that don't declare it — binding is skipped entirely.
     prev:   gl.getUniformLocation(prog, 'u_prev'),
     params: gl.getUniformLocation(prog, 'uParams'),
+    // Optional 5th scalar param (uParams holds 4) — null for shaders that
+    // don't declare it, so the upload is skipped. freqmod uses it for rows.
+    param4: gl.getUniformLocation(prog, 'uParam4'),
     uTime:  gl.getUniformLocation(prog, 'uTime'),
     outputMode: gl.getUniformLocation(prog, 'uOutputMode'),
     inkLow: gl.getUniformLocation(prog, 'uInkLow'),
@@ -1910,6 +1914,7 @@ export function applyGLFilter(name, cw, ch, params = [0.5, 0.5, 0.5, 0.5], opts 
     gl.activeTexture(gl.TEXTURE0);
   }
   gl.uniform4f(entry.params, params[0], params[1], params[2], params[3]);
+  if (entry.param4 != null && params[4] !== undefined) gl.uniform1f(entry.param4, params[4]);
   if (entry.uTime != null) gl.uniform1f(entry.uTime, performance.now() / 1000);
   if (entry.outputMode) gl.uniform1f(entry.outputMode, opts.outputMode ?? 0);
   if (entry.inkLow && entry.inkHigh) {
