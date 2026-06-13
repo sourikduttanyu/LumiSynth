@@ -385,6 +385,12 @@ Translate only what is present in the supplied code.
   back) is supported in glFilters via `uniform sampler2D u_prev` plus the
   renderFrame capture condition. Multiple non-feedback inputs or external
   textures remain unsupported — identify that requirement before editing.
+- Noise-texture inputs (Shadertoy `iChannel` blue/white-noise samplers used
+  only for grain/dither/breakup) DON'T count as a real dependency: replace
+  them with a procedural hash in GLSL. Reference: the `sketch` COLOR effect
+  (flockaroo port) swaps `iChannel1` for a `hash21`-based `getRand`, mapping
+  the primary `iChannel0` to `u_video`. This is the standard way to port a
+  two-channel Shadertoy where the second channel is just noise.
 - STRUCTURE and COLOR effects are stateless single-frame passes. Feedback/temporal behavior belongs in the FX RACK (`src/glFx.js`) — do not silently flatten a feedback network into a stateless approximation.
 
 ## Verification Targets

@@ -395,6 +395,16 @@ export const COLOR_PARAM_SCHEMAS = {
     toggles: [],
     order: ['scale', 'hueA', 'hueB', 'drift'],
   },
+  sketch: {
+    knobs: [
+      { key: 'ink',    label: 'Ink',    min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Line boldness. Low = faint pencil whisper. High = heavy inked hatching that bites into the shadows.' },
+      { key: 'color',  label: 'Color',  min: 0, max: 1, step: 0.01, default: 0.8,  tip: 'Colored-pencil amount. 0 = graphite black-and-white sketch. 1 = full colored crosshatch from the source.' },
+      { key: 'stroke', label: 'Stroke', min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Hatch stroke length. Low = tight fine scribble. High = long sweeping pen strokes.' },
+      { key: 'wobble', label: 'Wobble', min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Hand-shake. The whole drawing jitters as if sketched live. 0 = steady hand, 1 = caffeinated.' },
+    ],
+    toggles: [],
+    order: ['ink', 'color', 'stroke', 'wobble'],
+  },
   surveil: {
     knobs: [
       { key: 'palette', label: 'Palette', min: 0, max: 1, step: 0.01, default: 0.2,  tip: '0 = drone IR white-hot (grey-green). 1 = naval sonar (navy→cyan→white).' },
@@ -711,7 +721,7 @@ export const COLOR_UNIQUE_SECTIONS = [
   { key: 'light',      label: 'Light',      effects: ['neontube', 'prismatic', 'heatbleed', 'sequin', 'hologram'] },
   { key: 'dimension',  label: 'Dimension',  effects: ['depthstack', 'abyss'] },
   { key: 'deepsea',    label: 'Deep Sea',   effects: ['octopus'] },
-  { key: 'print',      label: 'Print',      effects: ['risograph', 'newsprint'] },
+  { key: 'print',      label: 'Print',      effects: ['risograph', 'newsprint', 'sketch'] },
   { key: 'motion',     label: 'Motion',     effects: ['predator'] },
 ];
 export const COLOR_UNIQUE_FLAT = COLOR_UNIQUE_SECTIONS.flatMap((c) => c.effects);
@@ -763,6 +773,7 @@ export const BLEND_MODES = {
   hologram:     'source-over',
   surveil:      'source-over',
   newsprint:    'source-over',
+  sketch:       'source-over',
   polaroid:     'source-over',
   blacklight:   'source-over',
   dreamstatic:  'source-over',

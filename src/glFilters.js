@@ -1779,6 +1779,106 @@ void main() {
   fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
+// SKETCH — hand-drawn pen/pencil crosshatch. Per pixel, marches several rays
+// at fixed angles and lays hatch strokes along the luminance gradient, so the
+// image is "drawn" with directional shading that thickens in the shadows.
+// Colored crosshatch is carried in col2; col.x is the stroke darkness. Ported
+// from flockaroo's "Notebook Drawings" (CC BY-NC-SA). The iChannel1 blue-noise
+// texture is replaced by procedural hash noise (paper grain + halftone break),
+// and iChannel0 maps to u_video. Heavy: ~hundreds of taps/pixel by design.
+// uParams: x=Ink (line boldness), y=Color (pencil↔colored), z=Stroke (length), w=Wobble
+const FRAG_SKETCH = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uTime;
+out vec4 fragColor;
+
+#define AngleNum 3
+#define SampNum 16
+#define PI2 6.28318530717959
+
+vec2 R;
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 345.45));
+  p += dot(p, p + 34.345);
+  return fract(p.x * p.y);
+}
+// procedural stand-in for flockaroo's blue-noise iChannel1
+vec4 getRand(vec2 pos) {
+  return vec4(hash21(pos), hash21(pos + 11.7), hash21(pos + 23.3), hash21(pos + 47.1));
+}
+vec4 getCol(vec2 pos) {
+  vec2 uv = pos / R;
+  vec4 c1 = texture(u_video, uv);
+  vec4 e = smoothstep(vec4(-0.05), vec4(0.0), vec4(uv, vec2(1.0) - uv));
+  c1 = mix(vec4(1.0, 1.0, 1.0, 0.0), c1, e.x * e.y * e.z * e.w);
+  float d = clamp(dot(c1.xyz, vec3(-0.5, 1.0, -0.5)), 0.0, 1.0);
+  vec4 c2 = vec4(0.7);
+  return min(mix(c1, c2, 1.8 * d), 0.7);
+}
+vec4 getColHT(vec2 pos) {
+  return smoothstep(0.95, 1.05, getCol(pos) * 0.8 + 0.2 + getRand(pos * 0.7));
+}
+float getVal(vec2 pos) {
+  return dot(getCol(pos).xyz, vec3(0.333));
+}
+vec2 getGrad(vec2 pos, float eps) {
+  vec2 d = vec2(eps, 0.0);
+  return vec2(
+    getVal(pos + d.xy) - getVal(pos - d.xy),
+    getVal(pos + d.yx) - getVal(pos - d.yx)
+  ) / eps / 2.0;
+}
+
+void main() {
+  R = vec2(textureSize(u_video, 0));
+  float ink    = uParams.x;
+  float colorA = uParams.y;
+  float scS    = R.y / 400.0 * mix(0.5, 2.0, uParams.z);
+  float wobble = uParams.w;
+
+  vec2 fragCoord = vUV * R;
+  vec2 pos = fragCoord + wobble * 4.0 * sin(uTime * vec2(1.0, 1.7)) * (R.y / 400.0);
+  vec3 col = vec3(0.0), col2 = vec3(0.0);
+  float sum = 0.0;
+  for (int i = 0; i < AngleNum; i++) {
+    float ang = PI2 / float(AngleNum) * (float(i) + 0.8);
+    vec2 v = vec2(cos(ang), sin(ang));
+    for (int j = 0; j < SampNum; j++) {
+      vec2 dpos  = v.yx * vec2(1.0, -1.0) * float(j) * scS;
+      vec2 dpos2 = v.xy * float(j * j) / float(SampNum) * 0.5 * scS;
+      for (float s = -1.0; s <= 1.0; s += 2.0) {
+        vec2 pos2 = pos + s * dpos + dpos2;
+        vec2 pos3 = pos + (s * dpos + dpos2).yx * vec2(1.0, -1.0) * 2.0;
+        vec2 g = getGrad(pos2, 0.4);
+        float fact  = dot(g, v) - 0.5 * abs(dot(g, v.yx * vec2(1.0, -1.0)));
+        float fact2 = dot(normalize(g + vec2(0.0001)), v.yx * vec2(1.0, -1.0));
+        fact = clamp(fact, 0.0, 0.05);
+        fact2 = abs(fact2);
+        fact *= 1.0 - float(j) / float(SampNum);
+        col += fact;
+        col2 += fact2 * getColHT(pos3).xyz;
+        sum += fact2;
+      }
+    }
+  }
+  col /= float(SampNum * AngleNum) * 0.75 / sqrt(R.y);
+  col2 /= max(sum, 1e-3);
+  col.x *= (0.6 + 0.8 * getRand(pos * 0.7).x);
+  col.x = clamp(1.0 - col.x, 0.0, 1.0);
+  col.x = pow(col.x, mix(1.5, 4.0, ink));               // Ink: higher = darker, bolder strokes
+  col2 = mix(vec3(dot(col2, vec3(0.333))), col2, colorA); // Color: pencil↔colored
+
+  vec2 sg = sin(pos.xy * 0.1 / sqrt(R.y / 400.0));
+  vec3 karo = vec3(1.0) - 0.5 * vec3(0.25, 0.1, 0.1) * dot(exp(-sg * sg * 80.0), vec2(1.0));
+  float r = length(pos - R * 0.5) / R.x;
+  float vign = 1.0 - r * r * r;
+  fragColor = vec4(clamp(col.x * col2 * karo * vign, 0.0, 1.0), 1.0);
+}`;
+
 const FRAGS = {
   erode:        FRAG_ERODE,
   oxide:        FRAG_OXIDE,
@@ -1815,6 +1915,7 @@ const FRAGS = {
   hologram:     FRAG_HOLOGRAM,
   surveil:      FRAG_SURVEIL,
   newsprint:    FRAG_NEWSPRINT,
+  sketch:       FRAG_SKETCH,
   polaroid:     FRAG_POLAROID,
   blacklight:   FRAG_BLACKLIGHT,
   dreamstatic:  FRAG_DREAMSTATIC,
