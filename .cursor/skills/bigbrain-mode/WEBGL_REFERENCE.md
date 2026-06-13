@@ -7,7 +7,7 @@ Use this reference when a developer says `use BigBrain mode` and provides TouchD
 Minimum input required before editing:
 
 - Effect slug and display label.
-- Whether the effect is `COLOR`, `STRUCTURE`, or `FX` (feedback effects route to FX automatically).
+- Whether it is `COLOR`, `STRUCTURE`, `FX`, or `SOURCE` (feedback effects route to FX automatically; a no-input scene generator routes to SOURCE — the shader library).
 - Real TouchDesigner GLSL/code.
 - Mapping for each exposed parameter into `uParams.xyzw`.
 - Any required nonstandard dependency. Supported: time (`uTime`, auto-uploaded), one feedback input (`u_feedback` in an FX RACK effect), one previous-raw-frame input (`u_prev`, ~4 frames back, glFilters only). Unsupported: multiple non-feedback inputs, external textures.
@@ -251,6 +251,70 @@ To add STRUCTURE:
 
 Common miss: adding `STRUCTURE_SECTIONS` and the shader but forgetting the controls section. `refreshEffectCardVisibility()` expects a matching `id="<slug>-controls"` card for visible controls.
 
+## Shader Sources (generative library)
+
+A FOURTH source kind alongside video/webcam/image: `state.sourceKind ===
+'shader'`. A library shader is a self-contained generator (raymarcher /
+procedural scene) that IS the input — it has no `u_video`. It lives in
+`src/shaderSource.js`, which owns its OWN small WebGL2 context (the SOURCE
+side, deliberately separate from the orchestrated effect context in
+glContext.js). Each frame `renderShaderSourceFrame()` draws the active
+shader into that module's canvas, and `renderFrame` then treats the canvas
+exactly like a video element — `ctx.drawImage`, `uploadVideoFrame`, blob
+detection — so STRUCTURE/COLOR/FX all stack on top. A shader source is
+always "playing", so motion detection and `u_prev` motion effects work
+against it.
+
+Source shader interface (note: NO `u_video`):
+
+```glsl
+#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform float uTime;     // accumulated phase (see Speed below), seconds-scaled
+uniform vec2  uRes;      // output resolution in px (for aspect correction)
+uniform vec4  uParams;   // optional knob values, xyzw in declaration order
+out vec4 fragColor;
+```
+
+The library is registry-driven — both the Source-section picker grid and the
+per-shader knob panel (`#shader-knob-grid`, built by `renderShaderKnobs()` in
+main.js) build themselves from `SHADER_SOURCES`. Adding a library shader is
+just two registrations in `src/shaderSource.js`, no `index.html` or `main.js`
+edits:
+
+- `SHADER_FRAGS[slug]` = the fragment shader source.
+- `SHADER_SOURCES` entry `{ slug, label, tip, gradient, knobs }`. `gradient`
+  is the picker swatch CSS; `knobs` is `{ key, label, tip, min, max, step,
+  default }[]`.
+
+Knob convention:
+
+- A knob keyed `speed` is consumed JS-side as a rate multiplier on an
+  ACCUMULATED phase clock (`M.phase += dt * speed`, uploaded as `uTime`), so
+  dragging Speed glides the animation rather than teleporting it (a plain
+  `uTime * speed` would jump position on every change). Use `speed` for any
+  flow/flight/time control.
+- Every other knob packs into `uParams.xyzw` in registry declaration order
+  (max 4 non-speed knobs).
+- Values live per-slug in shaderSource.js (`getShaderSourceParams` /
+  `setShaderSourceParam`) — session runtime state like `shaderSlug` /
+  `shaderRes`, NOT part of saved looks. Do not add them to `DEFAULTS`.
+
+`SHADER_RES` presets (landscape 1920×1080 / square 1080×1080 / vertical
+1080×1920) are picked via `#shader-res-group`; switching res while a shader
+is live reloads it at the new size.
+
+Reference implementation: `goldclouds` — a raymarched volumetric cloud-tunnel
+flight. FBM density uses an octave-rotation matrix (`ROT3`) to kill the
+axis-aligned lattice cross that value noise otherwise produces; knobs are
+Speed (phase clock), Zoom (FOV → uParams.x), Sway (path-weave amplitude →
+uParams.y, scaling the shared `axisOff` so camera and corridor stay aligned),
+Clouds (density threshold → uParams.z, 0.5 reproducing the tuned noise
+window). If a generator needs more than time + resolution + four knobs (e.g.
+multiple textures), flag that before coding — the source interface is
+deliberately minimal.
+
 ## Chain Behavior
 
 Single stage:
@@ -323,4 +387,14 @@ For FX (feedback):
 - Slot swap / clear / disable and source change DO reset trails to black.
 - Works mid-chain (COLOR stage before it) and as the terminal stage.
 - Two slots running the same effect accumulate independently.
+- Build passes.
+
+For SOURCE (shader library):
+
+- Shader appears in the Source > Shader Library grid with its swatch and label.
+- Clicking it makes it the live source (`state.sourceKind === 'shader'`).
+- Its knobs render in the Source section and drive the render live.
+- A `speed` knob glides the animation — speed 0 freezes it (consecutive frames pixel-identical), higher values move faster.
+- The res presets (16:9 / 1:1 / 9:16) reload it at the new dimensions.
+- STRUCTURE / COLOR / FX stack on top of the shader output.
 - Build passes.
