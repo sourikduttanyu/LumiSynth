@@ -151,7 +151,9 @@ The same chain works whether a signal comes from a kick drum or a dancer's hand.
    Nothing reactive yet; just prove the signals. **[BUILT]** — `src/audioReactive.js`
    (mic / file / source inputs, FFT → {bass,mid,high,level,beat}, auto-gain +
    envelopes + onset beat); topbar `Live` toggle reveals the sidebar meter panel
-   driven by its own RAF loop. Signals transient, nothing persisted.
+   driven by its own RAF loop. Calibration sliders (Gate threshold, Sensitivity,
+   Beat sensitivity) shape the bus into range — `shapeValue()` gate+gain, applied
+   on top of auto-gain. Signals + calibration transient, nothing persisted yet.
 2. **Mod matrix** — drag-signal-onto-knob + mod-rings. Ship-worthy on its own.
 3. **Step sequencer** — pool (multi-select toggles) + rate + order + tap-tempo.
 4. **Polish / power** — casual reactive presets, multi-lane, crossfade transitions.

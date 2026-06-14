@@ -37,9 +37,23 @@ const sig = { bass: 0, mid: 0, high: 0, level: 0, beat: 0 };
 
 let bassAvg = 0, beatEnv = 0, lastBeatT = -1e9, gainRef = 0.12;
 
+// User calibration (transient — shaped on top of the auto-gain):
+//   gate     — floor/threshold; anything below maps to 0 (kills noise jitter)
+//   sens     — gain trim after gating
+//   beatSens — onset sensitivity (0 = only big kicks, 1 = hair-trigger)
+const cfg = { gate: 0.05, sens: 1, beatSens: 0.5 };
+export function getConfig() { return { ...cfg }; }
+export function setConfig(key, value) { if (key in cfg) cfg[key] = value; }
+
 export function isActive() { return !!inputNode; }
 export function currentInput() { return inputLabel; }
 export function getSignals() { return sig; }
+
+/** Gate + sensitivity shaping. Pure — exported for testing. */
+export function shapeValue(v, gate, sens) {
+  if (v <= gate) return 0;
+  return Math.min(1, ((v - gate) / (1 - gate)) * sens);
+}
 
 function ensureCtx() {
   if (!ctx) {
@@ -145,17 +159,20 @@ export function update(now) {
   // auto-gain to the overall level, capped so quiet input still reads
   gainRef = Math.max(gainRef * 0.995, b.level, 0.04);
   const g = Math.min(5, 1 / gainRef);
-  const norm = (v) => Math.min(1, v * g);
+  // normalize (auto-gain) then shape (user gate + sensitivity)
+  const shape = (v) => shapeValue(Math.min(1, v * g), cfg.gate, cfg.sens);
 
-  sig.bass = env(sig.bass, norm(b.bass));
-  sig.mid = env(sig.mid, norm(b.mid));
-  sig.high = env(sig.high, norm(b.high));
-  sig.level = env(sig.level, norm(b.level));
+  sig.bass = env(sig.bass, shape(b.bass));
+  sig.mid = env(sig.mid, shape(b.mid));
+  sig.high = env(sig.high, shape(b.high));
+  sig.level = env(sig.level, shape(b.level));
 
-  // beat: bass onset vs. its rolling average, with a refractory window
+  // beat: bass onset vs. its rolling average, with a refractory window.
+  // beatSens slides the trigger ratio: 0 = only big kicks, 1 = hair-trigger.
   const t = now || performance.now();
+  const ratio = 2.0 - cfg.beatSens * 0.85;            // ~2.0 → ~1.15
   bassAvg = bassAvg * 0.93 + b.bass * 0.07;
-  if (b.bass > bassAvg * 1.35 && b.bass > 0.12 && (t - lastBeatT) > 220) {
+  if (b.bass > bassAvg * ratio && b.bass > Math.max(0.1, cfg.gate) && (t - lastBeatT) > 220) {
     beatEnv = 1;
     lastBeatT = t;
   }

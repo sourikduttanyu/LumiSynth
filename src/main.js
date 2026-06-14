@@ -2973,6 +2973,13 @@ if (liveFileInput) {
   });
 }
 
+// Calibration sliders → audioReactive config (transient — keeps the signal bus
+// in range: Gate thresholds out the bottom, Sens trims gain, Beat tunes onset).
+[['live-gate', 'gate'], ['live-sens', 'sens'], ['live-beat-sens', 'beatSens']].forEach(([id, key]) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => audioReactive.setConfig(key, parseFloat(el.value)));
+});
+
 // Auto-stop if the user yanks the source mid-recording (e.g. switches
 // from camera to video file). The captureStream keeps "running" but
 // produces black frames once the canvas isn't being redrawn, which

@@ -335,6 +335,27 @@ html, body {
   background: #d4537e;
   opacity: 0.3;
 }
+.live-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+.live-ctl {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.live-ctl > span { flex: 0 0 38px; }
+.live-ctl > input[type="range"] {
+  flex: 1;
+  accent-color: var(--orange-signal);
+  height: 4px;
+}
 
 /* ============================================================
    STAGE DIVIDERS — signal-flow color coding (warm → cool).
