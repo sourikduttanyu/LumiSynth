@@ -43,6 +43,20 @@
           <button id="btn-camera" class="action-btn" type="button">Open Camera</button>
           <input type="file" id="file-input" accept="video/*,image/png,image/jpeg,image/webp" class="hidden" />
           <div id="file-status" class="file-status" aria-live="polite">No source loaded</div>
+
+          <div class="section-label" id="lbl-shader-source">Shader Library</div>
+          <div class="toggle-group filter-swatch-group" id="shader-source-group" role="radiogroup" aria-labelledby="lbl-shader-source"></div>
+          <div class="section-label" id="lbl-shader-res">Shader Res</div>
+          <div class="toggle-group" id="shader-res-group" role="radiogroup" aria-labelledby="lbl-shader-res">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="landscape" data-tip="1920×1080 landscape.">16:9</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="square"    data-tip="1080×1080 square.">1:1</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="vertical"  data-tip="1080×1920 vertical.">9:16</button>
+          </div>
+          <!-- Per-shader knobs — built by renderShaderKnobs() from the active
+               SHADER_SOURCES entry's `knobs` array; hidden unless a shader
+               source is live. -->
+          <div class="section-label hidden" id="lbl-shader-knobs">Shader Controls</div>
+          <div class="knob-grid shader-knob-grid hidden" id="shader-knob-grid"></div>
         </section>
 
         <section class="control-section account-section" aria-label="Account and cloud presets">
@@ -71,16 +85,6 @@
           </div>
         </section>
 
-        <section class="control-section">
-          <div class="section-label" id="lbl-speed">Speed</div>
-          <div class="toggle-group" id="speed-group" role="radiogroup" aria-labelledby="lbl-speed">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="1">1×</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="2">2×</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="3">3×</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="4">4×</button>
-          </div>
-        </section>
-
         <!-- ============================================================
              SYNTH-mode sections. Visible only when body[data-mode="synth"].
              ============================================================ -->
@@ -97,11 +101,14 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="watershed"  aria-label="Watershed"      data-tip="STRUCTURE. Luminance basins with sharp boundaries — each basin settles to a local average. Basin Size, Boundary, Flatness, Depth Tint."><span>Watershed</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="pixelsort"  aria-label="Pixel Sort"     data-tip="STRUCTURE. Bright pixels cast sharp sorted streak trails. Threshold, Length, Opacity, Direction."><span>PixSort</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"       aria-label="Melt"           data-tip="STRUCTURE. Luminance drips downward like heated wax. Amount, Drip Length, Viscosity, Direction."><span>Melt</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    aria-label="Frequency Modulation" data-tip="STRUCTURE. FM raster synthesis — scan rows of dots whose wiggle frequency is driven by brightness. Bright areas vibrate into tight ribbons; dark areas rest as sparse dots. Layer with Drag FX."><span>FreqMod</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" aria-label="Motion Edge" data-tip="STRUCTURE. Spatial edges + temporal motion (current frame vs ~4 frames back). Still scenes show outlines; anything moving lights up hard."><span>MotionEdge</span></button>
           </div>
           <div class="section-label" id="lbl-structure-output">Output</div>
           <div class="toggle-group" id="structure-output-group" role="radiogroup" aria-labelledby="lbl-structure-output">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="mono"   data-tip="Mono output. Current STRUCTURE behavior: grayscale geometry feeds the COLOR rack.">Mono</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="source" data-tip="Source output. The structure mask modulates the original source RGB before the COLOR rack.">Source</button>
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="mono"   data-tip="Mono output. Grayscale geometry on black feeds the COLOR rack.">Mono</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="invert" data-tip="Invert output. Negative of Mono — dark traces on a light field (inverts R/G/B).">Invert</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ink"    data-tip="Ink output. High-contrast black/cream hardware-poster rendering before the COLOR rack.">Ink</button>
           </div>
           <div class="color-picker-row ink-color-row" aria-label="Ink output colors">
@@ -163,7 +170,7 @@
           <div class="control-stack">
             <div class="slider-stack" aria-label="Pixel Sort range controls">
               <div class="knob" id="pixelsort-thresh"  data-knob data-control="slider" data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Pixel Sort Threshold"  data-tip="Luminance threshold. 0 = everything casts streaks. 1 = only peaks." tabindex="0"><span class="knob-label">Thresh</span><span class="knob-val" id="pixelsort-thresh-val">0.4</span></div>
-              <div class="knob" id="pixelsort-length"  data-knob data-control="slider" data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Pixel Sort Length"     data-tip="Streak length (0–200px). How far the trails extend." tabindex="0"><span class="knob-label">Length</span><span class="knob-val" id="pixelsort-length-val">0.3</span></div>
+              <div class="knob" id="pixelsort-length"  data-knob data-control="slider" data-min="0" data-max="5" data-step="0.01" data-default="0.3" aria-label="Pixel Sort Length"     data-tip="Streak length (0–1000px). How far the trails extend." tabindex="0"><span class="knob-label">Length</span><span class="knob-val" id="pixelsort-length-val">0.3</span></div>
               <div class="knob" id="pixelsort-opacity" data-knob data-control="slider" data-min="0" data-max="1" data-step="0.01" data-default="0.8" aria-label="Pixel Sort Opacity"    data-tip="Streak opacity. 0 = faint ghost trails. 1 = solid." tabindex="0"><span class="knob-label">Opacity</span><span class="knob-val" id="pixelsort-opacity-val">0.8</span></div>
             </div>
             <div class="knob-cluster knob-cluster-center" aria-label="Pixel Sort tactile controls">
@@ -182,62 +189,90 @@
           </div>
         </section>
 
-        <!-- ============ COLOR ============ -->
-        <!-- COLOR rack untouched per "ignore color and fx for now". -->
-        <div class="stage-divider" data-stage="color" data-mode-section="synth">COLOR <span class="stage-sub">stack · 0–3 chained</span></div>
-
-        <section class="control-section" data-mode-section="synth">
-          <div class="section-label" id="lbl-color">Slots</div>
-          <div class="color-rack" id="color-rack" role="list" aria-labelledby="lbl-color"
-               data-tip="Up to 3 color stages chained in series. Each slot reads the previous slot's output. Drag the handle to reorder; toggle to A/B without losing the slot; × clears.">
+        <section class="effect-card hidden" id="freqmod-controls" data-card-effect="freqmod" data-mode-section="synth" aria-label="FreqMod parameters">
+          <div class="effect-card-header"><div class="effect-card-title">FreqMod</div><button class="card-reset-btn" type="button" data-reset-card="freqmod" title="Reset FreqMod knobs" aria-label="Reset FreqMod knobs">×</button></div>
+          <div class="knob-grid">
+            <div class="knob" id="freqmod-dir" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0" aria-label="FreqMod Direction" data-tip="Scan direction. Rotates the whole trace field 0–180°. 0 = horizontal rows, 0.5 = vertical columns, 0.25 = diagonal." tabindex="0"><span class="knob-label">Dir</span><span class="knob-val" id="freqmod-dir-val">0</span></div>
+            <div class="knob" id="freqmod-mod"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.6" aria-label="FreqMod Depth" data-tip="Frequency response. How hard brightness drives the oscillation rate. 0 = slow lazy waves everywhere. 1 = bright areas ring at high frequency." tabindex="0"><span class="knob-label">Mod</span><span class="knob-val" id="freqmod-mod-val">0.6</span></div>
+            <div class="knob" id="freqmod-wave" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="FreqMod Wave" data-tip="Wave swing. How far a full-strength signal displaces the trace. Amplitude follows luminance — dark areas always flatline." tabindex="0"><span class="knob-label">Wave</span><span class="knob-val" id="freqmod-wave-val">0.5</span></div>
+            <div class="knob" id="freqmod-thresh" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.2" aria-label="FreqMod Threshold" data-tip="Signal gate. Luminance below this shows no trace at all. Raise it to keep only the loudest parts of the image oscillating." tabindex="0"><span class="knob-label">Thresh</span><span class="knob-val" id="freqmod-thresh-val">0.2</span></div>
+            <div class="knob" id="freqmod-density" data-knob data-min="60" data-max="300" data-step="1" data-default="240" aria-label="FreqMod Density" data-tip="Line density. Number of horizontal scan rows the image is sliced into. 60 = chunky thick traces. 300 = fine dense lines. 240 = default." tabindex="0"><span class="knob-label">Density</span><span class="knob-val" id="freqmod-density-val">240</span></div>
           </div>
         </section>
 
-        <div class="color-picker-popover hidden" id="color-picker-popover" role="dialog" aria-label="Pick a color for this slot">
-          <button type="button" class="color-pick" data-pick-color="none"         data-tip="Clear this slot. Slot becomes empty and is skipped in the chain.">None</button>
-          <button type="button" class="color-pick" data-pick-color="oxide"        data-tip="Oxide / patina material. Re-skins the input as corroded metal.">Oxide</button>
-          <button type="button" class="color-pick" data-pick-color="synth"        data-tip="Synthwave color grade. Maps luma to a 6-band palette.">Synth</button>
-          <button type="button" class="color-pick" data-pick-color="biolum"       data-tip="Bioluminescent glow. Re-tints the input as deep-water bioluminescence.">BioLum</button>
-          <button type="button" class="color-pick" data-pick-color="thermo"       data-tip="Thermal-camera ramp. Maps luma to deep blue → cyan → yellow → red → white.">Thermo</button>
-          <button type="button" class="color-pick" data-pick-color="falsecolor"   data-tip="False-color palette swap. Cross-fades between four palettes.">FalseClr</button>
-          <button type="button" class="color-pick" data-pick-color="depthstack"   data-tip="Holographic spectral depth planes. Banded color zones shift with luminance gradients.">DepthStack</button>
-          <button type="button" class="color-pick" data-pick-color="prismatic"    data-tip="Warm spectral dispersion. Prismatic chromatic aberration with yellow-pink spectrum.">Prismatic</button>
-          <button type="button" class="color-pick" data-pick-color="acidwash"     data-tip="Psychedelic color banding. Sine-folded hue mapping creates repeating color cycles.">AcidWash</button>
-          <button type="button" class="color-pick" data-pick-color="xray"         data-tip="Medical radiograph aesthetic. Inverted exposure, edge enhancement, film tint.">X-Ray</button>
-          <button type="button" class="color-pick" data-pick-color="heatbleed"    data-tip="Thermal color that bleeds spatially based on intensity. Hot colors spread outward.">HeatBleed</button>
-          <button type="button" class="color-pick" data-pick-color="nebula"       data-tip="Cosmic gas cloud palette. Emission, reflection, or planetary nebula aesthetics.">Nebula</button>
-          <button type="button" class="color-pick" data-pick-color="solarize"     data-tip="Solarization / Sabattier effect. Tone folding at a luminance threshold.">Solarize</button>
-          <button type="button" class="color-pick" data-pick-color="aurorastorm"  data-tip="Violent solar storm aurora. Vertical curtain streaks with extreme color bands.">Aurora</button>
-          <button type="button" class="color-pick" data-pick-color="cyanotype"    data-tip="Blueprint paper aesthetic. Deep cobalt to pale cyan with paper grain.">Cyanotype</button>
-          <button type="button" class="color-pick" data-pick-color="infrared"     data-tip="Aerochrome infrared film. Magentas in foliage zones, deep blue shadows.">Infrared</button>
-          <button type="button" class="color-pick" data-pick-color="neontube"     data-tip="Emissive neon line-art. Edges glow as bright neon cores with atmospheric halo.">NeonTube</button>
-          <button type="button" class="color-pick" data-pick-color="deepfield"    data-tip="Hubble Ultra Deep Field aesthetic. Dark void with warm redshifted galaxy colors.">DeepField</button>
-          <button type="button" class="color-pick" data-pick-color="decayflow"    data-tip="Flow field advection trails. Pixels drift along gradient directions leaving color residue.">DecayFlow</button>
-          <button type="button" class="color-pick" data-pick-color="feedbackwarp" data-tip="Gradient-driven warp feedback. Image warped by its own luminance field recursively.">FbWarp</button>
-          <button type="button" class="color-pick" data-pick-color="bloom"        data-tip="Neon bloom glow. Bright areas spread with a blue energy halo.">Bloom</button>
-          <button type="button" class="color-pick" data-pick-color="crtrolling"   data-tip="CRT rolling distortion. Vertical sine waves with luma modulation and chroma offset.">CRT Roll</button>
-          <button type="button" class="color-pick" data-pick-color="noise"        data-tip="Adaptive film grain / sensor noise with shadow bias and optional color noise.">Noise</button>
-          <button type="button" class="color-pick" data-pick-color="scanlines"    data-tip="CRT/VHS scanline artifacts with per-row jitter and RGB fringing.">Scanlines</button>
-          <button type="button" class="color-pick" data-pick-color="degrade"      data-tip="Bit depth reduction and color banding. Macroblocks, dithering, pixelation.">Degrade</button>
-          <button type="button" class="color-pick" data-pick-color="crt"          data-tip="Full CRT simulation. Phosphor subpixels, bloom, barrel distortion, scanlines.">CRT</button>
-        </div>
+        <section class="effect-card hidden" id="motionedge-controls" data-card-effect="motionedge" data-mode-section="synth" aria-label="MotionEdge parameters">
+          <div class="effect-card-header"><div class="effect-card-title">MotionEdge</div><button class="card-reset-btn" type="button" data-reset-card="motionedge" title="Reset MotionEdge knobs" aria-label="Reset MotionEdge knobs">×</button></div>
+          <div class="knob-grid">
+            <div class="knob" id="motionedge-edge"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="MotionEdge Edge strength" data-tip="Spatial edge gain. 0 = no static outlines. 1 = every contour in the frame draws." tabindex="0"><span class="knob-label">Edge</span><span class="knob-val" id="motionedge-edge-val">0.5</span></div>
+            <div class="knob" id="motionedge-motion" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.6"  aria-label="MotionEdge Motion strength" data-tip="Motion gain — difference against the frame ~4 back. 0 = ignore movement. 1 = the slightest motion blazes." tabindex="0"><span class="knob-label">Motion</span><span class="knob-val" id="motionedge-motion-val">0.6</span></div>
+            <div class="knob" id="motionedge-thresh" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.15" aria-label="MotionEdge Threshold" data-tip="Signal floor. Raise to keep only strong edges and big movements." tabindex="0"><span class="knob-label">Thresh</span><span class="knob-val" id="motionedge-thresh-val">0.15</span></div>
+            <div class="knob" id="motionedge-boost"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="MotionEdge Boost" data-tip="Output brightness. 1 = overdriven hot-white strokes." tabindex="0"><span class="knob-label">Boost</span><span class="knob-val" id="motionedge-boost-val">0.5</span></div>
+          </div>
+        </section>
 
-        <!-- ============ FX RACK (placeholder, untouched per "ignore fx") ============ -->
+        <!-- ============ COLOR (single stage, v8) ============ -->
+        <div class="stage-divider" data-stage="color" data-mode-section="synth">COLOR <span class="stage-sub">one stage · graded</span></div>
+
+        <section class="control-section" data-mode-section="synth">
+          <div class="toggle-group" id="color-tab-group" role="tablist" aria-label="Color source tabs">
+            <button class="toggle-btn active" type="button" role="tab" aria-selected="true"  data-value="maps"   data-tip="The map library — pure per-pixel color shaders, one click each.">Maps</button>
+            <button class="toggle-btn"        type="button" role="tab" aria-selected="false" data-value="unique" data-tip="Unique effects — shaders that build something: atmosphere, light phenomena, depth. Grouped by category.">Unique</button>
+            <button class="toggle-btn"        type="button" role="tab" aria-selected="false" data-value="custom" data-tip="ChromaEngine — build your own 4-stop color ramp and pick what drives it.">Custom</button>
+          </div>
+
+          <!-- MAPS tab: swatch grid + knobs for the selected map. Grid is
+               built at startup from COLOR_MAP_SECTIONS in main.js — adding a
+               map needs no markup here. -->
+          <div id="color-tab-maps">
+            <div class="toggle-group filter-swatch-group color-maps-grid" id="color-maps-grid" role="radiogroup" aria-label="Color map library"></div>
+            <div id="color-maps-knob-panel"></div>
+          </div>
+
+          <!-- UNIQUE tab: categorized swatch grid built at startup from
+               COLOR_UNIQUE_SECTIONS in schemas.js — categories render as
+               in-grid headers; adding an effect needs no markup here. -->
+          <div id="color-tab-unique" class="hidden color-source-tab">
+            <div id="color-unique-grid" aria-label="Unique color effects"></div>
+            <div id="color-unique-knob-panel"></div>
+          </div>
+
+          <!-- CUSTOM tab: the ChromaEngine. Driver select + 4 ramp stops +
+               shaping knobs, all built from the chroma schema in main.js. -->
+          <div id="color-tab-custom" class="hidden color-source-tab">
+            <div class="section-label" id="lbl-chroma-driver">Driver</div>
+            <div class="toggle-group" id="chroma-driver-group" role="radiogroup" aria-labelledby="lbl-chroma-driver"></div>
+            <div class="section-label" id="lbl-chroma-stops">Ramp stops</div>
+            <div class="color-picker-row ink-color-row" id="chroma-stop-row" aria-labelledby="lbl-chroma-stops"></div>
+            <div id="chroma-knob-panel"></div>
+          </div>
+
+          <!-- GRADE: always-on post pass over whatever color is selected
+               (or raw video when None). Static state knobs. -->
+          <div class="section-label" id="lbl-grade">Grade</div>
+          <div class="knob-cluster" aria-labelledby="lbl-grade">
+            <div class="knob" id="color-hue" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0"   aria-label="Grade Hue Rotate" data-tip="Hue rotation applied after the color stage (0–360°). Spin any map into your blues / violets / magentas. Works even with no color selected." tabindex="0"><span class="knob-label">Hue</span><span class="knob-val" id="color-hue-val">0</span></div>
+            <div class="knob" id="color-sat" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Grade Saturation" data-tip="Saturation applied after the color stage. 0.5 = neutral. Below = desaturate toward grey; above = boost up to 2×." tabindex="0"><span class="knob-label">Sat</span><span class="knob-val" id="color-sat-val">0.5</span></div>
+          </div>
+        </section>
+
+        <!-- ============ FX RACK ============ -->
         <div class="stage-divider" data-stage="fx-rack" data-mode-section="synth">FX RACK <span class="stage-sub">chain · 0–3 slots</span></div>
 
         <section class="control-section" data-mode-section="synth">
-          <div class="section-label">Slots</div>
-          <div class="fx-rack" id="fx-rack" data-tip="FX rack chain. 0–3 effects in series, each reading the previous stage's output. Empty slots wire-through. Coming in a future update.">
-            <div class="fx-rack-slot" data-slot="0" aria-label="FX rack slot 1, empty"><span class="fx-rack-slot-num">1</span><span class="fx-rack-slot-empty">— empty —</span></div>
-            <div class="fx-rack-slot" data-slot="1" aria-label="FX rack slot 2, empty"><span class="fx-rack-slot-num">2</span><span class="fx-rack-slot-empty">— empty —</span></div>
-            <div class="fx-rack-slot" data-slot="2" aria-label="FX rack slot 3, empty"><span class="fx-rack-slot-num">3</span><span class="fx-rack-slot-empty">— empty —</span></div>
+          <div class="section-label" id="lbl-fx">Slots</div>
+          <div class="color-rack" id="fx-rack" role="list" aria-labelledby="lbl-fx"
+               data-tip="Up to 3 FX stages chained in series AFTER the color rack. These are feedback effects — they accumulate trails across frames. Drag the handle to reorder; toggle to A/B; × clears.">
           </div>
         </section>
 
-        <!-- ============ PER-BLOB (legacy, untouched per "ignore fx") ============ -->
-        <div class="stage-divider" data-stage="perblob">PER-BLOB <span class="stage-sub">fill blobs with effect</span></div>
+        <!-- FX picker buttons are built at startup from FX_SECTIONS in
+             main.js (buildFxPicker) — adding an FX effect needs no markup. -->
+        <div class="color-picker-popover hidden" id="fx-picker-popover" role="dialog" aria-label="Pick an FX effect for this slot"></div>
 
-        <section class="control-section">
+        <!-- ============ PER-BLOB (TRACK only — hidden from synth to keep it clean) ============ -->
+        <div class="stage-divider" data-stage="perblob" data-mode-section="track">PER-BLOB <span class="stage-sub">fill blobs with effect</span></div>
+
+        <section class="control-section" data-mode-section="track">
           <div class="section-label" id="lbl-perblob">Overlay</div>
           <div class="toggle-group filter-swatch-group" id="perblob-group" role="radiogroup" aria-labelledby="lbl-perblob">
             <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"    aria-label="No per-blob overlay" data-tip="No per-blob overlay. Only the main chain renders."><span>None</span></button>
@@ -429,34 +464,20 @@
             </div>
           </div>
           <div id="drop-overlay" aria-hidden="true">Drop video or image</div>
-          <div id="video-controls" class="hidden" aria-label="Playback controls">
-            <button id="btn-play" type="button" aria-label="Play / pause">▶</button>
-            <input type="range" id="video-scrub" min="0" max="1000" step="1" value="0" aria-label="Scrub video" />
-            <span class="video-time" id="video-time">0:00 / 0:00</span>
-          </div>
-          <div id="timeline-panel" class="timeline-panel hidden" aria-label="Timeline segments">
-            <div class="timeline-head">
-              <span class="timeline-title">Timeline</span>
-              <span id="timeline-working" class="timeline-working">No segment selected</span>
+          <div id="timeline-panel" class="timeline-panel hidden" aria-label="Playback and timeline segments">
+            <div class="timeline-bar">
+              <button id="btn-play" type="button" aria-label="Play / pause">▶</button>
+              <div id="timeline-track" class="timeline-track" data-tip="Click or drag to scrub. Drag a segment to move it; drag its edges to retime it.">
+                <div id="timeline-playhead" class="timeline-playhead" aria-hidden="true"></div>
+              </div>
+              <span class="video-time" id="video-time">0:00 / 0:00</span>
               <div class="timeline-actions">
-                <button id="timeline-mark-start" class="timeline-btn" type="button" data-tip="Mark the selected timeline cursor time as the START of a new segment. Click the timeline first to choose the time.">Mark Start</button>
-                <button id="timeline-mark-end" class="timeline-btn" type="button" data-tip="Mark the selected timeline cursor time as the END of the segment, then create it. Use after Mark Start.">Mark End</button>
-                <button id="timeline-add" class="timeline-btn" type="button" data-tip="Quick-add a new segment near the current playhead using the current look. Useful when you do not need precise start/end picking.">Quick Add</button>
-                <button id="timeline-duplicate" class="timeline-btn" type="button" data-tip="Duplicate the selected segment's time-block style and look into the next available empty range.">Duplicate</button>
-                <button id="timeline-capture" class="timeline-btn" type="button" data-tip="Save the current sidebar settings into the selected segment. Use after changing structure, color, blobs, or track FX.">Capture Look</button>
-                <button id="timeline-delete" class="timeline-btn danger" type="button" data-tip="Delete the selected segment. The uncovered video time will render raw with no effects.">Delete</button>
+                <button id="timeline-add" class="timeline-btn" type="button" data-tip="Add a 1-second segment at the playhead. Drag it to move; drag its edges to retime.">+ Seg</button>
+                <button id="timeline-duplicate" class="timeline-btn" type="button" data-tip="Duplicate the selected segment into the next empty range.">Dup</button>
+                <button id="timeline-capture" class="timeline-btn" type="button" data-tip="Save the current look into the selected segment.">Set</button>
+                <button id="timeline-delete" class="timeline-btn danger" type="button" data-tip="Delete the selected segment." aria-label="Delete segment">✕</button>
               </div>
             </div>
-            <div id="timeline-track" class="timeline-track">
-              <div id="timeline-playhead" class="timeline-playhead" aria-hidden="true"></div>
-            </div>
-            <div class="timeline-edit">
-              <label>Start <input id="timeline-start" class="timeline-time-input" type="number" min="0" step="0.1" inputmode="decimal" /></label>
-              <label>End <input id="timeline-end" class="timeline-time-input" type="number" min="0" step="0.1" inputmode="decimal" /></label>
-              <span id="timeline-status" class="timeline-status">Timeline supports uploaded video files only.</span>
-            </div>
-            <div class="timeline-help">Click the timeline to place the dotted cursor, then Mark Start and Mark End. Capture Look saves current effects into the selected segment.</div>
-            <div id="timeline-details" class="timeline-details hidden"></div>
           </div>
           <div id="fps-overlay" class="hidden">— fps · 0 blobs</div>
         </main>

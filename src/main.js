@@ -5,14 +5,18 @@ import { drawTrackOverlay, resetTrackOverlay } from './overlays.js';
 import { trackBlobs, resetTracker } from './kalman.js';
 import { applyASCII } from './ascii.js';
 import { applyGLFilter } from './glFilters.js';
-import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs } from './glContext.js';
+import { applyFxEffect, resetFxFeedback } from './glFx.js';
+import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs, captureFrameHistory, resetMotionHistory } from './glContext.js';
+import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas, getShaderSourceParams, setShaderSourceParam } from './shaderSource.js';
 import { applyCompose } from './glCompose.js';
 import { BlobOneEuroFilter } from './oneEuroFilter.js';
 import {
   STORAGE_KEY, RACK_SLOTS, DEFAULTS, TIMELINE_DEFAULTS, TIMELINE_MIN_SEGMENT_SECONDS,
-  COLOR_PARAM_SCHEMAS, TRACK_FX_PARAM_SCHEMAS,
-  STRUCTURE_SECTIONS, COLOR_SECTIONS, BLEND_MODES, GL_RESETS,
-  makeSlotId, makeFactoryParams, makeColorRack,
+  COLOR_PARAM_SCHEMAS, FX_PARAM_SCHEMAS, TRACK_FX_PARAM_SCHEMAS,
+  STRUCTURE_SECTIONS, COLOR_MAP_SECTIONS, COLOR_UNIQUE_SECTIONS, COLOR_UNIQUE_FLAT,
+  COLOR_SECTIONS, FX_SECTIONS, BLEND_MODES, GL_RESETS,
+  makeSlotId, makeFactoryParams,
+  makeFxFactoryParams, makeFxRack,
   makeTrackFxFactoryParams, makeTrackFxRack,
 } from './schemas.js';
 
@@ -26,7 +30,10 @@ const state = {
   ...DEFAULTS,
   hasSource: false,
   sourceKind: null,
-  colorRack: makeColorRack(),
+  // Per-effect knob memory for the single COLOR stage: { [effect]: params }.
+  // Lazily seeded with factory defaults on first pick (getColorParams).
+  colorParams: {},
+  fxRack: makeFxRack(),
   trackFxRack: makeTrackFxRack(),
   ...TIMELINE_DEFAULTS,
 };
@@ -73,24 +80,15 @@ const presetList    = document.getElementById('preset-list');
 const helpOverlay  = document.getElementById('help-overlay');
 const helpClose    = document.getElementById('help-close');
 const dropOverlay  = document.getElementById('drop-overlay');
-const videoControls= document.getElementById('video-controls');
 const btnPlay      = document.getElementById('btn-play');
-const videoScrub   = document.getElementById('video-scrub');
 const videoTime    = document.getElementById('video-time');
 const timelinePanel = document.getElementById('timeline-panel');
 const timelineTrack = document.getElementById('timeline-track');
 const timelinePlayhead = document.getElementById('timeline-playhead');
-const timelineWorking = document.getElementById('timeline-working');
-const timelineMarkStart = document.getElementById('timeline-mark-start');
-const timelineMarkEnd = document.getElementById('timeline-mark-end');
 const timelineAdd = document.getElementById('timeline-add');
 const timelineDuplicate = document.getElementById('timeline-duplicate');
 const timelineDelete = document.getElementById('timeline-delete');
 const timelineCapture = document.getElementById('timeline-capture');
-const timelineStart = document.getElementById('timeline-start');
-const timelineEnd = document.getElementById('timeline-end');
-const timelineStatus = document.getElementById('timeline-status');
-const timelineDetails = document.getElementById('timeline-details');
 const fpsOverlay   = document.getElementById('fps-overlay');
 const colorKeyInput   = document.getElementById('color-key-input');
 const inkLowInput     = document.getElementById('ink-low-input');
@@ -140,7 +138,7 @@ const KNOB_DRAG_PX = 150;
 // notch / one trackpad line). Threshold-based accumulation prevents trackpad
 // runaway; deltaMode normalization handles devices that report lines or pages.
 const WHEEL_TICK_PX = 40;
-const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, ink: 2 };
+const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, ink: 2, invert: 3 };
 
 function kebabToCamel(s) { return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase()); }
 function snapToStep(v, min, step) {
@@ -189,19 +187,63 @@ function inkColorUniforms(look = currentLook()) {
   };
 }
 
-const LEGACY_STORAGE_KEYS = ['lumisynth-state-v5'];
+const LEGACY_STORAGE_KEYS = ['lumisynth-state-v6', 'lumisynth-state-v5'];
 const TIMELINE_STATE_KEYS = new Set(['timelineSegments', 'selectedTimelineSegmentId']);
 const LOOK_STATE_KEYS = Object.keys(DEFAULTS).filter((k) => k !== 'speed' && !TIMELINE_STATE_KEYS.has(k));
 const cloneData = (value) => JSON.parse(JSON.stringify(value));
 
-function sanitizeColorRack(rack) {
-  if (!Array.isArray(rack) || rack.length !== RACK_SLOTS) return makeColorRack();
+// Validate per-effect COLOR knob memory: keep only known effects, and for
+// each one keep only schema-known keys with type-valid values (numbers for
+// knobs/toggles, hex strings for chroma's ramp stops). Unknown effects and
+// junk values fall back to factory.
+function sanitizeColorParams(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const type of Object.keys(raw)) {
+    if (!COLOR_SECTIONS.includes(type)) continue;
+    const src = raw[type];
+    if (!src || typeof src !== 'object') continue;
+    const factory = makeFactoryParams(type);
+    const p = { ...factory };
+    for (const k of Object.keys(factory)) {
+      const v = src[k];
+      if (typeof factory[k] === 'number') {
+        if (typeof v === 'number' && Number.isFinite(v)) p[k] = v;
+      } else if (typeof factory[k] === 'string') {
+        p[k] = normalizeHexColor(v, factory[k]);
+      }
+    }
+    out[type] = p;
+  }
+  return out;
+}
+
+// v8 migration: collapse a legacy 3-slot colorRack into the single COLOR
+// stage — first enabled non-empty slot wins, its params seed colorParams.
+// Used by sanitizeLook (timeline segments / presets) and loadPersistedState.
+function migrateColorRack(raw) {
+  if (!Array.isArray(raw.colorRack)) return raw;
+  const out = { ...raw };
+  if (!out.color || out.color === 'none') {
+    const first = out.colorRack.find((s) =>
+      s && typeof s === 'object' && s.enabled && s.type && s.type !== 'none' && COLOR_SECTIONS.includes(s.type));
+    if (first) {
+      out.color = first.type;
+      out.colorParams = { ...(out.colorParams || {}), [first.type]: first.params || {} };
+    }
+  }
+  delete out.colorRack;
+  return out;
+}
+
+function sanitizeFxRack(rack) {
+  if (!Array.isArray(rack) || rack.length !== RACK_SLOTS) return makeFxRack();
   return rack.map((slot) => {
     if (!slot || typeof slot !== 'object') {
       return { id: makeSlotId(), type: 'none', enabled: false, params: {} };
     }
-    const type = (slot.type === 'none' || COLOR_SECTIONS.includes(slot.type)) ? slot.type : 'none';
-    const factoryP = makeFactoryParams(type);
+    const type = (slot.type === 'none' || FX_SECTIONS.includes(slot.type)) ? slot.type : 'none';
+    const factoryP = makeFxFactoryParams(type);
     const params = { ...factoryP };
     if (slot.params && typeof slot.params === 'object') {
       for (const k of Object.keys(factoryP)) {
@@ -244,6 +286,7 @@ function sanitizeTrackFxRack(rack) {
 }
 
 function sanitizeLook(raw = {}) {
+  raw = migrateColorRack(raw);
   const look = {};
   for (const k of LOOK_STATE_KEYS) {
     const fallback = DEFAULTS[k];
@@ -253,7 +296,9 @@ function sanitizeLook(raw = {}) {
   look.inkBlackHex = normalizeHexColor(look.inkBlackHex, DEFAULTS.inkBlackHex);
   look.inkCreamHex = normalizeHexColor(look.inkCreamHex, DEFAULTS.inkCreamHex);
   look.colorKeyHex = normalizeHexColor(look.colorKeyHex, DEFAULTS.colorKeyHex);
-  look.colorRack = sanitizeColorRack(raw.colorRack);
+  if (look.color !== 'none' && !COLOR_SECTIONS.includes(look.color)) look.color = 'none';
+  look.colorParams = sanitizeColorParams(raw.colorParams);
+  look.fxRack = sanitizeFxRack(raw.fxRack);
   look.trackFxRack = sanitizeTrackFxRack(raw.trackFxRack);
   return look;
 }
@@ -261,7 +306,8 @@ function sanitizeLook(raw = {}) {
 function makeLookSnapshot(source = state) {
   const raw = {};
   for (const k of LOOK_STATE_KEYS) raw[k] = source[k];
-  raw.colorRack = cloneData(source.colorRack || makeColorRack());
+  raw.colorParams = cloneData(source.colorParams || {});
+  raw.fxRack = cloneData(source.fxRack || makeFxRack());
   raw.trackFxRack = cloneData(source.trackFxRack || makeTrackFxRack());
   return sanitizeLook(raw);
 }
@@ -275,7 +321,8 @@ function makeRawTimelineLook() {
 function applyLookToState(look) {
   const safe = sanitizeLook(look);
   for (const k of LOOK_STATE_KEYS) state[k] = safe[k];
-  state.colorRack = cloneData(safe.colorRack);
+  state.colorParams = cloneData(safe.colorParams);
+  state.fxRack = cloneData(safe.fxRack);
   state.trackFxRack = cloneData(safe.trackFxRack);
   applyStateToUI();
 }
@@ -684,11 +731,16 @@ function applyCloudPreset(preset) {
     showToast('Preset is missing state', 'error');
     return;
   }
+  // Legacy presets carry a colorRack; collapse it into the single color
+  // stage before the DEFAULTS copy so `color`/`colorParams` come out right.
+  const presetState = migrateColorRack(preset.state);
   for (const k of Object.keys(DEFAULTS)) {
-    if (k in preset.state) state[k] = preset.state[k];
+    if (k in presetState) state[k] = presetState[k];
   }
-  if (Array.isArray(preset.state.colorRack) && preset.state.colorRack.length === RACK_SLOTS) {
-    state.colorRack = preset.state.colorRack;
+  if (state.color !== 'none' && !COLOR_SECTIONS.includes(state.color)) state.color = 'none';
+  state.colorParams = sanitizeColorParams(presetState.colorParams);
+  if (Array.isArray(presetState.fxRack) && presetState.fxRack.length === RACK_SLOTS) {
+    state.fxRack = sanitizeFxRack(presetState.fxRack);
   }
   if (Array.isArray(preset.state.trackFxRack) && preset.state.trackFxRack.length === RACK_SLOTS) {
     state.trackFxRack = preset.state.trackFxRack;
@@ -738,8 +790,9 @@ const knobRegistry = new Map();   // id -> { setValue, getValue, min, max, step,
 //      original behavior used by every knob in the right-panel cards.
 //   2. Slot-bound (opts.writeValue + opts.initialValue): wires the knob
 //      to a custom write callback instead of global state, AND skips the
-//      registry entry (registry is for global-state knobs only — slot
-//      knobs render fresh from slot.params on every renderColorRack).
+//      registry entry (registry is for global-state knobs only — panel
+//      knobs render fresh from their params store on every panel rebuild:
+//      colorParams for the COLOR stage, slot.params for the FX/track racks).
 //
 // The callback approach keeps the 140-line knob implementation single
 // and avoids two parallel implementations drifting apart. Slot knobs
@@ -1011,6 +1064,10 @@ function runEffect(name, opts) {
       return applyGLFilter('pixelsort', canvas.width, canvas.height, [look.pixelsortThresh, look.pixelsortLength, look.pixelsortOpacity, look.pixelsortDir], { ...opts, outputMode, ...inkColors });
     case 'melt':
       return applyGLFilter('melt', canvas.width, canvas.height, [look.meltAmount, look.meltDrip, look.meltViscosity, look.meltDir], { ...opts, outputMode, ...inkColors });
+    case 'freqmod':
+      return applyGLFilter('freqmod', canvas.width, canvas.height, [look.freqmodDir, look.freqmodMod, look.freqmodWave, look.freqmodThresh, look.freqmodDensity], { ...opts, outputMode, ...inkColors });
+    case 'motionedge':
+      return applyGLFilter('motionedge', canvas.width, canvas.height, [look.motionedgeEdge, look.motionedgeMotion, look.motionedgeThresh, look.motionedgeBoost], { ...opts, outputMode, ...inkColors });
     case 'oxide':
     case 'synth':
     case 'biolum':
@@ -1047,15 +1104,48 @@ function runEffect(name, opts) {
 // shape as runEffect but takes a params object (one slot's). Schema's
 // `order` array drives the uniform tuple ordering — keeps the schema
 // authoritative about what each shader expects.
-function runColorEffect(name, params, opts) {
+function runColorEffect(name, params, opts = {}) {
   const schema = COLOR_PARAM_SCHEMAS[name];
   if (!schema) return;
-  const tuple = schema.order.map((k) => params[k]);
+  const tuple = schema.order.map((k) => {
+    const v = Number(params[k]);
+    return Number.isFinite(v) ? v : 0;
+  });
+  while (tuple.length < 4) tuple.push(0);
+  // ChromaEngine ramp stops are hex strings in params — they travel as vec3
+  // uniforms via opts.stops (same out-of-band channel as the ink colors),
+  // not in uParams.
+  if (schema.colors) {
+    opts = { ...opts, stops: schema.colors.map((c) => hexToRgb01(params[c.key], c.default)) };
+  }
+  return applyGLFilter(name, canvas.width, canvas.height, tuple, opts);
+}
+
+// The COLOR stage's always-on grade pass (Hue Rotate + Sat). Runs as its own
+// chained GL stage right after the selected color — see resolveActivePipeline.
+function runGradeEffect(grade, opts) {
+  return applyGLFilter('grade', canvas.width, canvas.height, [grade.hue, grade.sat, 0, 0], opts);
+}
+
+// Dispatch a single FX RACK effect. Feedback effects (schema.feedback) route
+// through glFx.js with the slot id as opts.fxKey so the module keeps per-slot
+// trail state; stateless ones run through applyGLFilter exactly like COLOR
+// effects — their shaders live in glFilters.js FRAGS.
+function runFxEffect(name, params, opts = {}, key) {
+  const schema = FX_PARAM_SCHEMAS[name];
+  if (!schema) return;
+  const tuple = schema.order.map((k) => {
+    const v = Number(params[k]);
+    return Number.isFinite(v) ? v : 0;
+  });
+  while (tuple.length < 4) tuple.push(0);
+  if (schema.feedback) {
+    return applyFxEffect(name, canvas.width, canvas.height, tuple, { ...opts, fxKey: key });
+  }
   return applyGLFilter(name, canvas.width, canvas.height, tuple, opts);
 }
 
 const TOGGLE_CONFIG = [
-  ['speed-group',           'speed',          parseFloat, (v) => { video.playbackRate = v; }],
   ['structure-group',       'structure',      String,     onStructureChange],
   ['structure-output-group', 'structureOutputMode', String, null],
   ['perblob-group',         'perBlob',        String,     onPerBlobChange],
@@ -1078,11 +1168,26 @@ const TOGGLE_CONFIG = [
 // Per-blob (Inv / Thermal) remains independent — always layers on top
 // of whatever the main chain produced; not part of this resolver.
 function resolveActivePipeline(look = currentLook()) {
+  // Single COLOR stage (v8): the selected effect + its params from the
+  // per-effect memory. Params fall back to factory without mutating the
+  // look — timeline looks are read-only during render.
+  const colorActive = look.color && look.color !== 'none' && COLOR_PARAM_SCHEMAS[look.color];
+  const hue = typeof look.colorHue === 'number' ? look.colorHue : 0;
+  const sat = typeof look.colorSat === 'number' ? look.colorSat : 0.5;
   return {
     structure: look.structure !== 'none' ? look.structure : null,
-    colors:    look.colorRack
+    color: colorActive
+      ? { type: look.color, params: (look.colorParams && look.colorParams[look.color]) || makeFactoryParams(look.color) }
+      : null,
+    // GRADE: always-on hue/sat post pass, active whenever either knob is off
+    // neutral. Runs even with color = 'none' (grades raw video / STRUCTURE).
+    grade: (hue > 0.001 || Math.abs(sat - 0.5) > 0.001) ? { hue, sat } : null,
+    // FX RACK stages run after COLOR + grade (STRUCTURE → COLOR → GRADE → FX).
+    // `key` is the slot id — glFx.js keys each slot's persistent feedback
+    // buffers on it, so two slots with the same effect trail independently.
+    fx: (look.fxRack || [])
       .filter((s) => s.enabled && s.type !== 'none')
-      .map((s) => ({ type: s.type, params: s.params })),
+      .map((s) => ({ type: s.type, params: s.params, key: s.id })),
   };
 }
 
@@ -1090,7 +1195,7 @@ function resolveActivePipeline(look = currentLook()) {
 // selected. Only STRUCTURE effects still have right-panel cards — COLOR
 // effects render their knobs INLINE inside their rack slot now (no
 // right-panel card to show/hide). So this function only iterates the
-// STRUCTURE set; COLOR is handled by renderColorRack instead.
+// STRUCTURE set; COLOR is handled by renderColorPanel instead.
 function refreshEffectCardVisibility() {
   const { structure } = resolveActivePipeline();
   for (const name of STRUCTURE_SECTIONS) {
@@ -1189,241 +1294,276 @@ TOGGLE_CONFIG.forEach(([id, key, parser, onChange]) => wireToggleGroup(id, key, 
 // stroke / line stroke / dot in the new BlobTracking renderer.
 
 // ============================================================
-// COLOR RACK — custom widget (not a toggle group).
-// Renders state.colorRack into #color-rack as 3 fixed slots, wires
-// click-to-pick / toggle / remove / drag-to-reorder. See state.colorRack
-// docstring for the data shape.
+// COLOR — single-stage UI (v8). Three tabs share ONE selection
+// (state.color): MAPS (pure per-pixel color mapping, swatch grid),
+// UNIQUE (effects that build something — neighbor sampling, added
+// elements, displacement — in labeled categories), CUSTOM (the
+// ChromaEngine: driver select + 4 ramp-stop pickers + shaping knobs).
+// Per-effect knob memory lives in state.colorParams — switching effects
+// and coming back keeps your tweaks. The always-on GRADE knobs
+// (colorHue / colorSat) are static [data-knob] elements wired by the
+// global knob init like any other state knob.
+//
+// Interaction rule: clicking a map / unique effect / any CUSTOM control
+// selects that tab's effect. Activation from knob drags only toggles
+// classes (updateColorActiveStates) — never rebuilds DOM mid-drag.
 // ============================================================
-const colorRackEl  = document.getElementById('color-rack');
-const colorPickerEl = document.getElementById('color-picker-popover');
+const colorTabGroup     = document.getElementById('color-tab-group');
+const colorTabMaps      = document.getElementById('color-tab-maps');
+const colorTabUnique    = document.getElementById('color-tab-unique');
+const colorTabCustom    = document.getElementById('color-tab-custom');
+const colorMapsGrid     = document.getElementById('color-maps-grid');
+const colorMapsPanel    = document.getElementById('color-maps-knob-panel');
+const colorUniqueGrid   = document.getElementById('color-unique-grid');
+const colorUniquePanel  = document.getElementById('color-unique-knob-panel');
+const chromaDriverGroup = document.getElementById('chroma-driver-group');
+const chromaStopRow     = document.getElementById('chroma-stop-row');
+const chromaKnobPanel   = document.getElementById('chroma-knob-panel');
 
-// Same gradient stops as the .filter-swatch-group buttons (style.css) so
-// the chip swatch reads as the same identity. Inlined here because the
-// per-slot gradient varies and these aren't shareable via a simple class
-// (each slot needs its OWN gradient, picked from this lookup).
-const RACK_SWATCH_GRADIENTS = {
+// Swatch gradient per COLOR effect — backgrounds for the MAPS/UNIQUE grid
+// buttons (the .filter-swatch-group scrim keeps the white labels readable).
+const COLOR_SWATCH_GRADIENTS = {
   oxide:      'linear-gradient(90deg, #1a0a00, #8b4513, #cd853f, #d4af37)',
   synth:      'linear-gradient(90deg, #f72585, #b5179e, #7209b7, #4361ee, #4cc9f0)',
   biolum:     'linear-gradient(90deg, #001a1a, #00ffcc, #88ddff, #aa88ff)',
   thermo:     'linear-gradient(90deg, #000, #220066, #cc0066, #ff6600, #ffff00, #fff)',
   falsecolor: 'linear-gradient(90deg, #4361ee, #00d4ff, #5be7a6, #ffea00, #f72585)',
-  depthstack: 'linear-gradient(90deg, #050814, #23356f, #7354b8, #e8f3ff)',
-  prismatic:  'linear-gradient(90deg, #fff2bf, #ff9aa7, #a68cff, #9ffcff)',
   acidwash:   'linear-gradient(90deg, #9bff00, #00ffe0, #b000ff, #ff4ecb, #fffb00)',
   xray:       'linear-gradient(90deg, #07131a, #2c6b7f, #bde7ef, #fff8dd)',
-  heatbleed:  'linear-gradient(90deg, #110006, #8a001f, #ff5500, #ffea00, #fff)',
-  nebula:     'linear-gradient(90deg, #05000d, #321a5c, #b13c74, #f4a36d)',
   solarize:   'linear-gradient(90deg, #050505, #f6f1d3, #1d1b2f, #ff7a4d)',
-  aurorastorm:'linear-gradient(90deg, #00120b, #00d86a, #5ddcff, #d855ff)',
   cyanotype:  'linear-gradient(90deg, #061423, #063f7a, #3fa7c7, #d7f3ee)',
   infrared:   'linear-gradient(90deg, #05081a, #234e7c, #d02775, #ffb1a3)',
-  neontube:   'linear-gradient(90deg, #090010, #ff2fa3, #ffd2f0, #00e8ff)',
+  blackbody:  'linear-gradient(90deg, #000, #3d0100, #c84000, #ffdd00, #e8efff)',
+  hubble:     'linear-gradient(90deg, #020008, #6d1500, #2a7a00, #00b5bb)',
+  // UNIQUE tab
+  nebula:     'linear-gradient(90deg, #05000d, #321a5c, #b13c74, #f4a36d)',
+  aurorastorm:'linear-gradient(90deg, #00120b, #00d86a, #5ddcff, #d855ff)',
   deepfield:  'linear-gradient(90deg, #02030a, #111a3f, #9d4a2e, #ffd08a)',
-  decayflow:  'linear-gradient(90deg, #05140e, #1d6b54, #7ad0a0, #f0d67a)',
-  feedbackwarp:'linear-gradient(90deg, #090014, #36106b, #0f8ea0, #ff6d3a)',
-  bloom:      'linear-gradient(90deg, #020310, #142b7f, #5ea9ff, #f8fbff)',
-  crtrolling: 'linear-gradient(90deg, #070707, #17423d, #d13f6b, #f1e36b)',
-  noise:      'linear-gradient(90deg, #111, #777, #222, #bbb, #333)',
-  scanlines:  'repeating-linear-gradient(180deg, #0a0908 0 3px, #7a7a7a 3px 4px)',
-  degrade:    'linear-gradient(90deg, #0b0b0b 0 20%, #4a4a4a 20% 40%, #a45d2a 40% 60%, #d8c66f 60% 80%, #f4f0d6 80%)',
-  crt:        'linear-gradient(90deg, #050505, #21433f, #b24a61, #eee8b8)',
+  neontube:   'linear-gradient(90deg, #090010, #ff2fa3, #ffd2f0, #00e8ff)',
+  prismatic:  'linear-gradient(90deg, #fff2bf, #ff9aa7, #a68cff, #9ffcff)',
+  heatbleed:  'linear-gradient(90deg, #110006, #8a001f, #ff5500, #ffea00, #fff)',
+  depthstack: 'linear-gradient(90deg, #050814, #23356f, #7354b8, #e8f3ff)',
+  abyss:      'linear-gradient(90deg, #010010, #0a0050, #7a006e, #ff00aa, #ff8acd)',
+  sequin:     'linear-gradient(90deg, #00aaff, #6600ff, #cc00ff, #ff0088, #ff5500, #ffcc00)',
+  risograph:  'linear-gradient(90deg, #f5ead8, #e8b89a, #c86060, #a04080, #f5ead8)',
+  octopus:    'linear-gradient(90deg, #05010c, #2a0f4a, #7a2a6e, #ff7a5c, #ffd2c0)',
+  hologram:   'linear-gradient(90deg, #01060c, #073a4a, #19c8e8, #9ff4ff)',
+  surveil:    'linear-gradient(90deg, #020503, #2c3a2e, #7d9682, #e8f0e8 72%, #ff8400 78%, #e8f0e8 84%)',
+  newsprint:  'linear-gradient(90deg, #f7f2e6, #e85d75, #f7f2e6, #5560c8, #f7f2e6)',
+  sketch:     'linear-gradient(135deg, #f2ece0, #d8cfc0 38%, #6b6358 70%, #2a2620)',
+  polaroid:   'linear-gradient(90deg, #2e3b34, #6a7a6a, #c9bfa3, #f2e6c4)',
+  blacklight: 'linear-gradient(90deg, #050008, #2a0a55, #7a1fd0, #ff3df0, #b6ff4d)',
+  dreamstatic:'linear-gradient(90deg, #0a0a14, #8898d8, #e8a8c8, #b8a8e8, #f0e8ff)',
+  predator:   'linear-gradient(90deg, #020512, #103a66, #2a6088, #ff8a1a, #fff3c4)',
 };
-const RACK_LABEL = {
+const COLOR_LABEL = {
   oxide: 'Oxide', synth: 'Synth', biolum: 'BioLum', thermo: 'Thermo', falsecolor: 'FalseClr',
-  depthstack: 'DepthStack', prismatic: 'Prismatic', acidwash: 'AcidWash', xray: 'X-Ray', heatbleed: 'HeatBleed',
-  nebula: 'Nebula', solarize: 'Solarize', aurorastorm: 'Aurora', cyanotype: 'Cyanotype', infrared: 'Infrared',
-  neontube: 'NeonTube', deepfield: 'DeepField', decayflow: 'DecayFlow', feedbackwarp: 'FbWarp', bloom: 'Bloom',
-  crtrolling: 'CRT Roll', noise: 'Noise', scanlines: 'Scanlines', degrade: 'Degrade', crt: 'CRT',
+  acidwash: 'AcidWash', xray: 'X-Ray', solarize: 'Solarize', cyanotype: 'Cyanotype', infrared: 'Infrared',
+  blackbody: 'Blackbody', hubble: 'Hubble',
+  nebula: 'Nebula', aurorastorm: 'Aurora', deepfield: 'DeepField', neontube: 'NeonTube',
+  prismatic: 'Prismatic', heatbleed: 'HeatBleed', depthstack: 'DepthStack', abyss: 'Abyss',
+  sequin: 'Sequin',
+  risograph: 'Riso',
+  octopus: 'Octopus', hologram: 'Hologram', surveil: 'Surveil', newsprint: 'Newsprint', sketch: 'Sketch',
+  polaroid: 'Polaroid', blacklight: 'Blacklight', dreamstatic: 'DreamStatic', predator: 'Predator',
+  chroma: 'ChromaEngine',
 };
 
-// Per-slot tooltip mirrors the picker's (so hovering the chip explains
-// what the current effect does, same wording as picking it would have shown).
-const RACK_CHIP_TIP = {
-  oxide:      'Oxide / patina material in this slot. Re-skins the input as corroded metal. Click to swap.',
-  synth:      'Synthwave color grade in this slot. Maps luma to a 6-band palette. Click to swap.',
-  biolum:     'Bioluminescent glow in this slot. Re-tints the input as deep-water bioluminescence. Click to swap.',
-  thermo:     'Thermal-camera ramp in this slot. Maps luma to deep blue → cyan → yellow → red → white. Click to swap.',
-  falsecolor: 'False-color palette swap in this slot. Cross-fades between four palettes. Click to swap.',
-  depthstack: 'Holographic spectral depth planes. Banded color zones shift with luminance gradients. Click to swap.',
-  prismatic:  'Warm spectral dispersion. Prismatic chromatic aberration with yellow-pink spectrum. Click to swap.',
-  acidwash:   'Psychedelic color banding. Sine-folded hue mapping creates repeating color cycles. Click to swap.',
-  xray:       'Medical radiograph aesthetic. Inverted exposure, edge enhancement, film tint. Click to swap.',
-  heatbleed:  'Thermal color that bleeds spatially based on intensity. Hot colors spread outward. Click to swap.',
-  nebula:     'Cosmic gas cloud palette. Emission, reflection, or planetary nebula aesthetics. Click to swap.',
-  solarize:   'Solarization / Sabattier effect. Tone folding at a luminance threshold. Click to swap.',
-  aurorastorm:'Violent solar storm aurora. Vertical curtain streaks with extreme color bands. Click to swap.',
-  cyanotype:  'Blueprint paper aesthetic. Deep cobalt to pale cyan with paper grain. Click to swap.',
-  infrared:   'Aerochrome infrared film. Magentas in foliage zones, deep blue shadows. Click to swap.',
-  neontube:   'Emissive neon line-art. Edges glow as bright neon cores with atmospheric halo. Click to swap.',
-  deepfield:  'Hubble Ultra Deep Field aesthetic. Dark void with warm redshifted galaxy colors. Click to swap.',
-  decayflow:  'Flow field advection trails. Pixels drift along gradient directions leaving color residue. Click to swap.',
-  feedbackwarp: 'Gradient-driven warp feedback. Image warped by its own luminance field recursively. Click to swap.',
-  bloom:      'Neon bloom glow. Bright areas spread with a blue energy halo. Click to swap.',
-  crtrolling: 'CRT rolling distortion. Vertical sine waves with luma modulation and chroma offset. Click to swap.',
-  noise:      'Adaptive film grain / sensor noise with shadow bias and optional color noise. Click to swap.',
-  scanlines:  'CRT/VHS scanline artifacts with per-row jitter and RGB fringing. Click to swap.',
-  degrade:    'Bit depth reduction and color banding. Macroblocks, dithering, pixelation. Click to swap.',
-  crt:        'Full CRT simulation. Phosphor subpixels, bloom, barrel distortion, scanlines. Click to swap.',
+// Tooltip per COLOR effect — shown on the MAPS/UNIQUE grid buttons.
+const COLOR_MAP_TIPS = {
+  oxide:      'Oxide / patina material. Re-skins the input as corroded metal.',
+  synth:      'Synthwave color grade. Maps luma to a 6-band palette.',
+  biolum:     'Bioluminescent glow. Re-tints the input as deep-water bioluminescence.',
+  thermo:     'Thermal-camera ramp. Maps luma to deep blue → cyan → yellow → red → white.',
+  falsecolor: 'False-color palette swap. Cross-fades between four palettes.',
+  acidwash:   'Psychedelic color banding. Sine-folded hue mapping creates repeating color cycles.',
+  xray:       'Medical radiograph aesthetic. Inverted exposure, edge enhancement, film tint.',
+  solarize:   'Solarization / Sabattier effect. Tone folding at a luminance threshold.',
+  cyanotype:  'Blueprint paper aesthetic. Deep cobalt to pale cyan with paper grain.',
+  infrared:   'Aerochrome infrared film. Magentas in foliage zones, deep blue shadows.',
+  blackbody:  'Planckian temperature ramp. Maps luma to stellar color temperatures — deep ember through orange-yellow to blue-white hot plasma.',
+  hubble:     'Hubble SHO emission palette. Maps luma bands to Sulphur (red), Hydrogen (green), Oxygen (blue). Toggle to HOO for a cyan-heavy Orion Nebula variant.',
+  nebula:     'Cosmic gas cloud palette. Emission, reflection, or planetary nebula aesthetics.',
+  aurorastorm:'Violent solar storm aurora. Vertical curtain streaks with extreme color bands.',
+  deepfield:  'Hubble Ultra Deep Field aesthetic. Dark void with warm redshifted galaxy colors.',
+  neontube:   'Emissive neon line-art. Edges glow as bright neon cores with atmospheric halo.',
+  prismatic:  'Warm spectral dispersion. Prismatic chromatic aberration with yellow-pink spectrum.',
+  heatbleed:  'Thermal color that bleeds spatially based on intensity. Hot colors spread outward.',
+  depthstack: 'Holographic spectral depth planes. Banded color zones shift with luminance gradients.',
+  sequin:     'Three hue-bounded shimmer profiles: Cyan, Cyan-Magenta, or Ember. Sparkle dots twinkle at peaks; Speed oscillates the palette without ever bleeding into green.',
+  abyss:      'Stereoscopic void. Real R/B chromatic displacement creates 3D depth. Hue sweeps electric blue → vivid magenta → warm rose.',
+  risograph:  'Two-color indie risograph print. Ink A covers shadows, Ink B the midtones — misregistration drifts them apart; halftone adds the dot-screen texture.',
+  octopus:    'Deep-sea dreamcore. Dark zones billow with animated violet ink; bright regions become coral skin with flickering camouflage cells.',
+  hologram:   'Sci-fi light projection. Translucent self-luminous cyan (or pink) with drifting interference bands, electric edge fringe, projector flicker.',
+  surveil:    'Drone thermal targeting. Hard-quantized false-color bands; one luminance zone locks in a detection color. Sweep Target to scan.',
+  newsprint:  'Pop-art halftone duotone. Two rotated dot screens — shadow ink + midtone ink — over warm paper. The TV Girl album-cover print.',
+  sketch:     'Hand-drawn pen/pencil crosshatch. The image is "drawn" with directional hatch strokes that follow the shading and thicken in the shadows, on faint notebook paper. Ink/Color/Stroke/Wobble knobs — go full graphite B&W or live colored sketch. After flockaroo.',
+  polaroid:   'Instant-film chemistry. Cyan-green shadows, yellowed highlights, milky lifted blacks, corner vignette. Found in a shoebox.',
+  blacklight: 'UV poster room. Deep purple-black base; only bright regions fluoresce in hot neon paint. Sweep Paint from violet to acid green.',
+  dreamstatic:'Shadows dissolve into slowly crawling pastel static while bright content stays solid. A signal coming through from a dream.',
+  predator:   'Motion-as-heat thermal vision. Anything that moved since ~4 frames ago glows hot; still regions settle into a cold blue (or purple) body.',
 };
 
-// Currently-open picker state. picker is anchored beneath a chip; clicking
-// outside closes it. Tracking the slot id (not DOM ref) survives any
-// re-render between open and a pick action.
-let _openPickerSlotId = null;
-
-// Per-session expanded-state for slots. NOT persisted — refreshing the
-// page collapses everything. The user opens the slot they want to tweak;
-// next session they'll open it again. Keeping this in localStorage would
-// mean stale "expanded" UI on a new session, which is more confusing
-// than helpful for a persistent panel.
-const _expandedSlots = new Set();
-
-function renderColorRack() {
-  if (!colorRackEl) return;
-  // Build/replace exactly RACK_SLOTS DOM nodes. We rebuild rather than
-  // mutate-in-place because slot order can change on drag-drop and there
-  // are only 3 nodes — performance is irrelevant. The picker popover is
-  // separate (lives at body level) so it's never touched here.
-  //
-  // Slot DOM structure:
-  //   .color-rack-slot                 (flex column, drag source)
-  //     .color-rack-slot-row           (grid row: handle, chip, chevron, toggle, ×)
-  //     .color-rack-slot-panel         (only when expanded — inline knobs/toggles)
-  colorRackEl.innerHTML = '';
-  for (let i = 0; i < state.colorRack.length; i++) {
-    const slot     = state.colorRack[i];
-    const filled   = slot.type !== 'none';
-    const expanded = filled && _expandedSlots.has(slot.id);
-
-    const el = document.createElement('div');
-    el.className = 'color-rack-slot';
-    el.setAttribute('role', 'listitem');
-    el.dataset.slotId  = slot.id;
-    el.dataset.slotIdx = String(i);
-    el.dataset.empty   = filled ? 'false' : 'true';
-    el.dataset.enabled = (slot.enabled && filled) ? 'true' : 'false';
-    el.dataset.expanded = expanded ? 'true' : 'false';
-    el.draggable = true;
-
-    // Header row — always present.
-    const row = document.createElement('div');
-    row.className = 'color-rack-slot-row';
-    el.appendChild(row);
-
-    // Drag handle
-    const handle = document.createElement('button');
-    handle.type = 'button';
-    handle.className = 'color-rack-handle';
-    handle.setAttribute('aria-label', 'Drag to reorder slot');
-    handle.dataset.tip = 'Drag to reorder this slot in the chain. Order matters: synth → thermo ≠ thermo → synth.';
-    handle.textContent = '≡';
-    row.appendChild(handle);
-
-    // Chip body
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'color-rack-chip';
-    chip.setAttribute('aria-haspopup', 'true');
-    chip.setAttribute('aria-expanded', _openPickerSlotId === slot.id ? 'true' : 'false');
-    chip.dataset.action = 'open-picker';
-    if (filled) {
-      chip.dataset.tip = RACK_CHIP_TIP[slot.type] || '';
-      const swatch = document.createElement('span');
-      swatch.className = 'color-rack-chip-swatch';
-      swatch.style.background = RACK_SWATCH_GRADIENTS[slot.type] || '';
-      const label = document.createElement('span');
-      label.className = 'color-rack-chip-label';
-      label.textContent = RACK_LABEL[slot.type] || slot.type;
-      chip.appendChild(swatch);
-      chip.appendChild(label);
-    } else {
-      chip.dataset.tip = 'Empty slot. Click to pick a color effect for this slot — it will run in series, reading the previous slot\'s output.';
-      const empty = document.createElement('span');
-      empty.className = 'color-rack-chip-empty';
-      empty.textContent = '+ add color';
-      chip.appendChild(empty);
+// Per-effect knob memory access. Ensures state.colorParams[type] exists and
+// backfills any keys added to an effect's schema since the params were saved.
+function getColorParams(type) {
+  if (!COLOR_SECTIONS.includes(type)) return {};
+  const factory = makeFactoryParams(type);
+  if (!state.colorParams[type]) {
+    state.colorParams[type] = factory;
+  } else {
+    for (const k of Object.keys(factory)) {
+      if (!(k in state.colorParams[type])) state.colorParams[type][k] = factory[k];
     }
-    row.appendChild(chip);
+  }
+  return state.colorParams[type];
+}
 
-    // Chevron (expand/collapse) — filled slots only. Empty slots have
-    // nothing to expand. Keeps the row compact when there's no panel.
-    if (filled) {
-      const chev = document.createElement('button');
-      chev.type = 'button';
-      chev.className = 'color-rack-chevron';
-      chev.dataset.action = 'expand';
-      chev.setAttribute('aria-label', expanded ? 'Collapse slot controls' : 'Expand slot controls');
-      chev.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      chev.dataset.tip = expanded
-        ? 'Hide this slot\'s controls.'
-        : 'Show this slot\'s controls. Each slot has its own copy — tweaking these only affects THIS slot.';
-      chev.textContent = expanded ? '▴' : '▾';
-      row.appendChild(chev);
+// Which COLOR tab is showing — UI-only, not persisted. applyStateToUI derives
+// it from the loaded selection; browsing tabs never changes the selection.
+let _colorTab = 'maps';
 
-      const toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'color-rack-toggle';
-      toggle.dataset.action = 'toggle';
-      toggle.setAttribute('aria-pressed', slot.enabled ? 'true' : 'false');
-      toggle.setAttribute('aria-label', slot.enabled ? 'Disable this slot' : 'Enable this slot');
-      toggle.dataset.tip = slot.enabled
-        ? 'Disable this slot. Stays in the rack but is skipped in the chain — useful for A/B compare without losing the pick.'
-        : 'Enable this slot. Re-includes it in the chain.';
-      toggle.textContent = slot.enabled ? '✓' : '⊘';
-      row.appendChild(toggle);
+function colorTabForSelection(color) {
+  if (COLOR_UNIQUE_FLAT.includes(color)) return 'unique';
+  if (color === 'chroma') return 'custom';
+  return 'maps';
+}
 
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'color-rack-remove';
-      remove.dataset.action = 'remove';
-      remove.setAttribute('aria-label', 'Clear this slot');
-      remove.dataset.tip = 'Clear this slot back to empty. Slot stays in the rack so you can pick a new color or drag it elsewhere.';
-      remove.textContent = '×';
-      row.appendChild(remove);
+// Guard: initKnob fires writeValue once during panel construction — that
+// must not count as a user interaction (it would steal the selection while
+// merely RENDERING another tab's panel).
+let _buildingColorPanel = false;
+
+function setColor(type) {
+  if (type !== 'none' && !COLOR_SECTIONS.includes(type)) return;
+  state.color = type;
+  if (type !== 'none') getColorParams(type);
+  renderColorPanel();
+  schedulePersist();
+}
+
+// Activation from a secondary interaction (knob drag, ramp-stop input,
+// driver click) — class toggles ONLY, never a DOM rebuild: rebuilding the
+// panel that contains the knob being dragged would kill the gesture.
+function activateColor(type) {
+  if (_buildingColorPanel || state.color === type) return;
+  state.color = type;
+  updateColorActiveStates();
+  schedulePersist();
+}
+
+function updateColorActiveStates() {
+  for (const grid of [colorMapsGrid, colorUniqueGrid]) {
+    if (!grid) continue;
+    for (const btn of grid.querySelectorAll('.toggle-btn')) {
+      const active = btn.dataset.value === state.color;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-checked', active ? 'true' : 'false');
     }
+  }
+  colorTabUnique?.classList.toggle('color-source-active', COLOR_UNIQUE_FLAT.includes(state.color));
+  colorTabCustom?.classList.toggle('color-source-active', state.color === 'chroma');
+}
 
-    // Inline panel — knobs + toggles for the slot's effect, all bound to
-    // slot.params (NOT global state). Built only when expanded so collapsed
-    // slots stay cheap (no extra DOM, no SVG).
-    if (expanded) {
-      const panel = renderSlotPanel(slot);
-      el.appendChild(panel);
+function setColorTab(tab) {
+  _colorTab = tab;
+  if (colorTabGroup) {
+    for (const btn of colorTabGroup.querySelectorAll('.toggle-btn')) {
+      const match = btn.dataset.value === tab;
+      btn.classList.toggle('active', match);
+      btn.setAttribute('aria-selected', match ? 'true' : 'false');
     }
+  }
+  colorTabMaps?.classList.toggle('hidden',   tab !== 'maps');
+  colorTabUnique?.classList.toggle('hidden', tab !== 'unique');
+  colorTabCustom?.classList.toggle('hidden', tab !== 'custom');
+}
 
-    colorRackEl.appendChild(el);
+colorTabGroup?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.toggle-btn');
+  if (btn) setColorTab(btn.dataset.value);
+});
+
+// ---- Swatch button factory shared by the MAPS and UNIQUE grids ----
+function makeColorSwatchButton(name) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'toggle-btn';
+  btn.setAttribute('role', 'radio');
+  btn.dataset.value = name;
+  if (name === 'none') {
+    btn.dataset.tip = 'No color stage. STRUCTURE output (or raw video) passes through to GRADE and the FX rack.';
+    btn.setAttribute('aria-label', 'No color');
+  } else {
+    btn.dataset.tip = COLOR_MAP_TIPS[name] || '';
+    btn.style.background = COLOR_SWATCH_GRADIENTS[name] || '';
+    btn.setAttribute('aria-label', COLOR_LABEL[name] || name);
+  }
+  const span = document.createElement('span');
+  span.textContent = name === 'none' ? 'None' : (COLOR_LABEL[name] || name);
+  btn.appendChild(span);
+  return btn;
+}
+
+// ---- MAPS tab: swatch grid built from COLOR_MAP_SECTIONS ----
+// Adding a map to the library = schema + shader + COLOR_MAP_SECTIONS entry +
+// label/gradient/tip rows here; the grid builds itself.
+function buildColorMapsGrid() {
+  if (!colorMapsGrid) return;
+  colorMapsGrid.innerHTML = '';
+  colorMapsGrid.appendChild(makeColorSwatchButton('none'));
+  for (const name of COLOR_MAP_SECTIONS) {
+    colorMapsGrid.appendChild(makeColorSwatchButton(name));
   }
 }
 
-// Build the inline control panel for an expanded slot. All controls are
-// slot-bound (writeValue closes over slot.params); the panel's reset
-// button restores factory defaults via resetSlotParams.
-function renderSlotPanel(slot) {
-  const schema = COLOR_PARAM_SCHEMAS[slot.type];
-  const panel = document.createElement('div');
-  panel.className = 'color-rack-slot-panel';
-  if (!schema) return panel;
+// ---- UNIQUE tab: categorized grid built from COLOR_UNIQUE_SECTIONS ----
+// Each category renders an in-grid header followed by its effects' swatch
+// buttons. Adding a TouchDesigner port = schema + shader + a slug in one
+// of the category rows (or a new category) + label/gradient/tip entries.
+function buildColorUniqueGrid() {
+  if (!colorUniqueGrid) return;
+  colorUniqueGrid.innerHTML = '';
+  for (const category of COLOR_UNIQUE_SECTIONS) {
+    const header = document.createElement('div');
+    header.className = 'color-grid-category';
+    header.textContent = category.label;
+    colorUniqueGrid.appendChild(header);
+    const grid = document.createElement('div');
+    grid.className = 'toggle-group filter-swatch-group color-maps-grid color-unique-row';
+    grid.setAttribute('role', 'radiogroup');
+    grid.setAttribute('aria-label', `${category.label} effects`);
+    for (const name of category.effects) {
+      grid.appendChild(makeColorSwatchButton(name));
+    }
+    colorUniqueGrid.appendChild(grid);
+  }
+}
 
-  // Header row inside the panel: title + reset button.
-  const phead = document.createElement('div');
-  phead.className = 'color-rack-slot-panel-head';
-  const ptitle = document.createElement('span');
-  ptitle.className = 'color-rack-slot-panel-title';
-  ptitle.textContent = `${RACK_LABEL[slot.type] || slot.type} controls`;
-  phead.appendChild(ptitle);
-  const presetBtn = document.createElement('button');
-  presetBtn.type = 'button';
-  presetBtn.className = 'color-rack-slot-reset';
-  presetBtn.dataset.action = 'reset-params';
-  presetBtn.setAttribute('aria-label', 'Reset this slot\'s controls to factory');
-  presetBtn.dataset.tip = 'Reset only THIS slot\'s controls to factory defaults. Other slots untouched.';
-  presetBtn.textContent = '⟲';
-  phead.appendChild(presetBtn);
-  panel.appendChild(phead);
+colorMapsGrid?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.toggle-btn');
+  if (btn) setColor(btn.dataset.value);
+});
+colorUniqueGrid?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.toggle-btn');
+  if (btn) setColor(btn.dataset.value);
+});
 
-  // Toggles (e.g. falsecolor's banding) — render before knobs since they
-  // tend to be the discrete mode-switch and knobs are continuous tuning.
+// ---- Shared knob-panel builder ----
+// Builds an effect's knob set bound to its colorParams entry (same knob DOM
+// the FX/TRACK racks use, so the styling rides along). Toggles (e.g.
+// falsecolor's banding) render above the knobs. Knob writes activate the
+// effect via activateColor — class-only, drag-safe.
+function buildColorKnobs(container, type, idPrefix) {
+  if (!container) return;
+  container.innerHTML = '';
+  const schema = COLOR_PARAM_SCHEMAS[type];
+  if (!schema) return;
+  const params = getColorParams(type);
+
   if (schema.toggles && schema.toggles.length) {
     for (const t of schema.toggles) {
+      if (type === 'chroma' && t.key === 'driver') continue; // driver has its own static group
       const wrap = document.createElement('div');
       wrap.className = 'color-rack-slot-toggle';
       const lbl = document.createElement('span');
@@ -1434,37 +1574,41 @@ function renderSlotPanel(slot) {
       grp.className = 'color-rack-slot-toggle-group';
       grp.setAttribute('role', 'radiogroup');
       grp.setAttribute('aria-label', t.label);
-      const currentVal = slot.params[t.key];
       for (const opt of t.options) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'color-rack-slot-toggle-btn';
         b.setAttribute('role', 'radio');
-        b.setAttribute('aria-checked', String(currentVal === opt.value));
+        b.setAttribute('aria-checked', String(params[t.key] === opt.value));
         b.dataset.tip = opt.tip;
         b.textContent = opt.label;
-        if (currentVal === opt.value) b.classList.add('active');
+        if (params[t.key] === opt.value) b.classList.add('active');
         b.addEventListener('click', () => {
-          if (slot.params[t.key] === opt.value) return;
-          slot.params[t.key] = opt.value;
+          if (params[t.key] === opt.value) return;
+          params[t.key] = opt.value;
+          for (const sib of grp.children) {
+            const match = sib === b;
+            sib.classList.toggle('active', match);
+            sib.setAttribute('aria-checked', String(match));
+          }
+          activateColor(type);
           schedulePersist();
-          renderColorRack();
         });
         grp.appendChild(b);
       }
       wrap.appendChild(grp);
-      panel.appendChild(wrap);
+      container.appendChild(wrap);
     }
   }
 
   const controlStack = document.createElement('div');
-  controlStack.className = 'control-stack color-rack-slot-controls';
+  controlStack.className = 'control-stack color-stage-controls';
   const sliderStack = document.createElement('div');
   sliderStack.className = 'slider-stack';
   const knobCluster = document.createElement('div');
   knobCluster.className = 'knob-cluster color-rack-slot-knob-grid';
   for (const k of schema.knobs) {
-    const knobId = `slot-${slot.id}-${k.key}`;
+    const knobId = `${idPrefix}-${k.key}`;
     const valId  = `${knobId}-val`;
     const knobEl = document.createElement('div');
     knobEl.className = 'knob slot-knob';
@@ -1477,7 +1621,344 @@ function renderSlotPanel(slot) {
     if (k.control) knobEl.dataset.control = k.control;
     knobEl.dataset.tip     = k.tip;
     knobEl.tabIndex = 0;
-    knobEl.setAttribute('aria-label', `${RACK_LABEL[slot.type]} ${k.label}`);
+    knobEl.setAttribute('aria-label', `${COLOR_LABEL[type] || type} ${k.label}`);
+    const labelEl = document.createElement('span');
+    labelEl.className = 'knob-label';
+    labelEl.textContent = k.label;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'knob-val';
+    valSpan.id = valId;
+    valSpan.textContent = String(params[k.key] ?? k.default);
+    knobEl.appendChild(labelEl);
+    knobEl.appendChild(valSpan);
+    if (k.control === 'slider') sliderStack.appendChild(knobEl);
+    else                        knobCluster.appendChild(knobEl);
+
+    initKnob(knobEl, {
+      writeValue:   (v) => { params[k.key] = v; activateColor(type); },
+      initialValue: params[k.key] ?? k.default,
+    });
+  }
+  if (sliderStack.childElementCount) controlStack.appendChild(sliderStack);
+  if (knobCluster.childElementCount) controlStack.appendChild(knobCluster);
+  if (controlStack.childElementCount) container.appendChild(controlStack);
+}
+
+// ---- CUSTOM tab: ChromaEngine controls ----
+// Driver toggle group + 4 ramp-stop color inputs + shaping knobs, all bound
+// to colorParams.chroma. Any interaction activates 'chroma'.
+function buildChromaControls() {
+  const schema = COLOR_PARAM_SCHEMAS.chroma;
+  if (!schema) return;
+  const params = getColorParams('chroma');
+
+  if (chromaDriverGroup) {
+    chromaDriverGroup.innerHTML = '';
+    const driver = schema.toggles.find((t) => t.key === 'driver');
+    for (const opt of driver.options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toggle-btn';
+      btn.setAttribute('role', 'radio');
+      btn.dataset.driverValue = String(opt.value);
+      btn.dataset.tip = opt.tip;
+      const active = params.driver === opt.value;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-checked', String(active));
+      const span = document.createElement('span');
+      span.textContent = opt.label;
+      btn.appendChild(span);
+      chromaDriverGroup.appendChild(btn);
+    }
+  }
+
+  if (chromaStopRow) {
+    chromaStopRow.innerHTML = '';
+    for (const c of schema.colors) {
+      const label = document.createElement('label');
+      label.className = 'color-picker-control';
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.className = 'color-picker-input';
+      input.value = normalizeHexColor(params[c.key], c.default);
+      input.dataset.tip = c.tip;
+      input.dataset.stopKey = c.key;
+      const span = document.createElement('span');
+      span.className = 'color-picker-label';
+      span.textContent = c.label.toUpperCase();
+      label.appendChild(input);
+      label.appendChild(span);
+      chromaStopRow.appendChild(label);
+    }
+  }
+
+  buildColorKnobs(chromaKnobPanel, 'chroma', 'chroma-knob');
+}
+
+chromaDriverGroup?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-driver-value]');
+  if (!btn) return;
+  const params = getColorParams('chroma');
+  params.driver = parseInt(btn.dataset.driverValue, 10);
+  for (const b of chromaDriverGroup.querySelectorAll('[data-driver-value]')) {
+    const match = b === btn;
+    b.classList.toggle('active', match);
+    b.setAttribute('aria-checked', String(match));
+  }
+  activateColor('chroma');
+  schedulePersist();
+});
+
+chromaStopRow?.addEventListener('input', (e) => {
+  const input = e.target.closest('[data-stop-key]');
+  if (!input) return;
+  const params = getColorParams('chroma');
+  params[input.dataset.stopKey] = normalizeHexColor(input.value, '#000000');
+  activateColor('chroma');
+  schedulePersist();
+});
+
+// ---- Full COLOR panel render ----
+// Rebuilds every tab's contents from state. Called on selection clicks, tab
+// data changes, and applyStateToUI — never from knob drags.
+function renderColorPanel() {
+  _buildingColorPanel = true;
+  try {
+    if (colorMapsPanel) {
+      colorMapsPanel.innerHTML = '';
+      if (COLOR_MAP_SECTIONS.includes(state.color)) {
+        buildColorKnobs(colorMapsPanel, state.color, `map-${state.color}`);
+      }
+    }
+    if (colorUniquePanel) {
+      colorUniquePanel.innerHTML = '';
+      if (COLOR_UNIQUE_FLAT.includes(state.color)) {
+        buildColorKnobs(colorUniquePanel, state.color, `unique-${state.color}`);
+      }
+    }
+    buildChromaControls();
+    updateColorActiveStates();
+  } finally {
+    _buildingColorPanel = false;
+  }
+}
+
+buildColorMapsGrid();
+buildColorUniqueGrid();
+
+// ============================================================
+// FX RACK — 3-slot rack with its own DOM/picker state. Reuses
+// the same .color-rack-* classes; slots live in #fx-rack and the picker in
+// #fx-picker-popover. Effects are stateful GL feedback passes (glFx.js)
+// that run after the COLOR rack — see resolveActivePipeline / renderFrame.
+// Slot mutations that change WHAT an enabled slot renders (swap / clear)
+// also reset that slot's feedback buffers so stale trails from the old
+// effect never bleed into the new one.
+// ============================================================
+const fxRackEl   = document.getElementById('fx-rack');
+const fxPickerEl = document.getElementById('fx-picker-popover');
+
+const FX_LABEL = {
+  drag: 'Drag', lumadrag: 'LumaDrag', tunnel: 'Tunnel', burnin: 'BurnIn', wobbletape: 'WobbleTape',
+  flowfield: 'FlowField', bloom: 'Bloom', godrays: 'GodRays', decayflow: 'DecayFlow', feedbackwarp: 'FbWarp',
+  crt: 'CRT', crtrolling: 'CRT Roll', scanlines: 'Scanlines', degrade: 'Degrade', noise: 'Noise',
+};
+const FX_SWATCH_GRADIENTS = {
+  drag:       'linear-gradient(90deg, #080006, #2a0060, #8000ff, #ff44cc, #ffaaff)',
+  lumadrag:   'linear-gradient(90deg, #050608 0 30%, #0a2a3a, #28c8e8 78%, #eafcff)',
+  tunnel:     'repeating-radial-gradient(circle at 50% 50%, #0a0414 0 6px, #3a1a6e 6px 9px, #b04ad8 9px 10px)',
+  burnin:     'linear-gradient(90deg, #020803, #0a3a12, #2fae3e, #b8ff7a, #fffbe8)',
+  wobbletape: 'linear-gradient(100deg, #0a0a0c, #3a3a44 30%, #ff4444 44%, #44ddff 48%, #3a3a44 60%, #0a0a0c)',
+  flowfield:  'linear-gradient(90deg, #020c14, #0f4a6b, #2fa3c7, #c7f0ff)',
+  bloom:      'linear-gradient(90deg, #020310, #142b7f, #5ea9ff, #f8fbff)',
+  godrays:    'linear-gradient(90deg, #120800, #6b3200, #d47a00, #ffe066, #fff8cc)',
+  decayflow:  'linear-gradient(90deg, #05140e, #1d6b54, #7ad0a0, #f0d67a)',
+  feedbackwarp:'linear-gradient(90deg, #090014, #36106b, #0f8ea0, #ff6d3a)',
+  crt:        'linear-gradient(90deg, #050505, #21433f, #b24a61, #eee8b8)',
+  crtrolling: 'linear-gradient(90deg, #070707, #17423d, #d13f6b, #f1e36b)',
+  scanlines:  'repeating-linear-gradient(180deg, #0a0908 0 3px, #7a7a7a 3px 4px)',
+  degrade:    'linear-gradient(90deg, #0b0b0b 0 20%, #4a4a4a 20% 40%, #a45d2a 40% 60%, #d8c66f 60% 80%, #f4f0d6 80%)',
+  noise:      'linear-gradient(90deg, #111, #777, #222, #bbb, #333)',
+};
+const FX_CHIP_TIP = {
+  drag:       'Directional drag smear. Bright areas streak like comets in a chosen direction, leaving decaying feedback trails. Wobble knob FM-modulates the smear direction with a per-scanline analog wave — turn it up for a wavering, snaking, tape-unstable smear instead of a dead-straight one. Click to swap.',
+  lumadrag:   'Luminance drag — a CLEAN directional pull. Only bright content (e.g. FreqMod lines) streaks; dark gaps stay planted, so it drags the lines instead of smearing the whole frame. Gate sets how bright a pixel must be to drag; Wobble FM-modulates the pull direction for a snaking analog feel. Pairs with FreqMod. Click to swap.',
+  tunnel:     'Analog video feedback tunnel — camera pointed at its own TV. Echoes recede with zoom, twist, and per-generation hue drift. Click to swap.',
+  burnin:     'CRT phosphor burn-in. Bright pixels sear into the screen and cool slowly through amber / green / cyan phosphor as they fade. Click to swap.',
+  wobbletape: 'Tape transport gone bad. Horizontal wow/flutter accumulates frame over frame, stretching the image sideways until a tracking pulse snaps it clean. Click to swap.',
+  flowfield:  'Flow Field in this slot. Pixels advect along the luma-gradient flow, accumulating feedback trails frame over frame. Click to swap.',
+  bloom:      'Neon bloom glow. Bright areas spread with a blue energy halo. Click to swap.',
+  godrays:    'Volumetric light shafts. 48-sample radial march from bright regions toward a configurable light center. Click to swap.',
+  decayflow:  'Flow field advection trails (single-frame). Pixels drift along gradient directions leaving color residue. Click to swap.',
+  feedbackwarp: 'Gradient-driven warp. Image displaced by its own luminance field. Click to swap.',
+  crt:        'Full CRT simulation. Phosphor subpixels, bloom, barrel distortion, scanlines. Click to swap.',
+  crtrolling: 'CRT rolling distortion. Vertical sine waves with luma modulation and chroma offset. Click to swap.',
+  scanlines:  'CRT/VHS scanline artifacts with per-row jitter and RGB fringing. Click to swap.',
+  degrade:    'Bit depth reduction and color banding. Macroblocks, dithering, pixelation. Click to swap.',
+  noise:      'Adaptive film grain / sensor noise with shadow bias and optional color noise. Click to swap.',
+};
+
+// Build the FX picker popover from FX_SECTIONS — adding an FX effect needs
+// no index.html edits, same as the COLOR grids.
+function buildFxPicker() {
+  if (!fxPickerEl) return;
+  fxPickerEl.innerHTML = '';
+  const none = document.createElement('button');
+  none.type = 'button';
+  none.className = 'color-pick';
+  none.dataset.pickFx = 'none';
+  none.dataset.tip = 'Clear this slot. Slot becomes empty and is skipped in the chain.';
+  none.textContent = 'None';
+  fxPickerEl.appendChild(none);
+  for (const name of FX_SECTIONS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'color-pick';
+    btn.dataset.pickFx = name;
+    btn.dataset.tip = FX_CHIP_TIP[name] || '';
+    btn.textContent = FX_LABEL[name] || name;
+    fxPickerEl.appendChild(btn);
+  }
+}
+buildFxPicker();
+
+let _openFxPickerSlotId = null;
+const _expandedFxSlots  = new Set();
+
+function renderFxRack() {
+  if (!fxRackEl) return;
+  fxRackEl.innerHTML = '';
+  for (let i = 0; i < state.fxRack.length; i++) {
+    const slot     = state.fxRack[i];
+    const filled   = slot.type !== 'none';
+    const expanded = filled && _expandedFxSlots.has(slot.id);
+
+    const el = document.createElement('div');
+    el.className = 'color-rack-slot';
+    el.setAttribute('role', 'listitem');
+    el.dataset.slotId  = slot.id;
+    el.dataset.slotIdx = String(i);
+    el.dataset.empty   = filled ? 'false' : 'true';
+    el.dataset.enabled = (slot.enabled && filled) ? 'true' : 'false';
+    el.dataset.expanded = expanded ? 'true' : 'false';
+    el.draggable = true;
+
+    const row = document.createElement('div');
+    row.className = 'color-rack-slot-row';
+    el.appendChild(row);
+
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'color-rack-handle';
+    handle.setAttribute('aria-label', 'Drag to reorder slot');
+    handle.dataset.tip = 'Drag to reorder this FX stage in the chain.';
+    handle.textContent = '≡';
+    row.appendChild(handle);
+
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'color-rack-chip';
+    chip.setAttribute('aria-haspopup', 'true');
+    chip.setAttribute('aria-expanded', _openFxPickerSlotId === slot.id ? 'true' : 'false');
+    chip.dataset.action = 'open-picker';
+    if (filled) {
+      chip.dataset.tip = FX_CHIP_TIP[slot.type] || '';
+      const swatch = document.createElement('span');
+      swatch.className = 'color-rack-chip-swatch';
+      swatch.style.background = FX_SWATCH_GRADIENTS[slot.type] || '';
+      const label = document.createElement('span');
+      label.className = 'color-rack-chip-label';
+      label.textContent = FX_LABEL[slot.type] || slot.type;
+      chip.appendChild(swatch);
+      chip.appendChild(label);
+    } else {
+      chip.dataset.tip = 'Empty slot. Click to pick an FX effect — it runs after the COLOR rack, reading the previous stage\'s output.';
+      const empty = document.createElement('span');
+      empty.className = 'color-rack-chip-empty';
+      empty.textContent = '+ add fx';
+      chip.appendChild(empty);
+    }
+    row.appendChild(chip);
+
+    if (filled) {
+      const chev = document.createElement('button');
+      chev.type = 'button';
+      chev.className = 'color-rack-chevron';
+      chev.dataset.action = 'expand';
+      chev.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      chev.dataset.tip = expanded ? 'Hide this slot\'s controls.' : 'Show this slot\'s controls.';
+      chev.textContent = expanded ? '▴' : '▾';
+      row.appendChild(chev);
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'color-rack-toggle';
+      toggle.dataset.action = 'toggle';
+      toggle.setAttribute('aria-pressed', slot.enabled ? 'true' : 'false');
+      toggle.dataset.tip = slot.enabled ? 'Disable this slot.' : 'Enable this slot.';
+      toggle.textContent = slot.enabled ? '✓' : '⊘';
+      row.appendChild(toggle);
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'color-rack-remove';
+      remove.dataset.action = 'remove';
+      remove.dataset.tip = 'Clear this slot.';
+      remove.textContent = '×';
+      row.appendChild(remove);
+    }
+
+    if (expanded) {
+      const panel = renderFxSlotPanel(slot);
+      el.appendChild(panel);
+    }
+
+    fxRackEl.appendChild(el);
+  }
+}
+
+function renderFxSlotPanel(slot) {
+  const schema = FX_PARAM_SCHEMAS[slot.type];
+  const panel = document.createElement('div');
+  panel.className = 'color-rack-slot-panel';
+  if (!schema) return panel;
+
+  const phead = document.createElement('div');
+  phead.className = 'color-rack-slot-panel-head';
+  const ptitle = document.createElement('span');
+  ptitle.className = 'color-rack-slot-panel-title';
+  ptitle.textContent = `${FX_LABEL[slot.type] || slot.type} controls`;
+  phead.appendChild(ptitle);
+  const presetBtn = document.createElement('button');
+  presetBtn.type = 'button';
+  presetBtn.className = 'color-rack-slot-reset';
+  presetBtn.dataset.action = 'reset-params';
+  presetBtn.dataset.tip = 'Reset only THIS slot\'s controls to factory.';
+  presetBtn.textContent = '⟲';
+  phead.appendChild(presetBtn);
+  panel.appendChild(phead);
+
+  const controlStack = document.createElement('div');
+  controlStack.className = 'control-stack color-rack-slot-controls';
+  const sliderStack = document.createElement('div');
+  sliderStack.className = 'slider-stack';
+  const knobCluster = document.createElement('div');
+  knobCluster.className = 'knob-cluster color-rack-slot-knob-grid';
+  for (const k of schema.knobs) {
+    const knobId = `fx-${slot.id}-${k.key}`;
+    const valId  = `${knobId}-val`;
+    const knobEl = document.createElement('div');
+    knobEl.className = 'knob slot-knob';
+    knobEl.id = knobId;
+    knobEl.dataset.knob = '';
+    knobEl.dataset.min     = String(k.min);
+    knobEl.dataset.max     = String(k.max);
+    knobEl.dataset.step    = String(k.step);
+    knobEl.dataset.default = String(k.default);
+    if (k.control) knobEl.dataset.control = k.control;
+    knobEl.dataset.tip     = k.tip;
+    knobEl.tabIndex = 0;
+    knobEl.setAttribute('aria-label', `${FX_LABEL[slot.type]} ${k.label}`);
     const labelEl = document.createElement('span');
     labelEl.className = 'knob-label';
     labelEl.textContent = k.label;
@@ -1490,10 +1971,6 @@ function renderSlotPanel(slot) {
     if (k.control === 'slider') sliderStack.appendChild(knobEl);
     else                        knobCluster.appendChild(knobEl);
 
-    // Slot-bound init: writes go to slot.params[k.key], not global state.
-    // Closes over `slot` (live ref into state.colorRack) so writes hit the
-    // canonical store; renderFrame's resolveActivePipeline picks it up
-    // next frame.
     initKnob(knobEl, {
       writeValue:   (v) => { slot.params[k.key] = v; },
       initialValue: slot.params[k.key] ?? k.default,
@@ -1506,186 +1983,161 @@ function renderSlotPanel(slot) {
   return panel;
 }
 
-// ---- Picker popover open/close ----
-function openPicker(slotEl) {
-  const slotId = slotEl.dataset.slotId;
-  _openPickerSlotId = slotId;
-  // Position the popover beneath the slot, right-aligned to the slot's
-  // right edge so the picker doesn't overflow the sidebar. Falls back to
-  // above-the-slot if there isn't room below.
-  const r = slotEl.getBoundingClientRect();
-  colorPickerEl.classList.remove('hidden');
-  const pr = colorPickerEl.getBoundingClientRect();
-  let top  = r.bottom + 4;
-  let left = r.right - pr.width;
-  if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 4;
-  if (left < 8) left = 8;
-  colorPickerEl.style.top  = `${top}px`;
-  colorPickerEl.style.left = `${left}px`;
-  // Update aria-expanded on the matching chip
-  const chip = slotEl.querySelector('.color-rack-chip');
-  if (chip) chip.setAttribute('aria-expanded', 'true');
-}
-
-function closePicker() {
-  if (!_openPickerSlotId) return;
-  _openPickerSlotId = null;
-  colorPickerEl.classList.add('hidden');
-  // Reset all chips' aria-expanded (cheaper than tracking which one was open).
-  for (const chip of colorRackEl.querySelectorAll('.color-rack-chip')) {
-    chip.setAttribute('aria-expanded', 'false');
-  }
-}
-
-// ---- Slot mutation helpers ----
-function setSlotType(slotId, type) {
-  const slot = state.colorRack.find((s) => s.id === slotId);
+// ---- Slot mutation helpers (parallel to colorRack) ----
+function setFxSlotType(slotId, type) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
   if (!slot) return;
   if (type === 'none') {
     slot.type = 'none';
     slot.enabled = false;
     slot.params = {};
   } else {
-    // Even if the slot ALREADY held this type and we re-pick the same
-    // color, params reset to factory. The picker click is the user
-    // explicitly choosing the effect; "I want a fresh synth here" is
-    // the most natural reading. If they wanted to preserve params they
-    // wouldn't have opened the picker. Cheap to re-pick if surprising.
     slot.type = type;
     slot.enabled = true;
-    slot.params = makeFactoryParams(type);
+    slot.params = makeFxFactoryParams(type);
   }
-  // Collapse the slot when type changes — old expanded inline knob DOM
-  // is no longer valid for the new type.
-  _expandedSlots.delete(slotId);
-  renderColorRack();
-  refreshEffectCardVisibility();
+  // The slot's accumulated trails belong to the old effect — restart from
+  // black so the new pick doesn't inherit them.
+  resetFxFeedback(slotId);
+  _expandedFxSlots.delete(slotId);
+  renderFxRack();
   schedulePersist();
 }
-
-function toggleSlot(slotId) {
-  const slot = state.colorRack.find((s) => s.id === slotId);
+function toggleFxSlot(slotId) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
   if (!slot || slot.type === 'none') return;
   slot.enabled = !slot.enabled;
-  renderColorRack();
-  refreshEffectCardVisibility();
+  // Disable freezes rendering but the buffers hold the last trails; reset
+  // so re-enabling starts clean instead of ghosting frames from minutes ago.
+  if (!slot.enabled) resetFxFeedback(slotId);
+  renderFxRack();
   schedulePersist();
 }
-
-function clearSlot(slotId) {
-  const slot = state.colorRack.find((s) => s.id === slotId);
+function clearFxSlot(slotId) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
   if (!slot) return;
   slot.type = 'none';
   slot.enabled = false;
   slot.params = {};
-  _expandedSlots.delete(slotId);
-  renderColorRack();
-  refreshEffectCardVisibility();
+  resetFxFeedback(slotId);
+  _expandedFxSlots.delete(slotId);
+  renderFxRack();
   schedulePersist();
 }
-
-// Per-slot reset back to factory defaults for the slot's current effect
-// type. Bound to the small ⟲ button inside an expanded slot.
-function resetSlotParams(slotId) {
-  const slot = state.colorRack.find((s) => s.id === slotId);
+function resetFxSlotParams(slotId) {
+  const slot = state.fxRack.find((s) => s.id === slotId);
   if (!slot || slot.type === 'none') return;
-  slot.params = makeFactoryParams(slot.type);
-  renderColorRack();
+  slot.params = makeFxFactoryParams(slot.type);
+  renderFxRack();
   schedulePersist();
 }
-
-function reorderSlot(srcIdx, dstIdx) {
+function reorderFxSlot(srcIdx, dstIdx) {
   if (srcIdx === dstIdx) return;
-  const arr = state.colorRack.slice();
+  const arr = state.fxRack.slice();
   const [moved] = arr.splice(srcIdx, 1);
   arr.splice(dstIdx, 0, moved);
-  state.colorRack = arr;
-  renderColorRack();
-  refreshEffectCardVisibility();
+  state.fxRack = arr;
+  renderFxRack();
   schedulePersist();
 }
 
-// ---- Slot event delegation: chip click / toggle / remove / expand / reset ----
-colorRackEl?.addEventListener('click', (e) => {
+function openFxPicker(slotEl) {
+  const slotId = slotEl.dataset.slotId;
+  _openFxPickerSlotId = slotId;
+  const r = slotEl.getBoundingClientRect();
+  fxPickerEl.classList.remove('hidden');
+  const pr = fxPickerEl.getBoundingClientRect();
+  let top  = r.bottom + 4;
+  let left = r.right - pr.width;
+  if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 4;
+  if (left < 8) left = 8;
+  fxPickerEl.style.top  = `${top}px`;
+  fxPickerEl.style.left = `${left}px`;
+  const chip = slotEl.querySelector('.color-rack-chip');
+  if (chip) chip.setAttribute('aria-expanded', 'true');
+}
+function closeFxPicker() {
+  if (!_openFxPickerSlotId) return;
+  _openFxPickerSlotId = null;
+  fxPickerEl.classList.add('hidden');
+  for (const chip of fxRackEl.querySelectorAll('.color-rack-chip')) {
+    chip.setAttribute('aria-expanded', 'false');
+  }
+}
+
+fxRackEl?.addEventListener('click', (e) => {
   const slotEl = e.target.closest('.color-rack-slot');
   if (!slotEl) return;
   const action = e.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
   const slotId = slotEl.dataset.slotId;
   if (action === 'open-picker') {
-    if (_openPickerSlotId === slotId) { closePicker(); return; }
-    openPicker(slotEl);
+    if (_openFxPickerSlotId === slotId) { closeFxPicker(); return; }
+    openFxPicker(slotEl);
   } else if (action === 'toggle') {
-    toggleSlot(slotId);
+    toggleFxSlot(slotId);
   } else if (action === 'remove') {
-    clearSlot(slotId);
+    clearFxSlot(slotId);
   } else if (action === 'expand') {
-    if (_expandedSlots.has(slotId)) _expandedSlots.delete(slotId);
-    else                            _expandedSlots.add(slotId);
-    renderColorRack();
+    if (_expandedFxSlots.has(slotId)) _expandedFxSlots.delete(slotId);
+    else                              _expandedFxSlots.add(slotId);
+    renderFxRack();
   } else if (action === 'reset-params') {
-    resetSlotParams(slotId);
+    resetFxSlotParams(slotId);
   }
 });
 
-// ---- Picker click → set slot type ----
-colorPickerEl?.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-pick-color]');
-  if (!btn || !_openPickerSlotId) return;
-  setSlotType(_openPickerSlotId, btn.dataset.pickColor);
-  closePicker();
+fxPickerEl?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-pick-fx]');
+  if (!btn || !_openFxPickerSlotId) return;
+  setFxSlotType(_openFxPickerSlotId, btn.dataset.pickFx);
+  closeFxPicker();
 });
 
-// ---- Outside click / Esc to close picker ----
 document.addEventListener('mousedown', (e) => {
-  if (!_openPickerSlotId) return;
-  if (colorPickerEl.contains(e.target)) return;
-  if (e.target.closest(`.color-rack-slot[data-slot-id="${_openPickerSlotId}"]`)) return;
-  closePicker();
+  if (!_openFxPickerSlotId) return;
+  if (fxPickerEl.contains(e.target)) return;
+  if (e.target.closest(`#fx-rack .color-rack-slot[data-slot-id="${_openFxPickerSlotId}"]`)) return;
+  closeFxPicker();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && _openPickerSlotId) closePicker();
+  if (e.key === 'Escape' && _openFxPickerSlotId) closeFxPicker();
 });
 
-// ---- Drag-and-drop reorder ----
-// HTML5 native drag. setData payload is the source slot index (the
-// data-slotIdx attr written during render). dragover allows drop;
-// dragenter/dragleave manage the .drop-target class. Only ONE slot at
-// a time can carry .drop-target.
-let _dragSrcIdx = null;
-colorRackEl?.addEventListener('dragstart', (e) => {
+// Independent drag-state for the fx rack so a drag here doesn't confuse
+// the colorRack / trackFx drag-state and vice versa.
+let _fxDragSrcIdx = null;
+fxRackEl?.addEventListener('dragstart', (e) => {
   const slotEl = e.target.closest('.color-rack-slot');
   if (!slotEl) { e.preventDefault(); return; }
-  _dragSrcIdx = parseInt(slotEl.dataset.slotIdx, 10);
+  _fxDragSrcIdx = parseInt(slotEl.dataset.slotIdx, 10);
   slotEl.classList.add('dragging');
-  // Required so Firefox emits dragend
-  e.dataTransfer.setData('text/plain', String(_dragSrcIdx));
+  e.dataTransfer.setData('text/plain', String(_fxDragSrcIdx));
   e.dataTransfer.effectAllowed = 'move';
 });
-colorRackEl?.addEventListener('dragend', () => {
-  _dragSrcIdx = null;
-  for (const el of colorRackEl.querySelectorAll('.color-rack-slot')) {
+fxRackEl?.addEventListener('dragend', () => {
+  _fxDragSrcIdx = null;
+  for (const el of fxRackEl.querySelectorAll('.color-rack-slot')) {
     el.classList.remove('dragging', 'drop-target');
   }
 });
-colorRackEl?.addEventListener('dragover', (e) => {
-  if (_dragSrcIdx === null) return;
+fxRackEl?.addEventListener('dragover', (e) => {
+  if (_fxDragSrcIdx === null) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   const slotEl = e.target.closest('.color-rack-slot');
-  // Highlight only the slot being hovered as the drop target.
-  for (const el of colorRackEl.querySelectorAll('.color-rack-slot')) {
+  for (const el of fxRackEl.querySelectorAll('.color-rack-slot')) {
     el.classList.toggle('drop-target', el === slotEl && el !== e.currentTarget.querySelector('.dragging'));
   }
 });
-colorRackEl?.addEventListener('drop', (e) => {
-  if (_dragSrcIdx === null) return;
+fxRackEl?.addEventListener('drop', (e) => {
+  if (_fxDragSrcIdx === null) return;
   e.preventDefault();
   const slotEl = e.target.closest('.color-rack-slot');
   if (!slotEl) return;
   const dstIdx = parseInt(slotEl.dataset.slotIdx, 10);
-  reorderSlot(_dragSrcIdx, dstIdx);
-  _dragSrcIdx = null;
+  reorderFxSlot(_fxDragSrcIdx, dstIdx);
+  _fxDragSrcIdx = null;
 });
 
 // ============================================================
@@ -2037,13 +2489,17 @@ function applyStateToUI() {
       setToggleGroupValue(groupId, state[key]);
       if (onChange) onChange(state[key]);
     }
-    video.playbackRate = state.speed;
+    video.playbackRate = 1;
     document.body.setAttribute('data-mode', state.mode);
-    // Color rack + track FX rack are custom widgets (not toggle groups),
+    // COLOR stage + FX/track racks are custom widgets (not toggle groups),
     // so they have to render themselves rather than ride the TOGGLE_CONFIG
-    // loop. Both run inside the _applyingState guard so any future side
-    // effects on render don't double-fire during state restore.
-    renderColorRack();
+    // loop. All run inside the _applyingState guard so any future side
+    // effects on render don't double-fire during state restore. The COLOR
+    // tab is derived from the loaded selection so the active effect's tab
+    // is the one showing.
+    setColorTab(colorTabForSelection(state.color));
+    renderColorPanel();
+    renderFxRack();
     renderTrackFxRack();
   } finally {
     _applyingState = false;
@@ -2099,23 +2555,16 @@ function loadPersistedState() {
     // used it after P2b. Drop on load so the field doesn't pile up in
     // saved state forever.
     delete parsed.lastPicked;
-    // Color-rack migration (post-P2b): the single `color` field becomes a
-    // 3-slot rack. The previously-selected color (if any) lands in slot 0,
-    // enabled. Other slots empty. Subsequent saves use colorRack only.
-    if ('color' in parsed && !('colorRack' in parsed)) {
-      const c = parsed.color;
-      const rack = makeColorRack();
-      if (c && c !== 'none' && COLOR_SECTIONS.includes(c)) {
-        rack[0] = { id: makeSlotId(), type: c, enabled: true, params: makeFactoryParams(c) };
-      }
-      parsed.colorRack = rack;
+    // v8 migration: collapse a legacy colorRack (v5-v7) into the single
+    // color stage. First enabled slot wins; its params seed colorParams.
+    // Pre-P2b saves whose `color` came from the `filter` migration above
+    // pass straight through — `color` is the real field again.
+    Object.assign(parsed, migrateColorRack(parsed));
+    delete parsed.colorRack;
+    if (parsed.color !== undefined && parsed.color !== 'none' && !COLOR_SECTIONS.includes(parsed.color)) {
       delete parsed.color;
     }
-    // Defensive shape check: if a persisted colorRack is malformed (wrong
-    // length, missing fields, unknown types) replace with a fresh rack
-    // rather than crash on render. Cheap insurance against forward-compat
-    // accidents.
-    if (parsed.colorRack) parsed.colorRack = sanitizeColorRack(parsed.colorRack);
+    parsed.colorParams = sanitizeColorParams(parsed.colorParams);
     // Strip dead global color knob state from older saves. These keys
     // used to live on `state` (state.synthMode, state.oxideCorr, ...)
     // and were read directly by runEffect. They no longer matter — slot
@@ -2135,9 +2584,13 @@ function loadPersistedState() {
     // types. STORAGE_KEY bumped to v3 so first-load-after-this-commit
     // sees no parsed.trackFxRack and uses the fresh rack from state init.
     if (parsed.trackFxRack) parsed.trackFxRack = sanitizeTrackFxRack(parsed.trackFxRack);
+    // FX rack — same defensive migration. v6-and-earlier saves have no
+    // fxRack at all; state init's fresh makeFxRack() stands in that case.
+    if (parsed.fxRack) parsed.fxRack = sanitizeFxRack(parsed.fxRack);
     if (parsed.timelineSegments) parsed.timelineSegments = sanitizeTimelineSegments(parsed.timelineSegments);
     for (const k of Object.keys(DEFAULTS)) if (k in parsed) state[k] = parsed[k];
-    if (parsed.colorRack)    state.colorRack    = parsed.colorRack;
+    if (parsed.colorParams)  state.colorParams  = parsed.colorParams;
+    if (parsed.fxRack)       state.fxRack       = parsed.fxRack;
     if (parsed.trackFxRack)  state.trackFxRack  = parsed.trackFxRack;
     if (Array.isArray(parsed.timelineSegments)) state.timelineSegments = parsed.timelineSegments;
     state.selectedTimelineSegmentId = parsed.selectedTimelineSegmentId || null;
@@ -2151,10 +2604,12 @@ function loadPersistedState() {
 let resetConfirmTimer = 0;
 function performFullReset() {
   for (const k of Object.keys(DEFAULTS)) state[k] = DEFAULTS[k];
-  // colorRack + trackFxRack live outside DEFAULTS (per-instance ids);
-  // reset explicitly so each session has fresh slot ids and factory params.
-  state.colorRack   = makeColorRack();
+  // colorParams + fxRack + trackFxRack live outside DEFAULTS (object-valued
+  // / per-instance ids); reset explicitly so each session starts factory.
+  state.colorParams = {};
+  state.fxRack      = makeFxRack();
   state.trackFxRack = makeTrackFxRack();
+  resetFxFeedback();
   state.timelineSegments = [];
   state.selectedTimelineSegmentId = null;
   applyStateToUI();
@@ -2479,6 +2934,11 @@ document.addEventListener('keydown', (e) => {
   if ((tag === 'input' && !activeParamControl) || tag === 'textarea') return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+  if (e.key === ' ' && tag !== 'button') {
+    e.preventDefault();
+    if (video.paused) { video.play().catch(() => {}); } else { video.pause(); }
+    return;
+  }
   if (e.key === 'Escape' && introOverlay && !introOverlay.classList.contains('hidden')) {
     dismissIntro(); e.preventDefault(); return;
   }
@@ -2535,7 +2995,6 @@ document.getElementById('btn-camera').addEventListener('click', async () => {
     resetAllState();
     state.sourceKind = 'webcam';
     setHasSource(true, 'Camera');
-    videoControls.classList.add('hidden');     // no scrub for camera
     renderTimelinePanel();
     showToast('Camera active', 'ok', 2000);
   } catch (err) {
@@ -2549,19 +3008,23 @@ document.getElementById('btn-camera').addEventListener('click', async () => {
 // instead of touching `video` directly so adding new source kinds (e.g. the
 // Subject loop) stays a single-call-site change.
 function activeSourceEl() {
+  if (state.sourceKind === 'shader') return getShaderSourceCanvas();
   return state.sourceKind === 'image' ? imageEl : video;
 }
 function activeSourceWidth() {
+  if (state.sourceKind === 'shader') return getShaderSourceCanvas()?.width || 0;
   return state.sourceKind === 'image'
     ? (imageEl.naturalWidth || 0)
     : (video.videoWidth || 0);
 }
 function activeSourceHeight() {
+  if (state.sourceKind === 'shader') return getShaderSourceCanvas()?.height || 0;
   return state.sourceKind === 'image'
     ? (imageEl.naturalHeight || 0)
     : (video.videoHeight || 0);
 }
 function activeSourceReady() {
+  if (state.sourceKind === 'shader') return !!getShaderSourceCanvas()?.width;
   if (state.sourceKind === 'image') {
     return imageEl.complete && imageEl.naturalWidth > 0;
   }
@@ -2570,7 +3033,9 @@ function activeSourceReady() {
 // For images we treat the source as "always paused" — there's no temporal
 // dimension. The detection block guards on this so motion-mode doesn't
 // thrash on a constant frame, and so cachedBlobs stay stable on stills.
+// Shader sources are the opposite: always animating, never paused.
 function activeSourcePaused() {
+  if (state.sourceKind === 'shader') return false;
   if (state.sourceKind === 'image') return true;
   return video.paused;
 }
@@ -2586,7 +3051,6 @@ function loadVideoSource(url, label) {
   resetAllState();
   state.sourceKind = 'video';
   setHasSource(true, label || 'Video');
-  videoControls.classList.remove('hidden');    // scrub available for files
   renderTimelinePanel();
 }
 
@@ -2606,7 +3070,6 @@ function loadImageSource(url, label) {
     resetAllState();
     state.sourceKind = 'image';
     setHasSource(true, label || 'Image');
-    videoControls.classList.add('hidden');     // no transport for stills
     renderTimelinePanel();
     resizeCanvas();
   };
@@ -2616,11 +3079,120 @@ function loadImageSource(url, label) {
   imageEl.src = url;
 }
 
+// ---- Shader sources (generative GLSL library) ----
+state.shaderSlug = null;
+state.shaderRes = 'landscape';
+
+function loadShaderSource(slug) {
+  const def = SHADER_SOURCES.find((s) => s.slug === slug);
+  if (!def) return;
+  const res = SHADER_RES[state.shaderRes] || SHADER_RES.landscape;
+  if (!setShaderSource(slug, res.w, res.h)) {
+    showToast('Shader source failed to compile', 'error');
+    return;
+  }
+  // tear down any active webcam / video
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  try { video.pause(); } catch (_) {}
+  video.removeAttribute('src');
+  try { video.load(); } catch (_) {}
+  resetAllState();
+  state.sourceKind = 'shader';
+  state.shaderSlug = slug;
+  setHasSource(true, def.label);
+  renderTimelinePanel();
+  resizeCanvas();
+  renderShaderSourcePicker();
+}
+
+function renderShaderSourcePicker() {
+  const group = document.getElementById('shader-source-group');
+  if (!group) return;
+  group.innerHTML = '';
+  for (const def of SHADER_SOURCES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toggle-btn';
+    btn.setAttribute('role', 'radio');
+    const active = state.sourceKind === 'shader' && state.shaderSlug === def.slug;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    btn.dataset.value = def.slug;
+    btn.dataset.tip = def.tip;
+    btn.style.background = def.gradient;
+    const span = document.createElement('span');
+    span.textContent = def.label;
+    btn.appendChild(span);
+    btn.addEventListener('click', () => loadShaderSource(def.slug));
+    group.appendChild(btn);
+  }
+  renderShaderKnobs();
+}
+
+// Per-shader knob panel in the Source section. Slot-knob pattern (writeValue
+// → shaderSource param store, NOT global look state): knob values live
+// per-slug in shaderSource.js for the session and are not part of saved
+// looks, same as shaderSlug/shaderRes themselves.
+function renderShaderKnobs() {
+  const grid = document.getElementById('shader-knob-grid');
+  const lbl = document.getElementById('lbl-shader-knobs');
+  if (!grid) return;
+  const def = state.sourceKind === 'shader' && state.shaderSlug
+    ? SHADER_SOURCES.find((s) => s.slug === state.shaderSlug)
+    : null;
+  const knobs = def?.knobs || [];
+  grid.innerHTML = '';
+  const show = knobs.length > 0;
+  grid.classList.toggle('hidden', !show);
+  if (lbl) lbl.classList.toggle('hidden', !show);
+  if (!show) return;
+  const params = getShaderSourceParams(def.slug);
+  for (const k of knobs) {
+    const knobId = `shader-knob-${k.key}`;
+    const el = document.createElement('div');
+    el.className = 'knob slot-knob';
+    el.id = knobId;
+    el.dataset.knob = '';
+    el.dataset.min     = String(k.min);
+    el.dataset.max     = String(k.max);
+    el.dataset.step    = String(k.step);
+    el.dataset.default = String(k.default);
+    el.dataset.tip     = k.tip;
+    el.tabIndex = 0;
+    el.setAttribute('aria-label', `${def.label} ${k.label}`);
+    const labelEl = document.createElement('span');
+    labelEl.className = 'knob-label';
+    labelEl.textContent = k.label;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'knob-val';
+    valSpan.id = `${knobId}-val`;
+    valSpan.textContent = String(params[k.key] ?? k.default);
+    el.appendChild(labelEl);
+    el.appendChild(valSpan);
+    grid.appendChild(el);
+    initKnob(el, {
+      writeValue:   (v) => setShaderSourceParam(k.key, v),
+      initialValue: params[k.key] ?? k.default,
+    });
+  }
+}
+renderShaderSourcePicker();
+
+wireToggleGroup('shader-res-group', 'shaderRes', String, () => {
+  // re-render at the new resolution if a shader source is live
+  if (state.sourceKind === 'shader' && state.shaderSlug) loadShaderSource(state.shaderSlug);
+});
+
 function resetAllState() {
   resetFrameHistory(); resetTracker(); resetTrackOverlay();
+  // FX feedback trails belong to the old source / timeline segment — a new
+  // one starts from black, same as every other temporal cache here.
+  resetFxFeedback();
+  resetMotionHistory();
   cachedBlobs = []; frameCount = 0;
-  _pendingTimelineStart = null;
-  _timelineCursorPinnedTime = null;
   _lastResolvedTimelineSegmentId = null;
   _lastResolvedTimelineRuntimeSig = '';
   // Smoothing state — both backends — gets purged so the next source
@@ -2656,15 +3228,15 @@ function setHasSource(val, label) {
     updateSourceLabel('No source loaded');
     renderTimelinePanel();
   }
+  // keep the shader-library picker's active state in sync across all
+  // source kinds (clears when a video/camera/image takes over)
+  renderShaderSourcePicker();
 }
 
 // ---- Timeline segments (video-only hard cuts) ----
 let _lastResolvedTimelineSegmentId = null;
 let _lastResolvedTimelineRuntimeSig = '';
 let _timelineApplyingLook = false;
-let _pendingTimelineStart = null;
-let _timelineCursorEl = null;
-let _timelineCursorPinnedTime = null;
 
 function timelineAvailable() {
   return state.sourceKind === 'video' && Number.isFinite(video.duration) && video.duration > 0;
@@ -2717,21 +3289,9 @@ function findTimelineGap(preferredStart = 0, desiredLength = 2) {
 }
 
 function setTimelineDisabled(disabled) {
-  for (const el of [timelineMarkStart, timelineMarkEnd, timelineAdd, timelineDuplicate, timelineDelete, timelineCapture, timelineStart, timelineEnd]) {
+  for (const el of [timelineAdd, timelineDuplicate, timelineDelete, timelineCapture]) {
     if (el) el.disabled = !!disabled;
   }
-}
-
-function ensureTimelineCursor() {
-  if (!_timelineCursorEl) {
-    _timelineCursorEl = document.createElement('div');
-    _timelineCursorEl.className = 'timeline-cursor mode-start hidden';
-    _timelineCursorEl.innerHTML = '<span class="timeline-cursor-label">0.0s</span>';
-  }
-  if (timelineTrack && _timelineCursorEl.parentElement !== timelineTrack) {
-    timelineTrack.appendChild(_timelineCursorEl);
-  }
-  return _timelineCursorEl;
 }
 
 function timelineTimeFromEvent(e) {
@@ -2741,24 +3301,10 @@ function timelineTimeFromEvent(e) {
   return pct * video.duration;
 }
 
-function updateTimelineCursor(time, { pinned = _timelineCursorPinnedTime !== null } = {}) {
-  if (!timelineAvailable()) return;
-  const cursor = ensureTimelineCursor();
-  const pct = clamp(time / video.duration, 0, 1) * 100;
-  const mode = _pendingTimelineStart === null ? 'start' : 'end';
-  cursor.classList.remove('hidden', 'mode-start', 'mode-end', 'is-pinned');
-  cursor.classList.add(`mode-${mode}`);
-  cursor.classList.toggle('is-pinned', pinned);
-  cursor.style.left = `${pct}%`;
-  const label = cursor.querySelector('.timeline-cursor-label');
-  if (label) label.textContent = `${mode.toUpperCase()} ${formatTimePrecise(time)}s`;
-}
-
 function updateTimelinePlayhead(time = video.currentTime, activeId = _lastResolvedTimelineSegmentId) {
   if (!timelinePanel || !timelineTrack || !timelinePlayhead) return;
   if (!timelineAvailable()) {
     timelinePlayhead.style.left = '0%';
-    if (_timelineCursorEl) _timelineCursorEl.classList.add('hidden');
     return;
   }
   const pct = clamp(time / video.duration, 0, 1) * 100;
@@ -2777,14 +3323,6 @@ function renderTimelinePanel() {
 
   if (!available) {
     setTimelineDisabled(true);
-    if (timelineStatus) timelineStatus.textContent = state.sourceKind === 'video' ? 'Load video metadata to edit timeline.' : 'Timeline supports uploaded video files only.';
-    if (timelineWorking) timelineWorking.textContent = 'No segment selected';
-    if (timelineStart) timelineStart.value = '';
-    if (timelineEnd) timelineEnd.value = '';
-    if (timelineDetails) {
-      timelineDetails.classList.add('hidden');
-      timelineDetails.textContent = '';
-    }
     return;
   }
 
@@ -2798,60 +3336,103 @@ function renderTimelinePanel() {
     btn.className = 'timeline-segment';
     btn.dataset.segmentId = seg.id;
     btn.classList.toggle('is-selected', seg.id === state.selectedTimelineSegmentId);
-    btn.classList.toggle('is-expanded', seg.id === state.selectedTimelineSegmentId);
     btn.style.left = `${(seg.start / duration) * 100}%`;
     btn.style.width = `${Math.max(0.5, ((seg.end - seg.start) / duration) * 100)}%`;
-    btn.textContent = `${formatTime(seg.start)}-${formatTime(seg.end)}`;
-    btn.dataset.tip = `${seg.name}: ${formatTimePrecise(seg.start)}s to ${formatTimePrecise(seg.end)}s`;
-    btn.addEventListener('click', () => selectTimelineSegment(seg.id));
+    btn.dataset.tip = `${seg.name} · ${formatTimePrecise(seg.start)}–${formatTimePrecise(seg.end)}s. Drag to move; drag edges to retime.`;
+
+    const segLabel = document.createElement('span');
+    segLabel.className = 'timeline-segment-label';
+    segLabel.textContent = `${formatTime(seg.start)}-${formatTime(seg.end)}`;
+    btn.appendChild(segLabel);
+
+    // Click = select; drag the body = move the whole segment between its
+    // neighbors. A 3px movement threshold separates the two gestures.
+    let dragged = false;
+    btn.addEventListener('click', () => { if (!dragged) selectTimelineSegment(seg.id); });
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.timeline-resize-handle')) return;
+      e.preventDefault();
+      btn.setPointerCapture(e.pointerId);
+      dragged = false;
+      const sorted = sortedTimelineSegments();
+      const idx = sorted.findIndex((s) => s.id === seg.id);
+      const prevSeg = sorted[idx - 1] ?? null;
+      const nextSeg = sorted[idx + 1] ?? null;
+      const trackRect = timelineTrack.getBoundingClientRect();
+      const len = seg.end - seg.start;
+      const startX = e.clientX;
+      const startT = seg.start;
+      const onMove = (me) => {
+        if (!dragged && Math.abs(me.clientX - startX) < 3) return;
+        dragged = true;
+        btn.classList.add('is-dragging');
+        const dt = ((me.clientX - startX) / trackRect.width) * duration;
+        const minStart = prevSeg ? prevSeg.end : 0;
+        const maxStart = (nextSeg ? nextSeg.start : duration) - len;
+        seg.start = clamp(startT + dt, minStart, Math.max(minStart, maxStart));
+        seg.end = seg.start + len;
+        btn.style.left = `${(seg.start / duration) * 100}%`;
+        segLabel.textContent = `${formatTime(seg.start)}-${formatTime(seg.end)}`;
+      };
+      const onUp = () => {
+        btn.removeEventListener('pointermove', onMove);
+        btn.removeEventListener('pointerup', onUp);
+        btn.classList.remove('is-dragging');
+        if (dragged) {
+          renderTimelinePanel();
+          saveState();
+        }
+      };
+      btn.addEventListener('pointermove', onMove);
+      btn.addEventListener('pointerup', onUp);
+    });
+
+    const makeResizeHandle = (side) => {
+      const handle = document.createElement('span');
+      handle.className = `timeline-resize-handle${side === 'left' ? ' timeline-resize-handle--left' : ''}`;
+      handle.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        handle.setPointerCapture(e.pointerId);
+        const sorted = sortedTimelineSegments();
+        const idx = sorted.findIndex((s) => s.id === seg.id);
+        const prevSeg = sorted[idx - 1] ?? null;
+        const nextSeg = sorted[idx + 1] ?? null;
+        const trackRect = timelineTrack.getBoundingClientRect();
+        const onMove = (me) => {
+          const t = ((me.clientX - trackRect.left) / trackRect.width) * duration;
+          if (side === 'left') {
+            const minStart = prevSeg ? prevSeg.end : 0;
+            seg.start = Math.max(minStart, Math.min(seg.end - 0.05, t));
+            btn.style.left = `${(seg.start / duration) * 100}%`;
+            btn.style.width = `${Math.max(0.5, ((seg.end - seg.start) / duration) * 100)}%`;
+          } else {
+            const maxEnd = nextSeg ? nextSeg.start : duration;
+            seg.end = Math.max(seg.start + 0.05, Math.min(maxEnd, t));
+            btn.style.width = `${Math.max(0.5, ((seg.end - seg.start) / duration) * 100)}%`;
+          }
+          segLabel.textContent = `${formatTime(seg.start)}-${formatTime(seg.end)}`;
+        };
+        const onUp = () => {
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          renderTimelinePanel();
+          saveState();
+        };
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+      });
+      return handle;
+    };
+    btn.appendChild(makeResizeHandle('left'));
+    btn.appendChild(makeResizeHandle('right'));
     timelineTrack.appendChild(btn);
   }
   timelineTrack.appendChild(timelinePlayhead);
-  ensureTimelineCursor();
-  if (_timelineCursorPinnedTime !== null) {
-    updateTimelineCursor(_timelineCursorPinnedTime, { pinned: true });
-  } else if (_timelineCursorEl) {
-    _timelineCursorEl.classList.add('hidden');
-  }
 
-  if (timelineStart) timelineStart.value = selected ? formatTimePrecise(selected.start) : '';
-  if (timelineEnd) timelineEnd.value = selected ? formatTimePrecise(selected.end) : '';
-  if (timelineWorking) {
-    timelineWorking.textContent = selected
-      ? `Working on ${selected.name} · ${formatTimePrecise(selected.start)}-${formatTimePrecise(selected.end)}s`
-      : _pendingTimelineStart !== null
-        ? `Start marked at ${formatTimePrecise(_pendingTimelineStart)}s`
-        : 'No segment selected';
-  }
-  if (timelineDetails) {
-    if (selected) {
-      const activeColors = selected.look.colorRack.filter((s) => s.enabled && s.type !== 'none').map((s) => RACK_LABEL[s.type] || s.type);
-      const activeTrackFx = selected.look.trackFxRack.filter((s) => s.enabled && s.type !== 'none').map((s) => TRACK_FX_LABEL[s.type] || s.type);
-      timelineDetails.classList.remove('hidden');
-      timelineDetails.textContent = [
-        `${selected.name} expanded`,
-        `Structure: ${selected.look.structure}`,
-        `Color: ${activeColors.length ? activeColors.join(' > ') : 'none'}`,
-        `Track FX: ${activeTrackFx.length ? activeTrackFx.join(' > ') : 'none'}`,
-      ].join(' · ');
-    } else {
-      timelineDetails.classList.add('hidden');
-      timelineDetails.textContent = '';
-    }
-  }
   if (timelineDuplicate) timelineDuplicate.disabled = recording || !selected;
   if (timelineDelete) timelineDelete.disabled = recording || !selected;
   if (timelineCapture) timelineCapture.disabled = recording || !selected;
-  if (timelineMarkEnd) timelineMarkEnd.disabled = recording || _pendingTimelineStart === null;
-  if (timelineStatus) {
-    timelineStatus.textContent = recording
-      ? 'Timeline locked while recording.'
-      : selected
-        ? `${selected.name} selected. Edits in the sidebar update this segment.`
-        : _pendingTimelineStart !== null
-          ? 'Scrub to the segment end, then click End.'
-        : `${state.timelineSegments.length} segment${state.timelineSegments.length === 1 ? '' : 's'}. Select one to edit.`;
-  }
   updateTimelinePlayhead();
 }
 
@@ -2884,59 +3465,19 @@ function addTimelineSegment() {
     showToast('Stop recording before editing the timeline', 'error');
     return;
   }
-  const gap = findTimelineGap(video.currentTime, Math.min(2, video.duration));
-  if (!gap) {
-    showToast('No empty timeline range available', 'error');
-    return;
-  }
-  const seg = makeTimelineSegment(gap.start, gap.end);
-  state.timelineSegments.push(seg);
-  sortTimelineInPlace();
-  selectTimelineSegment(seg.id, { applyLook: false });
-}
-
-function markTimelineStart() {
-  if (!timelineAvailable()) {
-    showToast('Load an uploaded video before marking a timeline segment', 'error');
-    return;
-  }
-  if (_recorder) {
-    showToast('Stop recording before editing the timeline', 'error');
-    return;
-  }
-  _pendingTimelineStart = clamp(_timelineCursorPinnedTime ?? video.currentTime ?? 0, 0, video.duration);
-  _timelineCursorPinnedTime = _pendingTimelineStart;
-  state.selectedTimelineSegmentId = null;
-  video.currentTime = _pendingTimelineStart;
-  updateTimelineCursor(_timelineCursorPinnedTime, { pinned: true });
-  renderTimelinePanel();
-  showToast(`Segment start marked at ${formatTimePrecise(_pendingTimelineStart)}s`, 'ok', 1500);
-}
-
-function markTimelineEnd() {
-  if (!timelineAvailable() || _pendingTimelineStart === null) return;
-  if (_recorder) {
-    showToast('Stop recording before editing the timeline', 'error');
-    return;
-  }
-  const rawEnd = clamp(_timelineCursorPinnedTime ?? video.currentTime ?? 0, 0, video.duration);
-  const start = Math.min(_pendingTimelineStart, rawEnd);
-  const end = Math.max(_pendingTimelineStart, rawEnd);
+  const t = clamp(video.currentTime ?? 0, 0, video.duration);
+  const start = t;
+  const end = Math.min(t + 1, video.duration);
   if (end - start < TIMELINE_MIN_SEGMENT_SECONDS) {
-    showToast('Timeline segment is too short', 'error');
-    renderTimelinePanel();
+    showToast('Not enough room — scrub earlier in the video', 'error');
     return;
   }
   if (segmentOverlaps(start, end)) {
-    showToast('Timeline segments cannot overlap', 'error');
-    renderTimelinePanel();
+    showToast('Overlaps an existing segment — scrub to an empty area', 'error');
     return;
   }
   const seg = makeTimelineSegment(start, end);
   state.timelineSegments.push(seg);
-  _pendingTimelineStart = null;
-  _timelineCursorPinnedTime = rawEnd;
-  video.currentTime = rawEnd;
   sortTimelineInPlace();
   selectTimelineSegment(seg.id, { applyLook: false });
 }
@@ -2983,73 +3524,34 @@ function captureSelectedTimelineLook() {
   showToast('Timeline segment updated from current look', 'ok', 1800);
 }
 
-function updateSelectedTimelineRange() {
-  const selected = selectedTimelineSegment();
-  if (!selected || !timelineAvailable()) return;
-  if (_recorder) {
-    showToast('Stop recording before editing the timeline', 'error');
-    renderTimelinePanel();
-    return;
-  }
-  const start = Number.parseFloat(timelineStart.value);
-  const end = Number.parseFloat(timelineEnd.value);
-  if (!Number.isFinite(start) || !Number.isFinite(end)) {
-    showToast('Timeline range needs numeric seconds', 'error');
-    renderTimelinePanel();
-    return;
-  }
-  const nextStart = clamp(start, 0, video.duration);
-  const nextEnd = clamp(end, 0, video.duration);
-  if (nextEnd - nextStart < TIMELINE_MIN_SEGMENT_SECONDS) {
-    showToast('Timeline segment is too short', 'error');
-    renderTimelinePanel();
-    return;
-  }
-  if (segmentOverlaps(nextStart, nextEnd, selected.id)) {
-    showToast('Timeline segments cannot overlap', 'error');
-    renderTimelinePanel();
-    return;
-  }
-  selected.start = nextStart;
-  selected.end = nextEnd;
-  sortTimelineInPlace();
-  renderTimelinePanel();
-  schedulePersist();
-}
-
 timelineAdd?.addEventListener('click', addTimelineSegment);
-timelineMarkStart?.addEventListener('click', markTimelineStart);
-timelineMarkEnd?.addEventListener('click', markTimelineEnd);
 timelineDuplicate?.addEventListener('click', duplicateTimelineSegment);
 timelineDelete?.addEventListener('click', deleteTimelineSegment);
 timelineCapture?.addEventListener('click', captureSelectedTimelineLook);
-timelineStart?.addEventListener('change', updateSelectedTimelineRange);
-timelineEnd?.addEventListener('change', updateSelectedTimelineRange);
-timelineTrack?.addEventListener('pointermove', (e) => {
+
+// The track doubles as the scrubber: pointer down on empty track seeks, and
+// keeping the pointer down keeps scrubbing. Segments swallow their own
+// pointerdown so drag-to-move and drag-to-resize win over scrubbing.
+timelineTrack?.addEventListener('pointerdown', (e) => {
   if (!timelineAvailable() || _recorder) return;
-  updateTimelineCursor(timelineTimeFromEvent(e), { pinned: false });
+  if (e.target.closest('.timeline-segment')) return;
+  e.preventDefault();
+  timelineTrack.setPointerCapture(e.pointerId);
+  const seek = (ev) => {
+    const t = timelineTimeFromEvent(ev);
+    video.currentTime = t;
+    if (videoTime) videoTime.textContent = `${formatTime(t)} / ${formatTime(video.duration)}`;
+    updateTimelinePlayhead(t, findTimelineSegmentAt(t)?.id || null);
+  };
+  seek(e);
+  const onMove = (ev) => seek(ev);
+  const onUp = () => {
+    timelineTrack.removeEventListener('pointermove', onMove);
+    timelineTrack.removeEventListener('pointerup', onUp);
+  };
+  timelineTrack.addEventListener('pointermove', onMove);
+  timelineTrack.addEventListener('pointerup', onUp);
 });
-timelineTrack?.addEventListener('pointerleave', () => {
-  if (_timelineCursorPinnedTime === null && _timelineCursorEl) {
-    _timelineCursorEl.classList.add('hidden');
-  }
-});
-timelinePanel?.addEventListener('click', (e) => {
-  if (!timelineAvailable() || _recorder) return;
-  const segmentBtn = e.target.closest('.timeline-segment');
-  if (segmentBtn) return;
-  const rect = timelineTrack?.getBoundingClientRect();
-  if (!rect || e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
-  const t = timelineTimeFromEvent(e);
-  _timelineCursorPinnedTime = t;
-  video.currentTime = t;
-  if (videoScrub && Number.isFinite(video.duration) && video.duration > 0) {
-    videoScrub.value = String(Math.round((t / video.duration) * 1000));
-  }
-  if (videoTime) videoTime.textContent = `${formatTime(t)} / ${formatTime(video.duration)}`;
-  updateTimelineCursor(t, { pinned: true });
-  updateTimelinePlayhead(t, findTimelineSegmentAt(t)?.id || null);
-}, true);
 
 video.addEventListener('loadedmetadata', () => {
   resizeCanvas();
@@ -3092,21 +3594,7 @@ canvasArea.addEventListener('drop', (e) => {
   loadFileAsSource(file);
 });
 
-// ---- Video playback controls (hover-only, idle-hide) ----
-let controlsIdleTimer = 0;
-function showControls() {
-  if (videoControls.classList.contains('hidden')) return;     // camera mode
-  videoControls.classList.add('visible');
-  clearTimeout(controlsIdleTimer);
-  controlsIdleTimer = setTimeout(() => videoControls.classList.remove('visible'), 2000);
-}
-canvasArea.addEventListener('pointermove', showControls);
-canvasArea.addEventListener('pointerleave', () => {
-  clearTimeout(controlsIdleTimer);
-  videoControls.classList.remove('visible');
-});
-videoControls.addEventListener('pointerenter', () => clearTimeout(controlsIdleTimer));
-
+// ---- Video playback controls (live in the timeline bar) ----
 btnPlay.addEventListener('click', () => {
   if (video.paused) { video.play().catch(() => {}); }
   else { video.pause(); }
@@ -3114,21 +3602,8 @@ btnPlay.addEventListener('click', () => {
 video.addEventListener('play',  () => { btnPlay.textContent = '❚❚'; btnPlay.setAttribute('aria-label', 'Pause'); });
 video.addEventListener('pause', () => { btnPlay.textContent = '▶';  btnPlay.setAttribute('aria-label', 'Play'); });
 
-let scrubbing = false;
-videoScrub.addEventListener('input', () => {
-  scrubbing = true;
-  if (!isFinite(video.duration)) return;
-  const t = (parseFloat(videoScrub.value) / 1000) * video.duration;
-  video.currentTime = t;
-  videoTime.textContent = `${formatTime(t)} / ${formatTime(video.duration)}`;
-  updateTimelinePlayhead(t, findTimelineSegmentAt(t)?.id || null);
-});
-videoScrub.addEventListener('change', () => { scrubbing = false; });
-
 video.addEventListener('timeupdate', () => {
-  if (scrubbing || !isFinite(video.duration) || video.duration === 0) return;
-  const pct = video.currentTime / video.duration;
-  videoScrub.value = String(Math.round(pct * 1000));
+  if (!isFinite(video.duration) || video.duration === 0) return;
   videoTime.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
   updateTimelinePlayhead(video.currentTime, findTimelineSegmentAt(video.currentTime)?.id || null);
 });
@@ -3421,6 +3896,7 @@ function renderFrame(nowDOMHi) {
 
   const cw = canvas.width;
   const ch = canvas.height;
+  if (state.sourceKind === 'shader') renderShaderSourceFrame();
   ctx.drawImage(srcEl, 0, 0, cw, ch);
 
   const blobPipelineActive = needsBlobPipeline();
@@ -3477,9 +3953,15 @@ function renderFrame(nowDOMHi) {
   //
   //   video → STRUCTURE → [compose if structure blend = screen]
   //                 ↓                 ↓
-  //              COLOR[0] → COLOR[1] → COLOR[2] → screen
-  //                                                composite blend =
-  //                                                terminal stage's BLEND_MODES
+  //              COLOR[0..2] → FX[0..2] → screen
+  //                                        composite blend =
+  //                                        terminal stage's BLEND_MODES
+  //
+  // COLOR and FX stages share the same ping-pong mechanics, so they're
+  // merged into one `chained` list below. FX stages (glFx.js) additionally
+  // keep per-slot feedback textures between frames — internal to the
+  // module; the chain just sees a stage that reads inputTex and writes
+  // outputFBO like any other.
   //
   // Stages are ping-ponged through the two chain FBOs (chain.a ↔ chain.b).
   // Each non-terminal stage writes to whichever FBO is the current write
@@ -3495,10 +3977,23 @@ function renderFrame(nowDOMHi) {
   //
   // Per-blob (Inv / Thermal) layers on top of all of this — see block below.
   const pipe = resolveActivePipeline(look);
-  const totalStages = (pipe.structure ? 1 : 0) + pipe.colors.length;
+  // COLOR, GRADE, and FX stages have identical chain mechanics (read
+  // inputTex, write outputFBO) — only the dispatcher differs. Normalize
+  // them into one ordered list: color, then grade, then fx
+  // (STRUCTURE → COLOR → GRADE → FX).
+  const chained = [];
+  if (pipe.color) chained.push({ type: pipe.color.type, run: (opts) => runColorEffect(pipe.color.type, pipe.color.params, opts) });
+  if (pipe.grade) chained.push({ type: 'grade',         run: (opts) => runGradeEffect(pipe.grade, opts) });
+  chained.push(...pipe.fx.map((f) => ({ type: f.type, run: (opts) => runFxEffect(f.type, f.params, opts, f.key) })));
+  const totalStages = (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
     uploadVideoFrame(srcEl);
+    // Motion effects diff the current frame against the frame-history ring
+    // (~4 frames back). Capture only when one is active — idle cost is zero.
+    if (pipe.structure === 'motionedge' || pipe.color?.type === 'predator') {
+      captureFrameHistory();
+    }
 
     if (totalStages === 1) {
       // Standalone single-stage fast path. No chain FBO allocation, no
@@ -3507,9 +4002,9 @@ function renderFrame(nowDOMHi) {
         runEffect(pipe.structure);
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
       } else {
-        const c = pipe.colors[0];
-        runColorEffect(c.type, c.params);
-        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[c.type] || 'source-over');
+        const stage = chained[0];
+        stage.run({});
+        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[stage.type] || 'source-over');
       }
     } else {
       // Multi-stage chain. Ping-pong through chain.a ↔ chain.b.
@@ -3538,21 +4033,21 @@ function renderFrame(nowDOMHi) {
         }
       }
 
-      // COLORS — chained. Each reads currentTex (or raw video if STRUCTURE
-      // was None and this is the first color), writes to the next slot in
-      // the ping-pong, then becomes the source for the next iteration.
-      // Last color writes to the default framebuffer instead of a chain FBO
-      // so its output ends up on the shared GL canvas for compositing.
-      for (let i = 0; i < pipe.colors.length; i++) {
-        const isLast = (i === pipe.colors.length - 1);
+      // COLOR + FX — chained. Each reads currentTex (or raw video if
+      // STRUCTURE was None and this is the first stage), writes to the next
+      // slot in the ping-pong, then becomes the source for the next
+      // iteration. The last stage writes to the default framebuffer instead
+      // of a chain FBO so its output ends up on the shared GL canvas for
+      // compositing.
+      for (let i = 0; i < chained.length; i++) {
+        const isLast = (i === chained.length - 1);
         const outFB  = isLast ? null : writeFBOs[writeIdx];
-        // currentTex is null when no STRUCTURE and this is the first color
+        // currentTex is null when no STRUCTURE and this is the first stage
         // → effect module's `inputTex || getVideoTex()` defaults to the
         // shared video texture. Don't pass inputTex in that case.
         const opts = currentTex ? { inputTex: currentTex, outputFBO: outFB }
                                 : { outputFBO: outFB };
-        const c = pipe.colors[i];
-        runColorEffect(c.type, c.params, opts);
+        chained[i].run(opts);
         if (!isLast) {
           currentTex = readTexs[writeIdx];
           writeIdx ^= 1;
@@ -3560,11 +4055,11 @@ function renderFrame(nowDOMHi) {
       }
 
       // Terminal-stage rule: composite blend mode is whatever the LAST
-      // stage in the chain naturally wants. Last color when colors exist,
-      // otherwise STRUCTURE (which means we got here only when STRUCTURE
-      // is the only stage — already handled by the totalStages===1 branch
-      // above, so this is just the COLOR case).
-      const terminal = pipe.colors[pipe.colors.length - 1].type;
+      // stage in the chain naturally wants. Last chained stage (color or
+      // fx) when any exist, otherwise STRUCTURE (which means we got here
+      // only when STRUCTURE is the only stage — already handled by the
+      // totalStages===1 branch above, so this is just the chained case).
+      const terminal = chained[chained.length - 1].type;
       compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[terminal] || 'source-over');
     }
   }
