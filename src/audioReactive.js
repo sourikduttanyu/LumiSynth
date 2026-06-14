@@ -35,13 +35,16 @@ let videoWasMuted = true;
 
 const sig = { bass: 0, mid: 0, high: 0, level: 0, beat: 0 };
 
-let bassAvg = 0, beatEnv = 0, lastBeatT = -1e9, gainRef = 0.12;
+// Per-band auto-normalization: each band tracks its OWN recent peak so bass
+// (naturally hot) and highs (naturally quiet) each use the full 0–1 range.
+// A single global gain can't do this — it pins bass and starves highs.
+const peak = { bass: 0.06, mid: 0.06, high: 0.06, level: 0.06 };
+const PEAK_DECAY = 0.995;   // ~2s half-life so it adapts down after loud parts
+const PEAK_FLOOR = 0.06;    // never divide by ~0 (would amplify silence to noise)
+const beatState = { armed: false, last: -1e9, env: 0 };
 
-// User calibration (transient — shaped on top of the auto-gain):
-//   gate     — floor/threshold; anything below maps to 0 (kills noise jitter)
-//   sens     — gain trim after gating
-//   beatSens — onset sensitivity (0 = only big kicks, 1 = hair-trigger)
-const cfg = { gate: 0.05, sens: 1, beatSens: 0.5 };
+// User calibration (transient): a Gain trim per band + Beat onset sensitivity.
+const cfg = { gainBass: 1, gainMid: 1, gainHigh: 1, gainLevel: 1, beatSens: 0.5 };
 export function getConfig() { return { ...cfg }; }
 export function setConfig(key, value) { if (key in cfg) cfg[key] = value; }
 
@@ -49,10 +52,31 @@ export function isActive() { return !!inputNode; }
 export function currentInput() { return inputLabel; }
 export function getSignals() { return sig; }
 
-/** Gate + sensitivity shaping. Pure — exported for testing. */
-export function shapeValue(v, gate, sens) {
-  if (v <= gate) return 0;
-  return Math.min(1, ((v - gate) / (1 - gate)) * sens);
+/** Per-band normalize against a decaying peak. Pure — exported for testing. */
+export function normBand(raw, prevPeak) {
+  const p = Math.max(prevPeak * PEAK_DECAY, raw, PEAK_FLOOR);
+  return { peak: p, value: Math.min(1, raw / p) };
+}
+
+/** Onset threshold from the Beat sensitivity knob (0 = hard, 1 = hair-trigger). */
+export function beatThreshold(beatSens) { return 0.62 - beatSens * 0.42; }
+
+/**
+ * Hysteresis beat detector on the normalized bass. Fires on a rising edge over
+ * the threshold after dropping below (threshold − gap), with a refractory gap —
+ * robust on sustained basslines where a "vs. rolling average" test never fires.
+ * Mutates `s = {armed, last, env}`; returns true on a fresh hit. Pure-ish for
+ * testing (no module globals).
+ */
+export function beatStep(s, normBass, t, beatSens) {
+  const thr = beatThreshold(beatSens);
+  let fired = false;
+  if (!s.armed && normBass > thr && (t - s.last) > 160) {
+    s.env = 1; s.last = t; s.armed = true; fired = true;
+  }
+  if (normBass < thr - 0.12) s.armed = false;
+  s.env *= 0.86;
+  return fired;
 }
 
 function ensureCtx() {
@@ -69,7 +93,10 @@ function ensureCtx() {
   return ctx;
 }
 
-function resetDynamics() { bassAvg = 0; beatEnv = 0; lastBeatT = -1e9; gainRef = 0.12; }
+function resetDynamics() {
+  peak.bass = peak.mid = peak.high = peak.level = PEAK_FLOOR;
+  beatState.armed = false; beatState.last = -1e9; beatState.env = 0;
+}
 
 function detachAll() {
   if (inputNode) { try { inputNode.disconnect(); } catch (_) {} }
@@ -156,27 +183,27 @@ export function update(now) {
   const binHz = ctx.sampleRate / analyser.fftSize;
   const b = computeBands(freqData, binHz);
 
-  // auto-gain to the overall level, capped so quiet input still reads
-  gainRef = Math.max(gainRef * 0.995, b.level, 0.04);
-  const g = Math.min(5, 1 / gainRef);
-  // normalize (auto-gain) then shape (user gate + sensitivity)
-  const shape = (v) => shapeValue(Math.min(1, v * g), cfg.gate, cfg.sens);
+  // Per-band normalize against each band's own decaying peak, then apply the
+  // user Gain trim, a tiny noise floor, and the attack/release envelope.
+  const shape = (raw, bandKey, gain) => {
+    const n = normBand(raw, peak[bandKey]);
+    peak[bandKey] = n.peak;
+    let v = n.value * gain;
+    if (v < 0.04) v = 0;
+    return Math.min(1, v);
+  };
+  // normalized bass (pre-gain) drives the beat detector, so compute it directly
+  const nb = normBand(b.bass, peak.bass);
+  peak.bass = nb.peak;
+  let vb = nb.value * cfg.gainBass;
+  if (vb < 0.04) vb = 0;
+  sig.bass = env(sig.bass, Math.min(1, vb));
+  sig.mid = env(sig.mid, shape(b.mid, 'mid', cfg.gainMid));
+  sig.high = env(sig.high, shape(b.high, 'high', cfg.gainHigh));
+  sig.level = env(sig.level, shape(b.level, 'level', cfg.gainLevel));
 
-  sig.bass = env(sig.bass, shape(b.bass));
-  sig.mid = env(sig.mid, shape(b.mid));
-  sig.high = env(sig.high, shape(b.high));
-  sig.level = env(sig.level, shape(b.level));
-
-  // beat: bass onset vs. its rolling average, with a refractory window.
-  // beatSens slides the trigger ratio: 0 = only big kicks, 1 = hair-trigger.
   const t = now || performance.now();
-  const ratio = 2.0 - cfg.beatSens * 0.85;            // ~2.0 → ~1.15
-  bassAvg = bassAvg * 0.93 + b.bass * 0.07;
-  if (b.bass > bassAvg * ratio && b.bass > Math.max(0.1, cfg.gate) && (t - lastBeatT) > 220) {
-    beatEnv = 1;
-    lastBeatT = t;
-  }
-  beatEnv *= 0.88;
-  sig.beat = beatEnv;
+  beatStep(beatState, nb.value, t, cfg.beatSens);
+  sig.beat = beatState.env;
   return sig;
 }

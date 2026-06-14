@@ -2973,9 +2973,13 @@ if (liveFileInput) {
   });
 }
 
-// Calibration sliders → audioReactive config (transient — keeps the signal bus
-// in range: Gate thresholds out the bottom, Sens trims gain, Beat tunes onset).
-[['live-gate', 'gate'], ['live-sens', 'sens'], ['live-beat-sens', 'beatSens']].forEach(([id, key]) => {
+// Calibration sliders → audioReactive config (transient). Per-band Gain trims
+// on top of per-band auto-normalization, plus Beat onset sensitivity.
+[
+  ['live-gain-bass', 'gainBass'], ['live-gain-mid', 'gainMid'],
+  ['live-gain-high', 'gainHigh'], ['live-gain-level', 'gainLevel'],
+  ['live-beat-sens', 'beatSens'],
+].forEach(([id, key]) => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('input', () => audioReactive.setConfig(key, parseFloat(el.value)));
 });
