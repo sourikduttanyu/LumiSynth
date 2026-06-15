@@ -162,10 +162,13 @@ The same chain works whether a signal comes from a kick drum or a dancer's hand.
    transient clone of the render look in `renderFrame` (eff = base + signal·depth·range,
    clamped); base state is never mutated, so stop-Live restores instantly. UI is a
    "Modulations" list in the Reactivity panel (Add row → signal select · target select ·
-   depth · remove). Targets = `knobRegistry` entries (GRADE + STRUCTURE knobs, ~47);
-   COLOR/FX/shader slot knobs aren't registered → not modulatable yet. Still TODO: the
-   drag-signal-onto-knob + mod-ring UX (nicer front-end to the same engine), modulating
-   slot knobs, and persisting routes.
+   depth · remove). Targets = `knobRegistry` (GRADE + STRUCTURE knobs) PLUS the active
+   shader-source's knobs (listed first, default target when a shader is live). Look-knobs
+   modulate the render-look clone; shader knobs write the shader param store via
+   `applyShaderModulation()` (base snapshotted per key, restored on Live-off). Routed
+   look-knobs visibly DANCE (`paintModulatedKnobs` — pointer-only paint, never writes
+   state) for feedback. COLOR/FX slot knobs still aren't modulatable. Still TODO:
+   drag-signal-onto-knob UX, COLOR/FX targets, route persistence.
 3. **Step sequencer** — pool (multi-select toggles) + rate + order + tap-tempo.
 4. **Polish / power** — casual reactive presets, multi-lane, crossfade transitions.
 

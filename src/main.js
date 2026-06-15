@@ -867,7 +867,7 @@ function initSliderControl(el, opts = {}) {
     opts.writeValue(currentValue);
   } else {
     state[stateKey] = currentValue;
-    knobRegistry.set(id, { setValue, getValue, min, max, step, default: def, stateKey, el });
+    knobRegistry.set(id, { setValue, getValue, min, max, step, default: def, stateKey, el, paint });
   }
 }
 
@@ -1031,7 +1031,7 @@ function initKnob(el, opts = {}) {
     opts.writeValue(currentValue);
   } else {
     state[stateKey] = currentValue;
-    knobRegistry.set(id, { setValue, getValue, min, max, step, default: def, stateKey, el });
+    knobRegistry.set(id, { setValue, getValue, min, max, step, default: def, stateKey, el, paint });
   }
 }
 
@@ -2900,6 +2900,8 @@ function liveMeterLoop(now) {
     liveMeterEls.beat.style.opacity = (0.3 + s.beat * 0.7).toFixed(2);
     liveMeterEls.beat.style.transform = 'scale(' + (1 + s.beat * 0.5).toFixed(2) + ')';
   }
+  paintModulatedKnobs();      // dance the routed look-knobs (pointer only)
+  applyShaderModulation();    // drive routed shader-source knobs (writes param store)
 }
 
 function startLiveMeter() {
@@ -2949,6 +2951,8 @@ function setLive(on) {
       if (liveMeterEls[k]) liveMeterEls[k].style.width = '0%';
     }
     if (liveMeterEls.beat) { liveMeterEls.beat.style.opacity = '0.3'; liveMeterEls.beat.style.transform = 'scale(1)'; }
+    repaintRoutedKnobsToBase();   // snap modulated knob visuals back to their set value
+    restoreShaderModBase();       // restore any modulated shader-source params
   }
 }
 
@@ -3107,20 +3111,31 @@ const modAddBtn = document.getElementById('mod-add');
 
 function modTargetOptions() {
   const opts = [];
+  // Look-based knobs (GRADE + STRUCTURE) — modulated via the render-look clone.
   for (const [id, meta] of knobRegistry) {
     const label = (meta.el && meta.el.getAttribute('aria-label')) || id;
     opts.push({ id, label });
   }
   opts.sort((a, b) => a.label.localeCompare(b.label));
+  // Active shader-source knobs — modulated via the shader param store. Listed
+  // first so the obvious target (the shader you're watching) is easy to grab.
+  if (state.sourceKind === 'shader' && state.shaderSlug) {
+    const def = SHADER_SOURCES.find((s) => s.slug === state.shaderSlug);
+    const shaderOpts = (def?.knobs || []).map((k) => ({ id: `shader:${k.key}`, label: `Shader · ${k.label}` }));
+    return shaderOpts.concat(opts);
+  }
   return opts;
 }
 
-// Build a modulated clone of the look. eff = base + signal·depth·range, clamped.
+// Build a modulated clone of the look for look-based (GRADE/STRUCTURE) routes.
+// Shader-source routes are applied separately (applyShaderModulation), since the
+// shader reads its param store, not the look. eff = base + signal·depth·range.
 function applyModulation(baseLook, signals) {
   const routes = state.modRoutes;
   if (!routes || !routes.length) return baseLook;
   let clone = null;
   for (const r of routes) {
+    if (r.target.startsWith('shader:')) continue;   // handled by applyShaderModulation
     const meta = knobRegistry.get(r.target);
     if (!meta) continue;
     const base = baseLook[meta.stateKey];
@@ -3131,6 +3146,33 @@ function applyModulation(baseLook, signals) {
     clone[meta.stateKey] = eff;
   }
   return clone || baseLook;
+}
+
+// Shader-source knob modulation: writes the shader param store directly (the
+// shader has no "look"). Base value is snapshotted lazily per key on first apply
+// and restored on Live-off, so the user's setting survives.
+const _shaderModBase = new Map();
+function applyShaderModulation() {
+  if (!state.live || state.sourceKind !== 'shader' || !state.shaderSlug) return;
+  const def = SHADER_SOURCES.find((s) => s.slug === state.shaderSlug);
+  if (!def) return;
+  const sig = audioReactive.getSignals();
+  const store = getShaderSourceParams(state.shaderSlug);
+  for (const r of state.modRoutes) {
+    if (!r.target.startsWith('shader:')) continue;
+    const key = r.target.slice(7);
+    const k = def.knobs.find((x) => x.key === key);
+    if (!k) continue;
+    if (!_shaderModBase.has(key)) _shaderModBase.set(key, store[key] ?? k.default);
+    const base = _shaderModBase.get(key);
+    const s = sig[r.signal] || 0;
+    setShaderSourceParam(key, clamp(base + s * r.depth * (k.max - k.min), k.min, k.max));
+  }
+}
+function restoreShaderModBase() {
+  for (const [key, base] of _shaderModBase) setShaderSourceParam(key, base);
+  _shaderModBase.clear();
+  renderShaderKnobs();
 }
 
 function renderModRows() {
@@ -3185,13 +3227,39 @@ function renderModRows() {
 function addModRoute() {
   const targets = modTargetOptions();
   if (!targets.length) { showToast('No modulatable knobs found', 'error'); return; }
-  // default to a GRADE Hue target if present (a satisfying first mod), else first
-  const pref = targets.find((t) => t.id === 'color-hue') || targets[0];
+  // Prefer a shader knob when a shader is live (the obvious thing to modulate),
+  // else GRADE Hue (always visible), else the first target.
+  const pref = targets.find((t) => t.id.startsWith('shader:'))
+    || targets.find((t) => t.id === 'color-hue')
+    || targets[0];
   state.modRoutes.push({ id: `mod-${++_modSeq}`, signal: 'bass', target: pref.id, depth: 0.5 });
   renderModRows();
 }
 
 if (modAddBtn) modAddBtn.addEventListener('click', addModRoute);
+
+// Visible feedback: while Live, paint each routed knob to its modulated value
+// (pointer only — never writes state, so the user's base setting + the render
+// modulation are untouched). Lets you SEE the knob dance and instantly tell if
+// signals aren't flowing. Called from the live meter loop.
+function paintModulatedKnobs() {
+  if (!state.live || !state.modRoutes.length) return;
+  const sig = audioReactive.getSignals();
+  for (const r of state.modRoutes) {
+    const meta = knobRegistry.get(r.target);
+    if (!meta || !meta.paint) continue;
+    const base = state[meta.stateKey];
+    if (typeof base !== 'number') continue;
+    const s = sig[r.signal] || 0;
+    meta.paint(clamp(base + s * r.depth * (meta.max - meta.min), meta.min, meta.max));
+  }
+}
+function repaintRoutedKnobsToBase() {
+  for (const r of state.modRoutes) {
+    const meta = knobRegistry.get(r.target);
+    if (meta && meta.paint && typeof state[meta.stateKey] === 'number') meta.paint(state[meta.stateKey]);
+  }
+}
 
 // Auto-stop if the user yanks the source mid-recording (e.g. switches
 // from camera to video file). The captureStream keeps "running" but
