@@ -9,6 +9,7 @@ import { applyFxEffect, resetFxFeedback } from './glFx.js';
 import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs, captureFrameHistory, resetMotionHistory } from './glContext.js';
 import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas, getShaderSourceParams, setShaderSourceParam } from './shaderSource.js';
 import * as audioReactive from './audioReactive.js';
+import * as exporter from './exporter.js';
 import { applyCompose } from './glCompose.js';
 import { BlobOneEuroFilter } from './oneEuroFilter.js';
 import {
@@ -2984,6 +2985,110 @@ if (liveFileInput) {
   if (el) el.addEventListener('input', () => audioReactive.setConfig(key, parseFloat(el.value)));
 });
 
+// ---- High-quality MP4 export (WebCodecs — see exporter.js) ----
+// Config is transient runtime state (not persisted with looks).
+state.exportRes = 'source';   // 'source' | '1080' | '720'
+state.exportFps = 30;         // 30 | 60
+state.exportQuality = 'high'; // 'high' | 'max'
+const btnExport        = document.getElementById('btn-export');
+const exportSection    = document.getElementById('export-section');
+const btnExportToggle  = document.getElementById('btn-export-toggle');
+const exportToggleLbl  = document.getElementById('export-toggle-label');
+const exportStatus     = document.getElementById('export-status');
+let _exportRec = null;      // active recorder
+let _exportStartT = 0;
+let _exportPanelOpen = false;
+
+wireToggleGroup('export-res-group', 'exportRes', String);
+wireToggleGroup('export-fps-group', 'exportFps', Number);
+wireToggleGroup('export-quality-group', 'exportQuality', String);
+
+// Long edge for a resolution preset, preserving the source aspect ratio.
+// Encoders want even dimensions, so round to multiples of 2.
+function exportTargetSize() {
+  const sw = activeSourceWidth() || canvas.width || 1280;
+  const sh = activeSourceHeight() || canvas.height || 720;
+  const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+  if (state.exportRes === 'source') return { w: even(sw), h: even(sh) };
+  const longEdge = state.exportRes === '1080' ? 1920 : 1280;
+  const scale = Math.min(1, longEdge / Math.max(sw, sh));   // never upscale
+  return { w: even(sw * scale), h: even(sh * scale) };
+}
+
+function setExportPanel(open) {
+  _exportPanelOpen = open;
+  if (btnExport) {
+    btnExport.classList.toggle('active', open);
+    btnExport.setAttribute('aria-pressed', open ? 'true' : 'false');
+  }
+  if (exportSection) exportSection.classList.toggle('hidden', !open);
+}
+
+async function startExport() {
+  if (!exporter.isSupported()) {
+    showToast('Native export needs WebCodecs (try Chrome/Edge). Use Rec instead.', 'error', 5000);
+    return;
+  }
+  if (!state.hasSource) { showToast('Load a source first', 'error'); return; }
+  if (!(await requireExportAccess('export'))) return;
+  const { w, h } = exportTargetSize();
+  const fps = state.exportFps;
+  const bitrate = exporter.bitrateFor(w, h, fps, state.exportQuality);
+  try {
+    _exportRec = exporter.createRealtimeRecorder({
+      sourceCanvas: canvas, width: w, height: h, fps, bitrate,
+      onTick: ({ frames, ms }) => {
+        exportStatus.textContent = `Recording · ${formatRecordTime(ms)} · ${frames}f`;
+      },
+    });
+    await _exportRec.start();
+    _exportStartT = performance.now();
+    btnExportToggle.classList.add('recording');
+    exportToggleLbl.textContent = 'Stop & save';
+    exportStatus.textContent = `Recording ${w}×${h} @ ${fps} · ${(bitrate / 1e6).toFixed(0)} Mbps`;
+  } catch (err) {
+    _exportRec = null;
+    showToast(`Export failed: ${err.message || err}`, 'error', 5000);
+    exportStatus.textContent = 'Ready';
+  }
+}
+
+async function stopExport() {
+  if (!_exportRec) return;
+  const rec = _exportRec;
+  _exportRec = null;
+  btnExportToggle.classList.remove('recording');
+  exportToggleLbl.textContent = 'Start export';
+  exportStatus.textContent = 'Encoding…';
+  try {
+    const blob = await rec.stop();
+    if (!blob || !blob.size) { exportStatus.textContent = 'No frames captured'; return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lumisynth-${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    const mb = (blob.size / (1024 * 1024)).toFixed(1);
+    exportStatus.textContent = `Saved · ${mb} MB`;
+    showToast(`Exported MP4 · ${mb} MB`, 'ok', 3500);
+  } catch (err) {
+    exportStatus.textContent = 'Export error';
+    showToast(`Export error: ${err.message || err}`, 'error', 5000);
+  }
+}
+
+if (btnExport) {
+  btnExport.disabled = !exporter.isSupported();
+  if (!exporter.isSupported()) btnExport.title = 'Native export needs WebCodecs (Chrome/Edge/Safari 16.4+)';
+  btnExport.addEventListener('click', () => setExportPanel(!_exportPanelOpen));
+}
+if (btnExportToggle) {
+  btnExportToggle.addEventListener('click', () => { _exportRec ? stopExport() : startExport(); });
+}
+
 // Auto-stop if the user yanks the source mid-recording (e.g. switches
 // from camera to video file). The captureStream keeps "running" but
 // produces black frames once the canvas isn't being redrawn, which
@@ -3341,6 +3446,8 @@ function setHasSource(val, label) {
   placeholder.style.display = val ? 'none' : 'flex';
   btnSnapshot.disabled = !val;
   if (btnRecord) btnRecord.disabled = !val;
+  const _be = document.getElementById('btn-export');
+  if (_be) _be.disabled = !val || !exporter.isSupported();
   if (val) {
     const w = activeSourceWidth();
     const h = activeSourceHeight();
@@ -4538,3 +4645,4 @@ canvas.width  = canvasArea.clientWidth;
 canvas.height = canvasArea.clientHeight;
 btnSnapshot.disabled = !state.hasSource;
 if (btnRecord) btnRecord.disabled = !state.hasSource;
+if (btnExport) btnExport.disabled = !state.hasSource || !exporter.isSupported();

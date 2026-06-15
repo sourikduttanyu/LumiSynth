@@ -358,6 +358,48 @@ html, body {
 }
 
 /* ============================================================
+   EXPORT — high-quality MP4 panel. Topbar toggle mirrors Live;
+   the in-panel Start/Stop button arms red while encoding.
+   ============================================================ */
+#btn-export.active {
+  background: var(--orange-signal);
+  border-color: var(--orange-signal);
+  color: var(--knob-cap-black);
+}
+.section-sublabel {
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: var(--space-sm);
+}
+#btn-export-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+#btn-export-toggle .rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+#btn-export-toggle.recording {
+  background: oklch(28% 0.10 25);
+  border-color: var(--state-danger);
+  color: oklch(94% 0.06 25);
+}
+#btn-export-toggle.recording .rec-dot {
+  background: var(--state-danger);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  #btn-export-toggle.recording .rec-dot { animation: none; }
+}
+
+/* ============================================================
    STAGE DIVIDERS — signal-flow color coding (warm → cool).
    Label tints by stage (LOW chroma so it never competes with orange);
    hairline rule line stays neutral.
