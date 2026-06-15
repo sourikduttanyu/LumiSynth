@@ -127,6 +127,36 @@ html, body {
   overflow: hidden;
 }
 
+/* Right-side Reactivity panel — mirror of the left sidebar, anchored right.
+   Holds the Live audio controls now (mod matrix / step sequencer later).
+   Hidden by default; the topbar Live toggle reveals it. */
+.reactivity-panel {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  background: var(--bg-room);
+  border-left: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.reactivity-panel::-webkit-scrollbar { width: 6px; }
+.reactivity-panel::-webkit-scrollbar-track { background: transparent; }
+.reactivity-panel::-webkit-scrollbar-thumb { background: var(--surface-raised); border-radius: 3px; }
+.reactivity-header {
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.reactivity-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-key);
+}
+
 :focus { outline: none; }
 :focus-visible {
   outline: 2px solid var(--orange-signal);

@@ -59,31 +59,6 @@
           <div class="knob-grid shader-knob-grid hidden" id="shader-knob-grid"></div>
         </section>
 
-        <section class="control-section live-section hidden" id="live-section" aria-label="Live audio reactivity">
-          <div class="section-label">Live · audio reactivity</div>
-          <div class="toggle-group" id="live-input-group" role="radiogroup" aria-label="Audio input">
-            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="source" data-tip="React to the loaded source's own audio track (uploaded clips with sound).">Source</button>
-            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="mic"    data-tip="React to the microphone / room audio.">Mic</button>
-            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="file"   data-tip="React to an uploaded audio track.">File</button>
-          </div>
-          <input type="file" id="live-file-input" accept="audio/*" class="hidden" />
-          <div class="live-meters" aria-hidden="true">
-            <div class="live-meter"><span class="live-meter-label">Bass</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-bass"></div></div></div>
-            <div class="live-meter"><span class="live-meter-label">Mid</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-mid"></div></div></div>
-            <div class="live-meter"><span class="live-meter-label">High</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-high"></div></div></div>
-            <div class="live-meter"><span class="live-meter-label">Level</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-level"></div></div></div>
-            <div class="live-beat"><span class="live-meter-label">Beat</span><span class="live-beat-dot" id="lm-beat"></span></div>
-          </div>
-          <div class="live-controls">
-            <label class="live-ctl"><span>Bass</span><input type="range" id="live-gain-bass" min="0" max="4" step="0.05" value="1" data-tip="Bass gain. Raw band level × this. Lower if bass pins at the top, raise to emphasize it."></label>
-            <label class="live-ctl"><span>Mid</span><input type="range" id="live-gain-mid" min="0" max="4" step="0.05" value="1.4" data-tip="Mid gain (vocals / snare). Defaults higher since mids are quieter than bass."></label>
-            <label class="live-ctl"><span>High</span><input type="range" id="live-gain-high" min="0" max="4" step="0.05" value="2" data-tip="High gain (hats / cymbals). Defaults highest since highs are the quietest band."></label>
-            <label class="live-ctl"><span>Level</span><input type="range" id="live-gain-level" min="0" max="4" step="0.05" value="1.3" data-tip="Overall level gain."></label>
-            <label class="live-ctl"><span>Beat</span><input type="range" id="live-beat-sens" min="0" max="1" step="0.05" value="0.5" data-tip="Beat trigger sensitivity. Low = only big kicks fire; high = hair-trigger onsets."></label>
-          </div>
-          <div class="file-status" id="live-status" aria-live="polite">Pick an audio input</div>
-        </section>
-
         <section class="control-section export-section hidden" id="export-section" aria-label="High-quality export">
           <div class="section-label">Export · MP4 (high quality)</div>
           <div class="section-sublabel">Resolution</div>
@@ -531,6 +506,37 @@
           <div id="fps-overlay" class="hidden">— fps · 0 blobs</div>
         </main>
       </div>
+
+      <aside id="reactivity-panel" class="reactivity-panel hidden" aria-label="Audio reactivity">
+        <div class="reactivity-header">
+          <span class="reactivity-title">Reactivity</span>
+          <button id="reactivity-close" class="icon-btn" type="button" aria-label="Close reactivity panel">×</button>
+        </div>
+        <section class="control-section" aria-label="Live audio reactivity">
+          <div class="section-label">Live · audio</div>
+          <div class="toggle-group" id="live-input-group" role="radiogroup" aria-label="Audio input">
+            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="source" data-tip="React to the loaded source's own audio track (uploaded clips with sound).">Source</button>
+            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="mic"    data-tip="React to the microphone / room audio.">Mic</button>
+            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="file"   data-tip="React to an uploaded audio track.">File</button>
+          </div>
+          <input type="file" id="live-file-input" accept="audio/*" class="hidden" />
+          <div class="live-meters" aria-hidden="true">
+            <div class="live-meter"><span class="live-meter-label">Bass</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-bass"></div></div></div>
+            <div class="live-meter"><span class="live-meter-label">Mid</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-mid"></div></div></div>
+            <div class="live-meter"><span class="live-meter-label">High</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-high"></div></div></div>
+            <div class="live-meter"><span class="live-meter-label">Level</span><div class="live-meter-track"><div class="live-meter-fill" id="lm-level"></div></div></div>
+            <div class="live-beat"><span class="live-meter-label">Beat</span><span class="live-beat-dot" id="lm-beat"></span></div>
+          </div>
+          <div class="live-controls">
+            <label class="live-ctl"><span>Bass</span><input type="range" id="live-gain-bass" min="0" max="4" step="0.05" value="1" data-tip="Bass gain. Raw band level × this. Lower if bass pins at the top, raise to emphasize it."></label>
+            <label class="live-ctl"><span>Mid</span><input type="range" id="live-gain-mid" min="0" max="4" step="0.05" value="1.4" data-tip="Mid gain (vocals / snare). Defaults higher since mids are quieter than bass."></label>
+            <label class="live-ctl"><span>High</span><input type="range" id="live-gain-high" min="0" max="4" step="0.05" value="2" data-tip="High gain (hats / cymbals). Defaults highest since highs are the quietest band."></label>
+            <label class="live-ctl"><span>Level</span><input type="range" id="live-gain-level" min="0" max="4" step="0.05" value="1.3" data-tip="Overall level gain."></label>
+            <label class="live-ctl"><span>Beat</span><input type="range" id="live-beat-sens" min="0" max="1" step="0.05" value="0.5" data-tip="Beat trigger sensitivity. Low = only big kicks fire; high = hair-trigger onsets."></label>
+          </div>
+          <div class="file-status" id="live-status" aria-live="polite">Pick an audio input</div>
+        </section>
+      </aside>
     </div>
 
     <div id="toast-region" role="region" aria-live="polite" aria-atomic="false" aria-label="Notifications"></div>

@@ -2866,7 +2866,7 @@ if (btnRecord) {
 // state.live is transient runtime state (like shaderSlug) — never persisted.
 state.live = false;
 const btnLive       = document.getElementById('btn-live');
-const liveSection   = document.getElementById('live-section');
+const liveSection   = document.getElementById('reactivity-panel');   // right-side Reactivity panel
 const liveInputGroup= document.getElementById('live-input-group');
 const liveFileInput = document.getElementById('live-file-input');
 const liveStatus    = document.getElementById('live-status');
@@ -2953,6 +2953,8 @@ function setLive(on) {
 }
 
 if (btnLive) btnLive.addEventListener('click', () => setLive(!state.live));
+const reactivityClose = document.getElementById('reactivity-close');
+if (reactivityClose) reactivityClose.addEventListener('click', () => setLive(false));
 if (liveInputGroup) {
   liveInputGroup.querySelectorAll('.toggle-btn').forEach((b) => {
     b.addEventListener('click', () => pickLiveInput(b.dataset.value));
