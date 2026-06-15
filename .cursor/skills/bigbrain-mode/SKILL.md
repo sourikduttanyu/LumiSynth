@@ -37,6 +37,10 @@ Source vs effect rule: if the supplied shader generates a complete image from sc
    - `src/main.js`
    - `index.html`
    - `src/glContext.js` if the change touches GL orchestration.
+   - `src/shaderSource.js` if the request is a generative SOURCE shader.
+   Out of BigBrain scope (app subsystems, not effects — don't edit for effect
+   work): `src/audioReactive.js` (Live audio-reactivity signal bus) and
+   `src/exporter.js` (WebCodecs MP4 export).
 4. Work on a branch that is not `main`:
    - Run `git status --short` and `git branch --show-current`.
    - If the current branch is `main`, create a new branch named `bigbrain/<effect-slug>` before edits.
