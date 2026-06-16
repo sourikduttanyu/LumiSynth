@@ -433,9 +433,27 @@ html, body {
 /* ---- Mod matrix rows (Reactivity panel) ---- */
 .mod-row {
   display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: var(--space-sm);
+}
+.mod-row-main {
+  display: flex;
   align-items: center;
   gap: var(--space-xs);
-  margin-bottom: var(--space-xs);
+}
+.mod-activity {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-card);
+  overflow: hidden;
+}
+.mod-activity-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--orange-signal);
+  border-radius: 2px;
+  transition: width 60ms linear;
 }
 .mod-select {
   flex: 1 1 0;

@@ -176,6 +176,24 @@ export function stop() {
   sig.bass = sig.mid = sig.high = sig.level = sig.beat = 0;
 }
 
+// Dev-only: feed synthetic tones straight into the analyser so the full
+// signal→sig chain can be tested without a mic/file (RAF is paused in headless
+// previews, so this is how we verify the runtime logic).
+export function __injectTone(freqs = [60, 500, 4000]) {
+  if (!ensureCtx()) return;
+  detachAll();
+  const bus = ctx.createGain();
+  for (const f of freqs) {
+    const o = ctx.createOscillator(); o.frequency.value = f;
+    const g = ctx.createGain(); g.gain.value = 0.3;
+    o.connect(g); g.connect(bus); o.start();
+  }
+  inputNode = bus;
+  bus.connect(analyser);
+  inputLabel = 'test';
+  resetDynamics();
+}
+
 /**
  * Pure band extraction — exported for testing. Sums normalized FFT magnitude
  * over three frequency bands. `binHz` = sampleRate / fftSize.

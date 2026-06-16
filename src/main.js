@@ -2902,6 +2902,7 @@ function liveMeterLoop(now) {
   }
   paintModulatedKnobs();      // dance the routed look-knobs (pointer only)
   applyShaderModulation();    // drive routed shader-source knobs (writes param store)
+  updateModActivity();        // per-route live activity bars (in-panel feedback)
   updateModHint();
 }
 
@@ -3256,7 +3257,17 @@ function renderModRows() {
       updateModHint();
     });
 
-    row.append(sigSel, tgtSel, depth, rm);
+    const main = document.createElement('div');
+    main.className = 'mod-row-main';
+    main.append(sigSel, tgtSel, depth, rm);
+
+    const activity = document.createElement('div');
+    activity.className = 'mod-activity';
+    const fill = document.createElement('div');
+    fill.className = 'mod-activity-fill';
+    activity.appendChild(fill);
+
+    row.append(main, activity);
     modRowsEl.appendChild(row);
   }
 }
@@ -3292,6 +3303,22 @@ function updateModHint() {
 }
 
 if (modAddBtn) modAddBtn.addEventListener('click', addModRoute);
+
+// Per-route live activity: a thin bar in each row that rides the route's signal
+// (× depth). Gives unmistakable in-panel feedback that audio is driving the
+// route — right where you set it up — independent of where the target knob is.
+function updateModActivity() {
+  if (!modRowsEl) return;
+  const sig = audioReactive.getSignals();
+  const rows = modRowsEl.children;
+  for (let i = 0; i < state.modRoutes.length && i < rows.length; i++) {
+    const fill = rows[i].querySelector('.mod-activity-fill');
+    if (!fill) continue;
+    const r = state.modRoutes[i];
+    const v = (sig[r.signal] || 0) * Math.abs(r.depth);
+    fill.style.width = Math.round(Math.min(1, v) * 100) + '%';
+  }
+}
 
 // Visible feedback: while Live, paint each routed knob to its modulated value
 // (pointer only — never writes state, so the user's base setting + the render
