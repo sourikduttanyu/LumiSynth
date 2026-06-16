@@ -56,9 +56,12 @@ const canvasArea   = document.getElementById('canvas-area');
 const fileStatus   = document.getElementById('file-status');
 const topbarSource = document.getElementById('topbar-source');
 const toastRegion  = document.getElementById('toast-region');
-const btnSnapshot  = document.getElementById('btn-snapshot');
-const btnRecord    = document.getElementById('btn-record');
-const btnRecordLbl = document.getElementById('btn-record-label');
+const btnSnapshot      = document.getElementById('btn-snapshot');
+const btnRecord        = document.getElementById('btn-record');
+const btnRecordLbl     = document.getElementById('btn-record-label');
+const exportResSelect  = document.getElementById('export-res-select');
+let exportResKey = 'display';
+exportResSelect?.addEventListener('change', () => { exportResKey = exportResSelect.value; });
 const btnReset     = document.getElementById('btn-reset');
 const btnFps       = document.getElementById('btn-fps');
 const btnHelp      = document.getElementById('btn-help');
@@ -2666,13 +2669,21 @@ async function takeSnapshot() {
     return;
   }
   if (!(await requireExportAccess('snapshot'))) return;
+  const exportDims = getExportDimensions();
+  if (exportDims) {
+    canvas.width  = exportDims.w;
+    canvas.height = exportDims.h;
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }
   canvas.toBlob((blob) => {
+    if (exportDims) resizeCanvas();
     if (!blob) { showToast('Snapshot failed', 'error'); return; }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    const qual = exportResKey === 'display' ? 'disp' : exportResKey;
     a.href = url;
-    a.download = `lumisynth-${ts}.png`;
+    a.download = `lumisynth-${qual}-${ts}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -2764,6 +2775,12 @@ async function startRecording() {
     showToast('Recording not supported in this browser', 'error');
     return;
   }
+  const exportDims = getExportDimensions();
+  if (exportDims) {
+    canvas.width  = exportDims.w;
+    canvas.height = exportDims.h;
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }
   // captureStream pulls frames from the canvas at the rate we draw to
   // it (capped at FPS_CAP). The 60 here is a hint to the browser, not
   // a guarantee — actual rate matches our render loop.
@@ -2771,11 +2788,13 @@ async function startRecording() {
   try {
     stream = canvas.captureStream(FPS_CAP);
   } catch (err) {
+    if (exportDims) resizeCanvas();
     showToast(`Couldn't capture canvas: ${err.message || err}`, 'error');
     return;
   }
+  const bitsPerSecond = { '720p': 8_000_000, '1080p': 16_000_000, '4k': 50_000_000 }[exportResKey] ?? 8_000_000;
   try {
-    _recorder = new MediaRecorder(stream, { mimeType: _recordFormat.mime });
+    _recorder = new MediaRecorder(stream, { mimeType: _recordFormat.mime, videoBitsPerSecond: bitsPerSecond });
   } catch (err) {
     showToast(`Recorder init failed: ${err.message || err}`, 'error');
     _recorder = null;
@@ -2819,6 +2838,7 @@ function finalizeRecording() {
   const fmt    = _recordFormat;
   const durMs  = performance.now() - _recordStartT;
   teardownRecording();
+  resizeCanvas();
 
   if (!chunks.length) {
     showToast('Recording produced no data', 'error');
@@ -2827,9 +2847,10 @@ function finalizeRecording() {
   const blob = new Blob(chunks, { type: fmt.mime.split(';')[0] });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  const ts   = new Date().toISOString().replace(/[:.]/g, '-');
+  const ts   = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  const qual = exportResKey === 'display' ? 'disp' : exportResKey;
   a.href = url;
-  a.download = `lumisynth-${ts}.${fmt.ext}`;
+  a.download = `lumisynth-${qual}-${ts}.${fmt.ext}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -3632,6 +3653,16 @@ if (inkHighInput) {
 }
 
 // ---- Canvas sizing ----
+function getExportDimensions() {
+  const heights = { '720p': 720, '1080p': 1080, '4k': 2160 };
+  const targetH = heights[exportResKey];
+  if (!targetH) return null;
+  const sw = activeSourceWidth();
+  const sh = activeSourceHeight();
+  const ratio = sw && sh ? sw / sh : 16 / 9;
+  return { w: Math.round(targetH * ratio), h: targetH };
+}
+
 function resizeCanvas() {
   const aw = canvasArea.clientWidth;
   const ah = canvasArea.clientHeight;
