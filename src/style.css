@@ -1751,7 +1751,9 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
 #intro-overlay {
   position: fixed;
   inset: 0;
-  background: oklch(0% 0 0 / 0.68);
+  background: oklch(4% 0.005 250 / 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   z-index: 500;
   display: flex;
   align-items: center;
