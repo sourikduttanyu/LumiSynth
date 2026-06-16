@@ -1642,6 +1642,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   overflow: visible;
   cursor: pointer;
   touch-action: none;
+  contain: layout style;
 }
 .timeline-segment {
   position: absolute;
@@ -1725,6 +1726,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   pointer-events: none;
   transform: translateX(-1px);
   z-index: 2;
+  will-change: left;
 }
 /* FPS overlay — information presented on the canvas, lives on display surface
    per The Display-Vs-Chassis Rule. */
@@ -1973,7 +1975,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   left: 0;
   width: 18px;
   height: 18px;
-  background: var(--text-key);
+  background: oklch(97% 0.005 70);
   border: none;
   border-radius: 50%;
   pointer-events: none;

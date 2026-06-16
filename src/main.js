@@ -786,6 +786,7 @@ authCode?.addEventListener('keydown', (e) => {
 
 // ---- Knob component ----
 const knobRegistry = new Map();   // id -> { setValue, getValue, min, max, step, default, stateKey, el }
+let _knobDragActive = false;
 
 // initKnob has two modes:
 //   1. Default (no opts): wires the knob to global `state[stateKey]`,
@@ -963,6 +964,7 @@ function initKnob(el, opts = {}) {
   el.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     dragging = true;
+    _knobDragActive = true;
     lastY = e.clientY;
     el.setPointerCapture(e.pointerId);
     el.classList.add('dragging');
@@ -981,6 +983,7 @@ function initKnob(el, opts = {}) {
   const stopDrag = (e) => {
     if (!dragging) return;
     dragging = false;
+    _knobDragActive = false;
     el.releasePointerCapture(e.pointerId);
     el.classList.remove('dragging');
   };
@@ -2754,12 +2757,13 @@ function formatRecordTime(ms) {
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 }
 
-function tickRecordLabel() {
+let _recordTickLast = 0;
+function tickRecordLabel(now) {
   if (!_recorder) return;
-  btnRecordLbl.textContent = formatRecordTime(performance.now() - _recordStartT);
-  // Re-schedule via RAF so the label updates piggyback on the render
-  // loop's existing cadence — no separate setInterval timer to manage
-  // or leak across recording sessions.
+  if (now - _recordTickLast >= 500) {
+    btnRecordLbl.textContent = formatRecordTime(now - _recordStartT);
+    _recordTickLast = now;
+  }
   _recordTickRaf = requestAnimationFrame(tickRecordLabel);
 }
 
@@ -3257,6 +3261,7 @@ function setHasSource(val, label) {
 // ---- Timeline segments (video-only hard cuts) ----
 let _lastResolvedTimelineSegmentId = null;
 let _lastResolvedTimelineRuntimeSig = '';
+let _lastPlayheadActiveId = undefined;
 let _timelineApplyingLook = false;
 
 function timelineAvailable() {
@@ -3330,8 +3335,11 @@ function updateTimelinePlayhead(time = video.currentTime, activeId = _lastResolv
   }
   const pct = clamp(time / video.duration, 0, 1) * 100;
   timelinePlayhead.style.left = `${pct}%`;
-  for (const el of timelineTrack.querySelectorAll('.timeline-segment')) {
-    el.classList.toggle('is-active', el.dataset.segmentId === activeId);
+  if (activeId !== _lastPlayheadActiveId) {
+    _lastPlayheadActiveId = activeId;
+    for (const el of timelineTrack.querySelectorAll('.timeline-segment')) {
+      el.classList.toggle('is-active', el.dataset.segmentId === activeId);
+    }
   }
 }
 
@@ -3341,6 +3349,7 @@ function renderTimelinePanel() {
   timelinePanel.classList.toggle('hidden', state.sourceKind !== 'video');
   timelinePanel.classList.toggle('is-disabled', !available);
   timelineTrack.innerHTML = '';
+  _lastPlayheadActiveId = undefined;
 
   if (!available) {
     setTimelineDisabled(true);
@@ -4180,6 +4189,7 @@ document.body.appendChild(helpTip);
 
 let _helpTipShowTimer = 0;
 let _helpTipCurrentEl = null;
+let _helpTipRect = null;
 const HELP_TIP_DELAY = 350;
 const HELP_TIP_OFFSET_X = 14;
 const HELP_TIP_OFFSET_Y = 18;
@@ -4193,7 +4203,8 @@ function findTipAncestor(el) {
 }
 
 function positionHelpTip(cursorX, cursorY) {
-  const rect = helpTip.getBoundingClientRect();
+  if (!_helpTipRect) _helpTipRect = helpTip.getBoundingClientRect();
+  const rect = _helpTipRect;
   let x = cursorX + HELP_TIP_OFFSET_X;
   let y = cursorY + HELP_TIP_OFFSET_Y;
   if (x + rect.width > window.innerWidth - 8) x = cursorX - rect.width - HELP_TIP_OFFSET_X;
@@ -4212,7 +4223,7 @@ function hideHelpTip() {
 
 document.addEventListener('mousemove', (e) => {
   // Don't fight the knob-val tooltip during a drag.
-  if (document.querySelector('.knob.dragging')) {
+  if (_knobDragActive) {
     if (_helpTipCurrentEl) hideHelpTip();
     return;
   }
@@ -4225,6 +4236,7 @@ document.addEventListener('mousemove', (e) => {
   if (el !== _helpTipCurrentEl) {
     _helpTipCurrentEl = el;
     helpTip.textContent = el.dataset.tip;
+    _helpTipRect = null;
     if (helpTip.classList.contains('visible')) {
       // Already visible — just swap content, no re-delay.
     } else {
