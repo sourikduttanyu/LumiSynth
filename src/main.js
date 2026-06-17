@@ -386,7 +386,7 @@ function findTimelineSegmentAt(time) {
 function resolveTimelineLook(time) {
   const segment = findTimelineSegmentAt(time);
   if (segment) return { id: segment.id, look: segment.look };
-  if (state.sourceKind === 'video') return { id: null, look: makeRawTimelineLook() };
+  if (state.sourceKind === 'video') return { id: null, look: state };
   return { id: null, look: state };
 }
 
@@ -3074,9 +3074,19 @@ function loadVideoSource(url, label) {
   video.loop = true;
   video.play().catch(() => {});
   resetAllState();
+  state.timelineSegments = [];
+  state.selectedTimelineSegmentId = null;
   state.sourceKind = 'video';
   setHasSource(true, label || 'Video');
   renderTimelinePanel();
+  video.addEventListener('loadedmetadata', () => {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+    const seg = makeTimelineSegment(0, video.duration / 2);
+    state.timelineSegments.push(seg);
+    selectTimelineSegment(seg.id, { applyLook: false });
+    renderTimelinePanel();
+    schedulePersist();
+  }, { once: true });
 }
 
 function loadImageSource(url, label) {
@@ -3127,6 +3137,7 @@ function loadShaderSource(slug) {
   resetAllState();
   state.sourceKind = 'shader';
   state.shaderSlug = slug;
+  state.shaderAutoplay = true;
   setHasSource(true, def.label);
   renderTimelinePanel();
   resizeCanvas();
@@ -3151,7 +3162,16 @@ function renderShaderSourcePicker() {
     const span = document.createElement('span');
     span.textContent = def.label;
     btn.appendChild(span);
-    btn.addEventListener('click', () => loadShaderSource(def.slug));
+    btn.addEventListener('click', () => {
+      if (state.sourceKind === 'shader' && state.shaderSlug === def.slug) {
+        state.shaderSlug = null;
+        state.shaderAutoplay = false;
+        setHasSource(false);
+        schedulePersist();
+      } else {
+        loadShaderSource(def.slug);
+      }
+    });
     group.appendChild(btn);
   }
   renderShaderKnobs();
@@ -4463,7 +4483,7 @@ if (btnRecord) btnRecord.disabled = !state.hasSource;
 // session; falls back to Dive Clouds for first-timers. Skips resetAllState
 // so saved effect knobs are preserved. The render loop self-terminates when
 // the user replaces this with a real source.
-if (!state.hasSource) {
+if (!state.hasSource && state.shaderAutoplay !== false) {
   const slug = (state.sourceKind === 'shader' && state.shaderSlug)
     ? state.shaderSlug
     : 'diveclouds';
