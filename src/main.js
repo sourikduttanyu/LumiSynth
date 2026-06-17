@@ -4577,24 +4577,4 @@ canvas.height = canvasArea.clientHeight;
 btnSnapshot.disabled = !state.hasSource;
 if (btnRecord) btnRecord.disabled = !state.hasSource;
 
-// Autoplay a shader on cold start so the canvas is alive before the user
-// picks a source. Respects any shader the user had active in their last
-// session; falls back to Dive Clouds for first-timers. Skips resetAllState
-// so saved effect knobs are preserved. The render loop self-terminates when
-// the user replaces this with a real source.
-if (!state.hasSource && state.shaderAutoplay !== false) {
-  const slug = (state.sourceKind === 'shader' && state.shaderSlug)
-    ? state.shaderSlug
-    : 'diveclouds';
-  const def = SHADER_SOURCES.find((s) => s.slug === slug) || SHADER_SOURCES[0];
-  if (def) {
-    const res = SHADER_RES[state.shaderRes] || SHADER_RES.landscape;
-    if (setShaderSource(def.slug, res.w, res.h)) {
-      state.sourceKind = 'shader';
-      state.shaderSlug = def.slug;
-      setHasSource(true, def.label);
-      resizeCanvas();
-      renderShaderSourcePicker();
-    }
-  }
-}
+// No autoplay on cold start — user must explicitly pick a shader from the library.
