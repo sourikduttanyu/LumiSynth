@@ -39,13 +39,13 @@
      OP-1 read: light plastic chassis, dark legends, dark LCD screens).
      On a LIGHT chassis "raised" reads as LIGHTER-than-room (white plastic keys)
      and hover DARKENS one step (key being pressed). */
-  --bg-stage:        oklch(74% 0.016 85);
-  --bg-room:         oklch(81% 0.014 85);
-  --surface-card:    oklch(85% 0.012 85);
-  --surface-raised:  oklch(88% 0.010 85);
-  --surface-hover:   oklch(77% 0.018 85);
-  --border-hairline: oklch(65% 0.018 85);
-  --border-strong:   oklch(50% 0.018 85);   /* one step up from hairline; used for expanded/active container chrome (e.g. expanded color rack slot) */
+  --bg-stage:        oklch(55% 0.024 85);
+  --bg-room:         oklch(62% 0.022 85);
+  --surface-card:    oklch(66% 0.020 85);
+  --surface-raised:  oklch(70% 0.018 85);
+  --surface-hover:   oklch(58% 0.026 85);
+  --border-hairline: oklch(46% 0.026 85);
+  --border-strong:   oklch(36% 0.024 85);   /* one step up from hairline; used for expanded/active container chrome (e.g. expanded color rack slot) */
 
   /* Display surfaces (deep, embedded screen — the dark LCD set into the cream
      chassis, exactly like TE hardware). Unchanged across the palette flip. */
@@ -54,10 +54,10 @@
   --display-hairline: oklch(24% 0.005 70);   /* subtle separators on display surfaces */
 
   /* Text on chassis (dark legends on warm-beige — TE silkscreen) */
-  --text-key:    oklch(14% 0.012 85);
-  --text-body:   oklch(22% 0.012 85);
-  --text-muted:  oklch(36% 0.014 85);
-  --text-faint:  oklch(38% 0.014 85);
+  --text-key:    oklch(10% 0.010 85);
+  --text-body:   oklch(16% 0.010 85);
+  --text-muted:  oklch(28% 0.012 85);
+  --text-faint:  oklch(30% 0.012 85);
 
   /* Text on display */
   --text-on-display: oklch(92% 0.005 70);
