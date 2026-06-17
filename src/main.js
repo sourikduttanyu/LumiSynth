@@ -10,6 +10,7 @@ import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs, cap
 import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas, getShaderSourceParams, setShaderSourceParam } from './shaderSource.js';
 import { applyCompose } from './glCompose.js';
 import { BlobOneEuroFilter } from './oneEuroFilter.js';
+import { initObjectDetector, setObjectDetectorDelegate, detectObjects, isObjectDetectorReady } from './mediapipeTracker.js';
 import {
   STORAGE_KEY, RACK_SLOTS, DEFAULTS, TIMELINE_DEFAULTS, TIMELINE_MIN_SEGMENT_SECONDS,
   COLOR_PARAM_SCHEMAS, FX_PARAM_SCHEMAS, TRACK_FX_PARAM_SCHEMAS,
@@ -52,6 +53,13 @@ const state = {
   ...DEFAULTS,
   hasSource: false,
   sourceKind: null,
+  // TRACK detection backend (global runtime, NOT look-scoped — deliberately
+  // kept out of DEFAULTS so it doesn't become per-timeline-segment).
+  //   trackBackend: 'blob'   — grid local-maxima (blobDetector.js)
+  //               | 'object' — MediaPipe object detection (mediapipeTracker.js)
+  //   mpDelegate:   'GPU' | 'CPU' — MediaPipe inference delegate
+  trackBackend: 'blob',
+  mpDelegate: 'GPU',
   // Per-effect knob memory for the single COLOR stage: { [effect]: params }.
   // Lazily seeded with factory defaults on first pick (getColorParams).
   colorParams: {},
@@ -1182,6 +1190,8 @@ const TOGGLE_CONFIG = [
   ['erode-mode-group',      'erodeMode',      parseInt,   null],
   // ============ TRACK-mode toggle groups ============
   ['mode-group',            'mode',           String,     onModeChange],
+  ['track-backend-group',   'trackBackend',   String,     onTrackBackendChange],
+  ['mp-delegate-group',     'mpDelegate',     String,     onMpDelegateChange],
   ['track-composite-group', 'trackComposite', String,     null],
   ['lumi-channel-group',    'trackChannel',   String,     (v) => { resetFrameHistory(); refreshColorKeyControls(v); }],
   ['track-shape-group',     'trackShape',     String,     null],
@@ -1268,6 +1278,41 @@ function onPerBlobChange(_v) { /* intentionally empty */ }
 function refreshColorKeyControls(channel) {
   const el = document.getElementById('color-key-controls');
   if (el) el.style.display = channel === 'color' ? '' : 'none';
+}
+
+// Detection-backend visibility: object detection doesn't use the lumi-channel
+// or color-key controls (those are blob-detector knobs), and the GPU/CPU
+// delegate toggle only matters for the object backend. Hide accordingly.
+function refreshBackendControls(backend) {
+  const isObj = backend === 'object';
+  const lumi = document.getElementById('lumi-channel-section');
+  if (lumi) lumi.style.display = isObj ? 'none' : '';
+  const del = document.getElementById('mp-delegate-section');
+  if (del) del.style.display = isObj ? '' : 'none';
+  if (isObj) { const ck = document.getElementById('color-key-controls'); if (ck) ck.style.display = 'none'; }
+  else refreshColorKeyControls(state.trackChannel);
+}
+
+// Lazily build the object detector. Idempotent (initObjectDetector no-ops when
+// already ready on the same delegate). `notify` shows load toasts only for
+// user-initiated switches — suppressed during bulk applyStateToUI.
+function ensureObjectBackend(notify) {
+  if (isObjectDetectorReady()) return;
+  if (notify) showToast('Loading object model…', 'info', 2500);
+  initObjectDetector(state.mpDelegate)
+    .then(() => { if (notify) showToast('Object model ready', 'ok', 1500); })
+    .catch(() => showToast('Object model failed to load', 'error', 3500));
+}
+
+function onTrackBackendChange(v) {
+  refreshBackendControls(v);
+  if (v === 'object') ensureObjectBackend(!_applyingState);
+}
+
+function onMpDelegateChange(v) {
+  if (state.trackBackend === 'object') {
+    setObjectDetectorDelegate(v).catch(() => showToast('Delegate switch failed', 'error', 3000));
+  }
 }
 
 // Mode toggle. Drives section visibility via body[data-mode] (the CSS
@@ -2647,6 +2692,10 @@ function loadPersistedState() {
     if (parsed.fxRack) parsed.fxRack = sanitizeFxRack(parsed.fxRack);
     if (parsed.timelineSegments) parsed.timelineSegments = sanitizeTimelineSegments(parsed.timelineSegments);
     for (const k of Object.keys(DEFAULTS)) if (k in parsed) state[k] = parsed[k];
+    // Detection backend lives outside DEFAULTS (global runtime, not look-scoped),
+    // so restore it explicitly with validation.
+    if (parsed.trackBackend === 'blob' || parsed.trackBackend === 'object') state.trackBackend = parsed.trackBackend;
+    if (parsed.mpDelegate === 'GPU' || parsed.mpDelegate === 'CPU') state.mpDelegate = parsed.mpDelegate;
     if (parsed.colorParams)  state.colorParams  = parsed.colorParams;
     if (parsed.fxRack)       state.fxRack       = parsed.fxRack;
     if (parsed.trackFxRack)  state.trackFxRack  = parsed.trackFxRack;
@@ -4080,23 +4129,35 @@ function renderFrame(nowDOMHi) {
     // a deliberate v2 follow-up — out of scope for this image-input pass.)
     if (!activeSourcePaused()) {
       offCtx.drawImage(srcEl, 0, 0, ow, oh);
-      const offImageData = offCtx.getImageData(0, 0, ow, oh);
 
       frameCount++;
       if (frameCount % Math.max(1, look.updateInterval) === 0) {
-        const minSizeDetect = look.trackMinSize * detectScale;
         const cap = Math.min(30, look.trackMaxBlobs);
-        if (look.trackChannel === 'color') {
-          const hex = look.colorKeyHex.replace('#', '');
-          const cr = parseInt(hex.slice(0, 2), 16);
-          const cg = parseInt(hex.slice(2, 4), 16);
-          const cb = parseInt(hex.slice(4, 6), 16);
-          setColorKeyTarget(cr, cg, cb, look.colorKeyHueTol, look.colorKeySatMin, 0.10);
-        } else {
-          clearColorKeyTarget();
-        }
-        const rawBlobs  = detectBlobs(offImageData, look.threshold, cap, look.trackChannel, minSizeDetect);
         const sx = cw / ow, sy = ch / oh;
+        let rawBlobs;
+        if (state.trackBackend === 'object') {
+          // MediaPipe object detection on the same downscaled frame. Maps to
+          // the blob shape; reuses look.threshold (→ scoreThreshold) and
+          // trackMaxBlobs (→ maxResults) so no new knobs are needed.
+          if (!isObjectDetectorReady()) { rawBlobs = []; }
+          else {
+            const scoreThreshold = Math.min(0.9, Math.max(0.05, look.threshold / 100));
+            rawBlobs = detectObjects(offscreen, performance.now(), { scoreThreshold, maxResults: cap });
+          }
+        } else {
+          const minSizeDetect = look.trackMinSize * detectScale;
+          const offImageData = offCtx.getImageData(0, 0, ow, oh);
+          if (look.trackChannel === 'color') {
+            const hex = look.colorKeyHex.replace('#', '');
+            const cr = parseInt(hex.slice(0, 2), 16);
+            const cg = parseInt(hex.slice(2, 4), 16);
+            const cb = parseInt(hex.slice(4, 6), 16);
+            setColorKeyTarget(cr, cg, cb, look.colorKeyHueTol, look.colorKeySatMin, 0.10);
+          } else {
+            clearColorKeyTarget();
+          }
+          rawBlobs = detectBlobs(offImageData, look.threshold, cap, look.trackChannel, minSizeDetect);
+        }
         const scaledRaw = rawBlobs.map(b => ({
           ...b, x: b.x*sx, y: b.y*sy, w: b.w*sx, h: b.h*sy, cx: b.cx*sx, cy: b.cy*sy,
         }));

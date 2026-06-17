@@ -291,6 +291,22 @@
         <div class="stage-divider" role="heading" aria-level="3" data-stage="osc" data-mode-section="track">DETECTION <span class="stage-sub">lumi channel</span></div>
 
         <section class="control-section" data-mode-section="track">
+          <div class="section-label" id="lbl-track-backend">Backend</div>
+          <div class="toggle-group" id="track-backend-group" role="radiogroup" aria-labelledby="lbl-track-backend">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="blob"   data-tip="Grid local-maxima blob detection (motion/luma/dark/etc). Fast, object-agnostic.">Blob</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="object" data-tip="MediaPipe object detection (EfficientDet). Tracks recognizable objects (person, car, …) as bounding boxes.">Object</button>
+          </div>
+        </section>
+
+        <section class="control-section" id="mp-delegate-section" data-mode-section="track" style="display:none">
+          <div class="section-label" id="lbl-mp-delegate">Delegate</div>
+          <div class="toggle-group" id="mp-delegate-group" role="radiogroup" aria-labelledby="lbl-mp-delegate">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="GPU" data-tip="GPU inference. Faster, but shares the GPU with the effect pipeline.">GPU</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="CPU" data-tip="CPU inference. Avoids GPU contention with effects; heavier on CPU.">CPU</button>
+          </div>
+        </section>
+
+        <section class="control-section" id="lumi-channel-section" data-mode-section="track">
           <div class="section-label" id="lbl-lumi-channel">Lumi Channel</div>
           <div class="toggle-group" id="lumi-channel-group" role="radiogroup" aria-labelledby="lbl-lumi-channel">
             <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="motion" data-tip="Frame diff. Detects moving things. Goes blind on paused video.">Motion</button>
