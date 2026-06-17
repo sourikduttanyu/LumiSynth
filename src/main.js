@@ -408,7 +408,7 @@ function findTimelineSegmentAt(time) {
 function resolveTimelineLook(time) {
   const segment = findTimelineSegmentAt(time);
   if (segment) return { id: segment.id, look: segment.look };
-  if (state.sourceKind === 'video') return { id: null, look: state };
+  if (state.sourceKind === 'video') return { id: null, look: makeRawTimelineLook() };
   return { id: null, look: state };
 }
 
