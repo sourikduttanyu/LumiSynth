@@ -3855,7 +3855,9 @@ btnSnapshot.addEventListener('click', () => { takeSnapshot(); });
 // expect — keeps downloads from getting saddled with `.bin` or wrong
 // extensions for OS-level video previews.
 const RECORDER_FORMATS = [
-  { mime: 'video/mp4;codecs=avc1.42E01E', ext: 'mp4' },
+  { mime: 'video/mp4;codecs=avc1.640034', ext: 'mp4' },  // H.264 High Profile 5.2 (best quality)
+  { mime: 'video/mp4;codecs=avc1.640032', ext: 'mp4' },  // H.264 High Profile 5.0
+  { mime: 'video/mp4;codecs=avc1.42E01E', ext: 'mp4' },  // H.264 Baseline fallback
   { mime: 'video/webm;codecs=vp9',        ext: 'webm' },
   { mime: 'video/webm;codecs=vp8',        ext: 'webm' },
   { mime: 'video/webm',                   ext: 'webm' },
@@ -3930,7 +3932,7 @@ async function startRecording() {
     showToast(`Couldn't capture canvas: ${err.message || err}`, 'error');
     return;
   }
-  const bitsPerSecond = { '720p': 8_000_000, '1080p': 16_000_000, '4k': 50_000_000 }[exportResKey] ?? 8_000_000;
+  const bitsPerSecond = { '720p': 25_000_000, '1080p': 80_000_000, '4k': 200_000_000 }[exportResKey] ?? 25_000_000;
   try {
     _recorder = new MediaRecorder(stream, { mimeType: _recordFormat.mime, videoBitsPerSecond: bitsPerSecond });
   } catch (err) {
