@@ -1962,6 +1962,114 @@ void main() {
   fragColor = vec4(clamp(col.x * col2 * karo * vign, 0.0, 1.0), 1.0);
 }`;
 
+// DOG — STRUCTURE. Difference of Gaussians edge detection: two Gaussian-
+// weighted averages at different sigma values are subtracted to isolate
+// edges and contours. Classic anime line-art / pencil-sketch abstraction.
+// uParams: x=radius(1–6px), y=thresh(0–0.12), z=sharpness(4–20), w=kRatio(1.2–3.0)
+const FRAG_DOG = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uOutputMode;
+uniform vec3 uInkLow;
+uniform vec3 uInkHigh;
+out vec4 fragColor;
+
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  if (mode < 2.5) {
+    float t = step(0.5, structure);
+    return mix(uInkLow, uInkHigh, t);
+  }
+  return vec3(1.0 - structure);
+}
+
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+void main() {
+  vec2 px = 1.0 / vec2(textureSize(u_video, 0));
+  float r = mix(1.0, 6.0, uParams.x);
+  float k = mix(1.2, 3.0, uParams.w);
+
+  // Both kernels share the same 5×5 sample grid at radius r.
+  // Weights differ: small σ=1, large σ=k — their difference is the edge band.
+  float small = 0.0, big = 0.0, wS = 0.0, wB = 0.0;
+  for (int dx = -2; dx <= 2; dx++) {
+    for (int dy = -2; dy <= 2; dy++) {
+      float d2 = float(dx * dx + dy * dy);
+      float ws = exp(-d2 * 0.5);
+      float wb = exp(-d2 / (2.0 * k * k));
+      float l  = luma(texture(u_video, vUV + vec2(float(dx), float(dy)) * px * r).rgb);
+      small += l * ws; wS += ws;
+      big   += l * wb; wB += wb;
+    }
+  }
+  small /= wS; big /= wB;
+
+  float dog    = small - big;
+  float thresh = uParams.y * 0.12;
+  float sharp  = mix(4.0, 20.0, uParams.z);
+  float edge   = smoothstep(thresh, thresh + 1.0 / sharp, dog);
+
+  vec3 src = texture(u_video, vUV).rgb;
+  fragColor = vec4(applyStructureOutput(edge, src, uOutputMode), 1.0);
+}`;
+
+// DITHER — STRUCTURE. Bayer 4×4 ordered dithering: quantizes luma to N
+// gray levels using a classic halftone matrix. Ink / invert output modes
+// give crisp 1-bit print and retro-game aesthetics.
+// uParams: x=scale(1–8px cell), y=levels(2–8), z=contrast(gamma), w=bias
+const FRAG_DITHER = `#version 300 es
+precision highp float;
+precision highp int;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uOutputMode;
+uniform vec3 uInkLow;
+uniform vec3 uInkHigh;
+out vec4 fragColor;
+
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  if (mode < 2.5) {
+    float t = step(0.5, structure);
+    return mix(uInkLow, uInkHigh, t);
+  }
+  return vec3(1.0 - structure);
+}
+
+float bayerThreshold(ivec2 coord) {
+  int[16] bm = int[16](0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5);
+  ivec2 c = coord % 4;
+  return float(bm[c.y * 4 + c.x]) / 16.0;
+}
+
+void main() {
+  ivec2 coord = ivec2(vUV * vec2(textureSize(u_video, 0)));
+  vec3  src   = texture(u_video, vUV).rgb;
+  float l     = dot(src, vec3(0.299, 0.587, 0.114));
+
+  // Bias + gamma
+  l = clamp(l + (uParams.w - 0.5) * 0.4, 0.0, 1.0);
+  l = pow(l, mix(0.35, 2.5, uParams.z));
+
+  // Multi-level Bayer dither
+  int   scale   = max(1, int(uParams.x * 7.0 + 1.0));
+  float thresh  = bayerThreshold(coord / scale);
+  float levels  = floor(mix(2.0, 8.0, uParams.y));
+  float qLuma   = floor(l * levels) / (levels - 1.0);
+  float frac    = l * levels - floor(l * levels);
+  float structure = clamp(qLuma + (frac > thresh ? 1.0 / (levels - 1.0) : 0.0), 0.0, 1.0);
+
+  fragColor = vec4(applyStructureOutput(structure, src, uOutputMode), 1.0);
+}`;
+
 export const FRAGS = {
   erode:        FRAG_ERODE,
   oxide:        FRAG_OXIDE,
@@ -1976,6 +2084,8 @@ export const FRAGS = {
   melt:         FRAG_MELT,
   freqmod:      FRAG_FREQMOD,
   motionedge:   FRAG_MOTIONEDGE,
+  dog:          FRAG_DOG,
+  dither:       FRAG_DITHER,
   predator:     FRAG_PREDATOR,
   // COLOR additions
   depthstack:   FRAG_DEPTHSTACK,

@@ -105,6 +105,8 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"       aria-label="Melt"           data-tip="STRUCTURE. Luminance drips downward like heated wax. Amount, Drip Length, Viscosity, Direction."><span>Melt</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    aria-label="Frequency Modulation" data-tip="STRUCTURE. FM raster synthesis — scan rows of dots whose wiggle frequency is driven by brightness. Bright areas vibrate into tight ribbons; dark areas rest as sparse dots. Layer with Drag FX."><span>FreqMod</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" aria-label="Motion Edge" data-tip="STRUCTURE. Spatial edges + temporal motion (current frame vs ~4 frames back). Still scenes show outlines; anything moving lights up hard."><span>MotionEdge</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dog"        aria-label="Difference of Gaussians" data-tip="STRUCTURE. Difference of Gaussians edge detection — subtracts two Gaussian blurs to isolate contours. Anime line-art in Invert mode, pencil-sketch in Ink mode."><span>DoG</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     aria-label="Bayer Dither" data-tip="STRUCTURE. Bayer 4×4 ordered dithering — quantizes luma to N gray levels via a halftone matrix. Classic print and retro-game aesthetics."><span>Dither</span></button>
           </div>
           <div class="section-label" id="lbl-structure-output">Output</div>
           <div class="toggle-group" id="structure-output-group" role="radiogroup" aria-labelledby="lbl-structure-output">
@@ -210,6 +212,26 @@
             <div class="knob" id="motionedge-motion" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.6"  aria-label="MotionEdge Motion strength" data-tip="Motion gain — difference against the frame ~4 back. 0 = ignore movement. 1 = the slightest motion blazes." tabindex="0"><span class="knob-label">Motion</span><span class="knob-val" id="motionedge-motion-val">0.6</span></div>
             <div class="knob" id="motionedge-thresh" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.15" aria-label="MotionEdge Threshold" data-tip="Signal floor. Raise to keep only strong edges and big movements." tabindex="0"><span class="knob-label">Thresh</span><span class="knob-val" id="motionedge-thresh-val">0.15</span></div>
             <div class="knob" id="motionedge-boost"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="MotionEdge Boost" data-tip="Output brightness. 1 = overdriven hot-white strokes." tabindex="0"><span class="knob-label">Boost</span><span class="knob-val" id="motionedge-boost-val">0.5</span></div>
+          </div>
+        </section>
+
+        <section class="effect-card hidden" id="dog-controls" data-card-effect="dog" data-mode-section="synth" aria-label="DoG parameters">
+          <div class="effect-card-header"><div class="effect-card-title">DoG</div><button class="card-reset-btn" type="button" data-reset-card="dog" title="Reset DoG knobs" aria-label="Reset DoG knobs">×</button></div>
+          <div class="knob-grid">
+            <div class="knob" id="dog-radius"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.35" aria-label="DoG Radius"     data-tip="Blur radius 1–6px. Larger = coarser, wider edges." tabindex="0"><span class="knob-label">Radius</span><span class="knob-val" id="dog-radius-val">0.35</span></div>
+            <div class="knob" id="dog-thresh"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.18" aria-label="DoG Threshold"   data-tip="Edge threshold. Raise to keep only strong contours." tabindex="0"><span class="knob-label">Thresh</span><span class="knob-val" id="dog-thresh-val">0.18</span></div>
+            <div class="knob" id="dog-sharp"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5"  aria-label="DoG Sharpness"   data-tip="Edge hardness. 0 = soft gradient. 1 = crisp hard line." tabindex="0"><span class="knob-label">Sharp</span><span class="knob-val" id="dog-sharp-val">0.5</span></div>
+            <div class="knob" id="dog-k"       data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4"  aria-label="DoG K ratio"     data-tip="Sigma ratio between the two Gaussians. Low = thin crisp edges. High = fat halo rings." tabindex="0"><span class="knob-label">K</span><span class="knob-val" id="dog-k-val">0.4</span></div>
+          </div>
+        </section>
+
+        <section class="effect-card hidden" id="dither-controls" data-card-effect="dither" data-mode-section="synth" aria-label="Dither parameters">
+          <div class="effect-card-header"><div class="effect-card-title">Dither</div><button class="card-reset-btn" type="button" data-reset-card="dither" title="Reset Dither knobs" aria-label="Reset Dither knobs">×</button></div>
+          <div class="knob-grid">
+            <div class="knob" id="dither-scale"    data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Dither Scale"    data-tip="Bayer cell size 1–8px. Larger = coarser, blockier halftone." tabindex="0"><span class="knob-label">Scale</span><span class="knob-val" id="dither-scale-val">0.4</span></div>
+            <div class="knob" id="dither-levels"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Dither Levels"   data-tip="Quantization levels 2–8. 2 = 1-bit B&amp;W. Higher = more visible gray tones." tabindex="0"><span class="knob-label">Levels</span><span class="knob-val" id="dither-levels-val">0.3</span></div>
+            <div class="knob" id="dither-contrast" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Dither Gamma" data-tip="Gamma. 0.5 = neutral. Lower = shadow-heavy, higher = highlight-heavy." tabindex="0"><span class="knob-label">Gamma</span><span class="knob-val" id="dither-contrast-val">0.5</span></div>
+            <div class="knob" id="dither-bias"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Dither Bias"     data-tip="Brightness offset. 0.5 = neutral." tabindex="0"><span class="knob-label">Bias</span><span class="knob-val" id="dither-bias-val">0.5</span></div>
           </div>
         </section>
 
@@ -420,6 +442,8 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"   data-tip="BLOB STRUCT. FM oscillography inside blob region.">FreqMod</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii"      data-tip="BLOB STRUCT. ASCII art inside blob region.">ASCII</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" data-tip="BLOB STRUCT. Spatial edge extraction inside blob region. (Motion component unavailable in blob mode.)">Edges</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dog"        data-tip="BLOB STRUCT. DoG edge detection inside blob region.">DoG</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     data-tip="BLOB STRUCT. Bayer dithering inside blob region.">Dither</button>
           </div>
         </section>
 

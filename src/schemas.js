@@ -63,6 +63,8 @@ export const DEFAULTS = Object.freeze({
   meltAmount: 0.5,     meltDrip: 0.4,         meltViscosity: 0.5,   meltDir: 0.0,
   freqmodDir: 0.0,     freqmodMod: 0.6,       freqmodWave: 0.5,     freqmodThresh: 0.2,    freqmodDensity: 240,
   motionedgeEdge: 0.5, motionedgeMotion: 0.6, motionedgeThresh: 0.15, motionedgeBoost: 0.5,
+  dogRadius: 0.35,  dogThresh: 0.18, dogSharp: 0.5,   dogK: 0.4,
+  ditherScale: 0.4, ditherLevels: 0.3, ditherContrast: 0.5, ditherBias: 0.5,
 
   // ============ TRACK-mode state ============
   // Top-level mode + composite selector.
@@ -736,7 +738,7 @@ export const TRACK_FX_PARAM_SCHEMAS = {
   },
 };
 
-export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'watershed', 'pixelsort', 'melt', 'freqmod', 'motionedge'];
+export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'watershed', 'pixelsort', 'melt', 'freqmod', 'motionedge', 'dog', 'dither'];
 // The MAPS tab of the COLOR picker — pure per-pixel color mapping (ramps,
 // grades, palette swaps; no neighbor sampling, no added elements). Adding a
 // map here (plus its schema/shader/label entries) is all the picker needs;
@@ -783,6 +785,8 @@ export const BLEND_MODES = {
   melt:         'source-over',
   freqmod:      'source-over',
   motionedge:   'source-over',
+  dog:          'source-over',
+  dither:       'source-over',
   predator:     'source-over',
   rgbdelay:     'source-over',
   tunnel:       'source-over',
@@ -965,6 +969,24 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
       { key: 'thresh', label: 'Thresh', min: 0, max: 1,  step: 0.01, default: 0.15, tip: 'Signal floor. Raise to keep only strong edges/motion.' },
       { key: 'boost',  label: 'Boost',  min: 0, max: 1,  step: 0.01, default: 0.5,  tip: 'Output brightness.' },
       { key: 'rate',   label: 'Frames', min: 0, max: 10, step: 1, default: 0, control: 'slider', tip: 'Frame diff gap. 0 = edges only (no motion). 1 = compare to 1 frame ago. 10 = compare to 10 frames ago — slow movement lights up.' },
+    ],
+  },
+  dog: {
+    toggles: [],
+    knobs: [
+      { key: 'radius', label: 'Radius', min: 0, max: 1, step: 0.01, default: 0.35, tip: 'Blur radius (1–6px). Larger = coarser, wider edges.' },
+      { key: 'thresh', label: 'Thresh', min: 0, max: 1, step: 0.01, default: 0.18, tip: 'Edge threshold. Raise to keep only strong contours.' },
+      { key: 'sharp',  label: 'Sharp',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Edge hardness. 0 = soft gradient. 1 = crisp hard line.' },
+      { key: 'k',      label: 'K',      min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Sigma ratio. Low = thin edges. High = fat halo rings.' },
+    ],
+  },
+  dither: {
+    toggles: [],
+    knobs: [
+      { key: 'scale',    label: 'Scale',    min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Bayer cell size (1–8px). Larger = coarser halftone.' },
+      { key: 'levels',   label: 'Levels',   min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Quantization levels (2–8). 2 = pure 1-bit B&W. Higher = more gray tones.' },
+      { key: 'contrast', label: 'Contrast', min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Gamma. 0.5 = neutral. Lower = shadow-heavy, higher = highlight-heavy.' },
+      { key: 'bias',     label: 'Bias',     min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Brightness offset. 0.5 = neutral.' },
     ],
   },
 };

@@ -1141,6 +1141,10 @@ function runEffect(name, opts) {
       return applyGLFilter('freqmod', canvas.width, canvas.height, [look.freqmodDir, look.freqmodMod, look.freqmodWave, look.freqmodThresh, look.freqmodDensity], { ...opts, outputMode, ...inkColors });
     case 'motionedge':
       return applyGLFilter('motionedge', canvas.width, canvas.height, [look.motionedgeEdge, look.motionedgeMotion, look.motionedgeThresh, look.motionedgeBoost], { ...opts, outputMode, ...inkColors });
+    case 'dog':
+      return applyGLFilter('dog', canvas.width, canvas.height, [look.dogRadius, look.dogThresh, look.dogSharp, look.dogK], { ...opts, outputMode, ...inkColors });
+    case 'dither':
+      return applyGLFilter('dither', canvas.width, canvas.height, [look.ditherScale, look.ditherLevels, look.ditherContrast, look.ditherBias], { ...opts, outputMode, ...inkColors });
     case 'oxide':
     case 'synth':
     case 'biolum':
@@ -1260,6 +1264,8 @@ function resolveBlobPipeline(look) {
       case 'freqmod':   structureParams = [p.dir ?? 0, p.mod ?? 0.6, p.wave ?? 0.5, p.thresh ?? 0.2, p.density ?? 240]; break;
       case 'ascii':     structureParams = [p.cellSize ?? 0.3, p.contrast ?? 0.3, p.blackThresh ?? 0.2, p.glyph ?? 0.9]; break;
       case 'motionedge':structureParams = [p.edge ?? 0.5, p.motion ?? 0.6, p.thresh ?? 0.15, p.boost ?? 0.5, p.rate ?? 0]; break;
+      case 'dog':       structureParams = [p.radius ?? 0.35, p.thresh ?? 0.18, p.sharp ?? 0.5, p.k ?? 0.4]; break;
+      case 'dither':    structureParams = [p.scale ?? 0.4, p.levels ?? 0.3, p.contrast ?? 0.5, p.bias ?? 0.5]; break;
       default:          structureParams = [0, 0, 0, 0]; break;
     }
   }
