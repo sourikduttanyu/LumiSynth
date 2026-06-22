@@ -139,7 +139,7 @@ void main() {
   float sobelY = -s00 - 2.0*s10 - s20 + s02 + 2.0*s12 + s22;
   float edgeMag = length(vec2(sobelX, sobelY));
 
-  float blackCutoff = uParams.z * 0.4;
+  float blackCutoff = uParams.z * 0.8;
   if (val < blackCutoff) {
     fragColor = vec4(applyStructureOutput(0.0, src, uOutputMode), 1.0);
     return;

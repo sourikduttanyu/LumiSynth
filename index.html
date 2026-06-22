@@ -105,6 +105,7 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" aria-label="Motion Edge"   data-tip="STRUCTURE. Spatial edges + temporal motion (current frame vs ~4 frames back). Still scenes show outlines; anything moving lights up hard."><span>MotionEdge</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    aria-label="Edge Detect"    data-tip="STRUCTURE. Sobel edge detection. Thresh controls edge sensitivity; Glow sets line hardness; Hue colors the edges; Blend fades from neon-on-source to wireframe."><span>EdgeDet</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     aria-label="Bayer Dither"   data-tip="STRUCTURE. Bayer 4×4 ordered dithering — quantizes luma to N gray levels via a halftone matrix. Classic print and retro-game aesthetics."><span>Dither</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    aria-label="FM Demodulation"  data-tip="STRUCTURE. FM demodulation — pixel luminance drives instantaneous frequency; phase integrates left→right per row; envelope detector + IIR LPF reconstructs signal. Qtz adds discrete banding."><span>FreqMod</span></button>
           </div>
           <div class="section-label" id="lbl-structure-output">Output</div>
           <div class="toggle-group" id="structure-output-group" role="radiogroup" aria-labelledby="lbl-structure-output">
@@ -211,6 +212,17 @@
             <div class="knob" id="dither-contrast" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Dither Gamma" data-tip="Gamma. 0.5 = neutral. Lower = shadow-heavy, higher = highlight-heavy." tabindex="0"><span class="knob-label">Gamma</span><span class="knob-val" id="dither-contrast-val">0.5</span></div>
             <div class="knob" id="dither-bias"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Dither Bias"     data-tip="Brightness offset. 0.5 = neutral." tabindex="0"><span class="knob-label">Bias</span><span class="knob-val" id="dither-bias-val">0.5</span></div>
           </div>
+        </section>
+
+        <section class="effect-card hidden" id="freqmod-controls" data-card-effect="freqmod" data-mode-section="synth" aria-label="WaveMod parameters">
+          <div class="effect-card-header"><div class="effect-card-title">FM Demod</div><button class="card-reset-btn" type="button" data-reset-card="freqmod" title="Reset FM Demod knobs" aria-label="Reset FM Demod knobs">×</button></div>
+          <div class="knob-grid">
+            <div class="knob" id="freqmod-carrier" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3"  aria-label="FreqMod Carrier" data-tip="FM carrier frequency (1–12 cycles). Controls the base oscillation rate across the scan window." tabindex="0"><span class="knob-label">Carrier</span><span class="knob-val" id="freqmod-carrier-val">0.3</span></div>
+            <div class="knob" id="freqmod-spread"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4"  aria-label="FreqMod Spread"  data-tip="FM bandwidth — how far luminance deviates the frequency from the carrier. More = stronger modulation depth." tabindex="0"><span class="knob-label">Spread</span><span class="knob-val" id="freqmod-spread-val">0.4</span></div>
+            <div class="knob" id="freqmod-qtz"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.25" aria-label="FreqMod Qtz"     data-tip="Quantization steps (2–32). Low = coarse discrete banding. High = smoother gradients." tabindex="0"><span class="knob-label">Qtz</span><span class="knob-val" id="freqmod-qtz-val">0.25</span></div>
+            <div class="knob" id="freqmod-alpha"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.2"  aria-label="FreqMod Alpha"   data-tip="LPF response — envelope smoothing. Low = blurry reconstruction, high = sharp local response." tabindex="0"><span class="knob-label">Alpha</span><span class="knob-val" id="freqmod-alpha-val">0.2</span></div>
+          </div>
+          <div class="knob" id="freqmod-black" data-knob data-control="slider" data-min="0" data-max="1" data-step="0.01" data-default="0" aria-label="FreqMod Black Level" data-tip="Black level — luma below this is crushed to 0 before FM encoding. Dark regions flatline cleanly instead of adding noise." tabindex="0"><span class="knob-label">Black</span><span class="knob-val" id="freqmod-black-val">0</span></div>
         </section>
 
         <!-- ============ COLOR (single stage, v8) ============ -->

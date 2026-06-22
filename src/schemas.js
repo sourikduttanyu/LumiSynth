@@ -63,6 +63,7 @@ export const DEFAULTS = Object.freeze({
   motionedgeEdge: 0.5, motionedgeMotion: 0.6, motionedgeThresh: 0.15, motionedgeBoost: 0.5,
   edgedetThresh: 0.3,  edgedetGlow: 0.5,      edgedetHue: 0.15,     edgedetBlend: 0.1,
   ditherScale: 0.4, ditherLevels: 0.3, ditherContrast: 0.5, ditherBias: 0.5,
+  freqmodCarrier: 0.3, freqmodSpread: 0.4, freqmodQtz: 0.25, freqmodAlpha: 0.2, freqmodBlack: 0.0,
 
   // ============ TRACK-mode state ============
   // Top-level mode + composite selector.
@@ -886,7 +887,7 @@ export const TRACK_FX_PARAM_SCHEMAS = {
   },
 };
 
-export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither'];
+export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'freqmod'];
 // The MAPS tab of the COLOR picker — pure per-pixel color mapping (ramps,
 // grades, palette swaps; no neighbor sampling, no added elements). Adding a
 // map here (plus its schema/shader/label entries) is all the picker needs;
@@ -935,6 +936,7 @@ export const BLEND_MODES = {
   motionedge:   'source-over',
   edgedet:      'source-over',
   dither:       'source-over',
+  freqmod:      'source-over',
   predator:     'source-over',
   rgbdelay:     'source-over',
   tunnel:       'source-over',
@@ -1129,6 +1131,16 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
       { key: 'glow',   label: 'Glow',   min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Edge softness. 0 = wide diffuse. 1 = sharp fine lines.' },
       { key: 'hue',    label: 'Hue',    min: 0, max: 1, step: 0.01, default: 0.15, tip: 'Edge color hue (0–360°).' },
       { key: 'blend',  label: 'Blend',  min: 0, max: 1, step: 0.01, default: 0.1,  tip: '0 = edges on source. 1 = wireframe on black.' },
+    ],
+  },
+  freqmod: {
+    toggles: [],
+    knobs: [
+      { key: 'carrier', label: 'Carrier', min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'FM carrier frequency (1–12 cycles). Controls base oscillation rate across the scan window.' },
+      { key: 'spread',  label: 'Spread',  min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'FM bandwidth. How far luminance deviates the frequency from the carrier.' },
+      { key: 'qtz',     label: 'Qtz',     min: 0, max: 1, step: 0.01, default: 0.25, tip: 'Quantization steps (2–32). Low = coarse discrete banding. High = smoother gradients.' },
+      { key: 'alpha',   label: 'Alpha',   min: 0, max: 1, step: 0.01, default: 0.2,  tip: 'LPF response — envelope smoothing. Low = blurry, high = sharp local response.' },
+      { key: 'black',   label: 'Black',   min: 0, max: 1, step: 0.01, default: 0.0,  control: 'slider', tip: 'Black level — luma below this is crushed to 0 before FM encoding. Dark regions flatline cleanly.' },
     ],
   },
 };

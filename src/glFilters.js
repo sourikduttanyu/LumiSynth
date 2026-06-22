@@ -67,23 +67,23 @@ void main() {
   fragColor = vec4(applyStructureOutput(out_v, src, uOutputMode), 1.0);
 }`;
 
-// FREQMOD — analog FM oscillography. 240 scan rows (fixed — NTSC 240p line
-// count), each a continuous waveform trace whose frequency AND amplitude
-// follow the video's luminance: dark regions flatline (or gate out entirely
-// below Thresh), bright regions surge into fast full-swing oscillation —
-// like an oscilloscope reading the image as a signal. Dir rotates the whole
-// scan axis 0–180°. Layer with Drag in the FX rack for phosphor smears.
-// uParams: x=Dir (scan angle), y=Mod (frequency response), z=Wave, w=Thresh
+// FREQMOD — FM demodulation. Treats each image row as a 1D FM-modulated
+// signal: pixel luminance drives instantaneous frequency between
+// (carrier−spread) and (carrier+spread). Phase accumulates left→right via
+// a fixed-width SCAN window (uniform loop → zero GPU warp divergence);
+// an envelope detector + IIR LPF then reconstructs the signal level.
+// Qtz adds discrete frequency-step artifacts. All output modes work.
+// uParams: x=carrier(1–12 cyc), y=spread(bandwidth), z=qtz(2–32 steps), w=alpha(LPF)
 const FRAG_FREQMOD = `#version 300 es
 precision highp float;
+precision highp int;
 in vec2 vUV;
 uniform sampler2D u_video;
 uniform vec4 uParams;
-uniform float uParam4;   // 5th param: line density (rows), 120–300
+uniform float uParam4;   // black level — luma below this is crushed to 0 before FM encoding
 uniform float uOutputMode;
 uniform vec3 uInkLow;
 uniform vec3 uInkHigh;
-uniform float uTime;
 out vec4 fragColor;
 
 vec3 applyStructureOutput(float structure, vec3 src, float mode) {
@@ -91,50 +91,57 @@ vec3 applyStructureOutput(float structure, vec3 src, float mode) {
   if (mode < 0.5) return vec3(structure);
   if (mode < 1.5) return src * structure;
   if (mode < 2.5) {
-    float poster = smoothstep(0.42, 0.58, structure);
-    return mix(uInkLow, uInkHigh, poster);
+    float t = step(0.5, structure);
+    return mix(uInkLow, uInkHigh, t);
   }
-  return vec3(1.0 - structure);   // invert: negative of mono (dark traces on light)
+  return vec3(1.0 - structure);
 }
 
 void main() {
-  vec2 uv = vUV;
-  float rows = uParam4;
+  const float PI   = 3.14159265358979;
+  const int   SCAN = 200; // fixed loop — every thread does exactly 200 iters, zero warp divergence
 
-  // Dir rotates the scan frame: rows + carrier run along the rotated axes.
-  float ang = uParams.x * 3.14159265;
-  float ca = cos(ang), sa = sin(ang);
-  mat2 R  = mat2(ca, -sa,  sa, ca);
-  mat2 Ri = mat2(ca,  sa, -sa, ca);
-  vec2 ruv = R * (uv - 0.5) + 0.5;
+  vec2  res   = vec2(textureSize(u_video, 0));
+  ivec2 cur_p = ivec2(vUV * res);
 
-  float rowIdx = floor(ruv.y * rows);
-  float rowCenter = (rowIdx + 0.5) / rows;
-  vec3 src = texture(u_video, uv).rgb;
-  vec2 samplePos = clamp(Ri * (vec2(ruv.x, rowCenter) - 0.5) + 0.5, 0.0, 1.0);
-  float L = dot(texture(u_video, samplePos).rgb, vec3(0.299, 0.587, 0.114));
+  float f_c   = mix(1.0, 12.0, uParams.x);
+  float f_s   = mix(0.5, f_c * 0.9, uParams.y);
+  float qtz   = max(2.0, floor(mix(2.0, 32.0, uParams.z)));
+  float alpha = mix(0.01, 0.5, uParams.w);
+  float bl    = uParam4; // black level threshold [0, 1]
 
-  // Signal gate: below Thresh the trace dies out entirely; a soft knee just
-  // above it lets quiet signals fade in as dim flat lines before they swing.
-  float gate = smoothstep(uParams.w, uParams.w + 0.18, L);
+  float oc = 2.0 * PI * f_c;
+  float os = 2.0 * PI * f_s;
+  float t  = vUV.x; // carrier position fixed to current pixel x (matches original)
 
-  // FM: both carrier frequency and swing follow the signal level.
-  float freq = mix(30.0, 260.0, uParams.y * L);
-  float phase = ruv.x * freq + rowIdx * 2.39996 + uTime * 1.2;
-  float wave = sin(phase);
+  float phase    = 0.0;
+  float dem_filt = 0.5;
 
-  float dy = (fract(ruv.y * rows) - 0.5) * 2.0;
-  float amp = uParams.z * 0.80 * gate * (0.25 + 0.75 * L);
-  float d = abs(dy - wave * amp);
+  for (int c = 0; c < SCAN; c++) {
+    // Clamp to col 0 for left-edge pixels — keeps loop uniform (no divergence)
+    int sx = max(0, cur_p.x - SCAN + 1 + c);
+    vec3  col  = texelFetch(u_video, ivec2(sx, cur_p.y), 0).rgb;
+    float luma = dot(col, vec3(0.299, 0.587, 0.114));
 
-  // Pixel-aware minimum trace width: at high row counts a fixed-ratio core
-  // would collapse below one pixel and alias into grain, so widen it relative
-  // to the actual row height on this canvas.
-  float rowHalfPx = float(textureSize(u_video, 0).y) / (rows * 2.0);
-  float coreW = max(0.22, 1.25 / max(rowHalfPx, 0.001));
-  float core = 1.0 - smoothstep(0.0, coreW, d);
-  float skirt = (1.0 - smoothstep(0.0, min(coreW * 3.5, 1.0), d)) * 0.22;
-  float structure = (core + skirt) * gate * (0.45 + 0.55 * L);
+    // Black level crush: remap luma so anything below bl → 0 (pure flatline in dark regions)
+    luma = max(0.0, (luma - bl) / max(0.001, 1.0 - bl));
+
+    // Luminance → instantaneous angular frequency → phase integral
+    float omega = oc - os + 2.0 * os * luma;
+    phase += omega;
+
+    // FM sample: carrier at current pixel x + accumulated phase
+    float sam = sin(oc * t + phase);
+
+    // Quantize to discrete steps
+    sam = floor((sam * 0.5 + 0.5) * qtz) / qtz * 2.0 - 1.0;
+
+    // Envelope detect + IIR LPF
+    dem_filt = alpha * abs(sam) + (1.0 - alpha) * dem_filt;
+  }
+
+  vec3  src       = texture(u_video, vUV).rgb;
+  float structure = clamp(dem_filt, 0.0, 1.0);
   fragColor = vec4(applyStructureOutput(structure, src, uOutputMode), 1.0);
 }`;
 
