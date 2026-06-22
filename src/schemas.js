@@ -200,10 +200,10 @@ export const COLOR_PARAM_SCHEMAS = {
   },
   depthstack: {
     knobs: [
-      { key: 'layers',   label: 'Layers',   min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Number of depth planes (3–8). More layers = finer spectral banding.' },
-      { key: 'parallax', label: 'Parallax', min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'How far each layer shifts along the gradient direction. Creates holographic depth separation.' },
-      { key: 'glow',     label: 'Glow',     min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'Width of the glow halo around each depth plane edge.' },
-      { key: 'range',    label: 'Range',    min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Color range. 0 = narrow blue-dominant spectrum. 1 = wide violet-to-white spectrum.' },
+      { key: 'layers',   label: 'Layers',   min: 0, max: 1, step: 0.01, default: 1.0,  tip: 'Number of depth planes (3–8). More layers = finer spectral banding.' },
+      { key: 'parallax', label: 'Parallax', min: 0, max: 1, step: 0.01, default: 0.0,  tip: 'How far each layer shifts along the gradient direction. Creates holographic depth separation.' },
+      { key: 'glow',     label: 'Glow',     min: 0, max: 1, step: 0.01, default: 1.0,  tip: 'Width of the glow halo around each depth plane edge.' },
+      { key: 'range',    label: 'Range',    min: 0, max: 1, step: 0.01, default: 1.0,  tip: 'Color range. 0 = narrow blue-dominant spectrum. 1 = wide violet-to-white spectrum.' },
     ],
     toggles: [],
     order: ['layers', 'parallax', 'glow', 'range'],
@@ -354,8 +354,8 @@ export const COLOR_PARAM_SCHEMAS = {
   },
   predator: {
     knobs: [
-      { key: 'sense',   label: 'Sense',   min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Motion sensitivity. How small a change between frames registers as heat. 1 = the slightest movement glows white-hot.' },
-      { key: 'spread',  label: 'Spread',  min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Heat halo radius around moving pixels. 0 = tight. 1 = wide soft heat plumes.' },
+      { key: 'sense',   label: 'Sense',   min: 0, max: 1, step: 0.01, default: 0.05, tip: 'Motion sensitivity. How small a change between frames registers as heat. 1 = the slightest movement glows white-hot.' },
+      { key: 'spread',  label: 'Spread',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Heat halo radius around moving pixels. 0 = tight. 1 = wide soft heat plumes.' },
       { key: 'palette', label: 'Palette', min: 0, max: 1, step: 0.01, default: 0.2,  tip: '0 = predator vision (cold blue body, orange-white heat). 1 = classic thermal (purple body, red-yellow heat).' },
       { key: 'body',    label: 'Body',    min: 0, max: 1, step: 0.01, default: 0.6,  tip: 'How visible the still scene is. 0 = only motion shows against black. 1 = full cold-palette body.' },
     ],
