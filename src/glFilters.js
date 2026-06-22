@@ -2187,6 +2187,49 @@ void main() {
   fragColor = vec4(clamp(sharp, 0.0, 1.0), 1.0);
 }`;
 
+// EDGEDET_STRUCT — Sobel edge detection for the blob STRUCTURE pipeline.
+// Same Sobel kernel as FRAG_EDGEDET but outputs through applyStructureOutput
+// so mono/source/ink/invert modes all work. hue/blend params are ignored;
+// thresh (uParams.x) and glow/hardness (uParams.y) remain relevant.
+export const FRAG_EDGEDET_STRUCT = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uOutputMode;
+uniform vec3 uInkLow;
+uniform vec3 uInkHigh;
+out vec4 fragColor;
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  if (mode < 2.5) {
+    float poster = smoothstep(0.42, 0.58, structure);
+    return mix(uInkLow, uInkHigh, poster);
+  }
+  return vec3(1.0 - structure);
+}
+void main() {
+  vec2 px = 1.0 / vec2(textureSize(u_video, 0));
+  float tl = luma(texture(u_video, vUV + vec2(-px.x,  px.y)).rgb);
+  float tc = luma(texture(u_video, vUV + vec2(  0.0,  px.y)).rgb);
+  float tr = luma(texture(u_video, vUV + vec2( px.x,  px.y)).rgb);
+  float ml = luma(texture(u_video, vUV + vec2(-px.x,  0.0)).rgb);
+  float mr = luma(texture(u_video, vUV + vec2( px.x,  0.0)).rgb);
+  float bl = luma(texture(u_video, vUV + vec2(-px.x, -px.y)).rgb);
+  float bc = luma(texture(u_video, vUV + vec2(  0.0, -px.y)).rgb);
+  float br = luma(texture(u_video, vUV + vec2( px.x, -px.y)).rgb);
+  float gx = -tl - 2.0*ml - bl + tr + 2.0*mr + br;
+  float gy =  tl + 2.0*tc + tr - bl - 2.0*bc - br;
+  float mag = length(vec2(gx, gy));
+  float hard = mix(8.0, 40.0, uParams.y);
+  float edge = smoothstep(uParams.x * 0.5, uParams.x * 0.5 + 1.0 / hard, mag);
+  vec3 src = texture(u_video, vUV).rgb;
+  fragColor = vec4(applyStructureOutput(edge, src, uOutputMode), 1.0);
+}`;
+
 // EDGEDET — Sobel edge detection overlaid as colored glow on the source.
 // uParams: x=thresh, y=glow(1=hard/0=soft), z=hue(edge color 0–1), w=blend(0=over-src/1=edges-on-black)
 const FRAG_EDGEDET = `#version 300 es

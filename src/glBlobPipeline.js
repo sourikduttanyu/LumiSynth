@@ -24,7 +24,11 @@
  * }
  */
 
-import { VERT, FRAGS } from './glFilters.js';
+import { VERT, FRAGS, FRAG_EDGEDET_STRUCT } from './glFilters.js';
+
+// Blob structure context: some effects share a name with FX RACK shaders that
+// lack applyStructureOutput. Override them here so mono/source/ink/invert work.
+const BLOB_STRUCT_FRAG_OVERRIDES = { edgedet: FRAG_EDGEDET_STRUCT };
 import { FX_FRAGS } from './glFx.js';
 import { COLOR_PARAM_SCHEMAS, FX_PARAM_SCHEMAS } from './schemas.js';
 
@@ -154,7 +158,7 @@ function ensureBlobContext() {
 function getProgram(name) {
   if (_programs[name]) return _programs[name];
   const gl = _gl;
-  const fSrc = FRAGS[name];
+  const fSrc = BLOB_STRUCT_FRAG_OVERRIDES[name] || FRAGS[name];
   if (!fSrc) return null;
   const prog = createProgram(gl, VERT, fSrc);
   if (!prog) return null;
