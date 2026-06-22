@@ -923,7 +923,7 @@ void main() {
   float adj = clamp(0.5 + (val - 0.5) * c, 0.0, 1.0);
   vec3 deepBlue = mix(vec3(0.10,0.20,0.45), vec3(0.02,0.08,0.25), uParams.x);
   vec3 midBlue = vec3(0.45,0.65,0.85);
-  vec3 paper = vec3(0.92,0.93,0.88);
+  vec3 paper = vec3(0.94,0.90,0.79);
   vec3 col;
   if (adj < 0.5) col = mix(deepBlue, midBlue, adj * 2.0);
   else col = mix(midBlue, paper, (adj - 0.5) * 2.0);
@@ -931,7 +931,7 @@ void main() {
   if (uParams.z > 0.01) {
     float fiber = hash(uv * res * 0.7) * 0.5 + hash(uv * res * 2.1) * 0.3;
     float grainMask = smoothstep(0.4, 0.85, val);
-    col -= fiber * uParams.z * 0.15 * grainMask;
+    col -= fiber * uParams.z * 0.18 * grainMask * vec3(0.5, 0.65, 1.0);
   }
   if (uParams.w > 0.01) {
     float l = texture(u_video, uv - vec2(texel.x, 0.0)).r;
