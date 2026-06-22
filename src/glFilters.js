@@ -2077,6 +2077,72 @@ void main() {
   fragColor = vec4(applyStructureOutput(structure, src, uOutputMode), 1.0);
 }`;
 
+// ORBDIFF — Orb Diffuse Y. Divides the frame into square cells; each cell
+// places a soft glowing orb at its center weighted by luminance. A per-cell
+// pseudo-random Y-drift spreads the orbs vertically (the "diffuse Y" look).
+// The shader accumulates a 3×3 neighborhood so adjacent bright-cell orbs
+// blend additively, creating the dense cluster glow in bright regions.
+// uParams: x=scale(cell px 4–32), y=sharp(orb tightness), z=diffuse(Y drift), w=thresh(black cutoff)
+const FRAG_ORBDIFF = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uOutputMode;
+uniform vec3 uInkLow;
+uniform vec3 uInkHigh;
+out vec4 fragColor;
+
+vec3 applyStructureOutput(float structure, vec3 src, float mode) {
+  structure = clamp(structure, 0.0, 1.0);
+  if (mode < 0.5) return vec3(structure);
+  if (mode < 1.5) return src * structure;
+  if (mode < 2.5) {
+    float t = step(0.5, structure);
+    return mix(uInkLow, uInkHigh, t);
+  }
+  return vec3(1.0 - structure);
+}
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+void main() {
+  vec2  res      = vec2(textureSize(u_video, 0));
+  vec2  px       = vUV * res;
+
+  float scale    = max(4.0, floor(mix(4.0, 32.0, uParams.x)));
+  float sharp    = mix(1.5, 18.0, uParams.y);
+  float diffuseY = uParams.z * scale * 0.9;
+  float thresh   = uParams.w;
+
+  vec2 cell0 = floor(px / scale);
+  float acc  = 0.0;
+
+  // 3×3 neighborhood — uniform 9-iter loop, all threads identical, no divergence
+  for (int dy = -1; dy <= 1; dy++) {
+    for (int dx = -1; dx <= 1; dx++) {
+      vec2  cell      = cell0 + vec2(float(dx), float(dy));
+      ivec2 samplePx  = ivec2(clamp((cell + 0.5) * scale, vec2(0.0), res - 1.0));
+      float luma      = dot(texelFetch(u_video, samplePx, 0).rgb, vec3(0.299, 0.587, 0.114));
+
+      float gain = max(0.0, (luma - thresh) / max(0.001, 1.0 - thresh));
+
+      // Y-drift: pseudo-random per cell, scaled by diffuse param
+      float drift      = (hash(cell) * 2.0 - 1.0) * diffuseY;
+      vec2  orbCenter  = (cell + 0.5) * scale + vec2(0.0, drift);
+
+      float d    = length(px - orbCenter) / scale;
+      acc       += exp(-d * d * sharp) * gain;
+    }
+  }
+
+  vec3  src       = texture(u_video, vUV).rgb;
+  float structure = clamp(acc, 0.0, 1.0);
+  fragColor = vec4(applyStructureOutput(structure, src, uOutputMode), 1.0);
+}`;
+
 // ---- AcerolaFX-inspired FX RACK (stateless) ----
 
 // VIGNETTE — radial darkening from center outward.
@@ -2624,6 +2690,7 @@ export const FRAGS = {
   pixelsort:    FRAG_PIXELSORT,
   melt:         FRAG_MELT,
   freqmod:      FRAG_FREQMOD,
+  orbdiff:      FRAG_ORBDIFF,
   motionedge:   FRAG_MOTIONEDGE,
   dog:          FRAG_DOG,
   dither:       FRAG_DITHER,

@@ -64,6 +64,7 @@ export const DEFAULTS = Object.freeze({
   edgedetThresh: 0.3,  edgedetGlow: 0.5,      edgedetHue: 0.15,     edgedetBlend: 0.1,
   ditherScale: 0.4, ditherLevels: 0.3, ditherContrast: 0.5, ditherBias: 0.5,
   freqmodCarrier: 0.3, freqmodSpread: 0.4, freqmodQtz: 0.25, freqmodAlpha: 0.2, freqmodBlack: 0.0,
+  orbdiffScale: 0.25, orbdiffSharp: 0.4, orbdiffDiffuse: 0.35, orbdiffThresh: 0.08,
 
   // ============ TRACK-mode state ============
   // Top-level mode + composite selector.
@@ -887,7 +888,7 @@ export const TRACK_FX_PARAM_SCHEMAS = {
   },
 };
 
-export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'freqmod'];
+export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'freqmod', 'orbdiff'];
 // The MAPS tab of the COLOR picker — pure per-pixel color mapping (ramps,
 // grades, palette swaps; no neighbor sampling, no added elements). Adding a
 // map here (plus its schema/shader/label entries) is all the picker needs;
@@ -937,6 +938,7 @@ export const BLEND_MODES = {
   edgedet:      'source-over',
   dither:       'source-over',
   freqmod:      'source-over',
+  orbdiff:      'source-over',
   predator:     'source-over',
   rgbdelay:     'source-over',
   tunnel:       'source-over',
@@ -1131,6 +1133,15 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
       { key: 'glow',   label: 'Glow',   min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Edge softness. 0 = wide diffuse. 1 = sharp fine lines.' },
       { key: 'hue',    label: 'Hue',    min: 0, max: 1, step: 0.01, default: 0.15, tip: 'Edge color hue (0–360°).' },
       { key: 'blend',  label: 'Blend',  min: 0, max: 1, step: 0.01, default: 0.1,  tip: '0 = edges on source. 1 = wireframe on black.' },
+    ],
+  },
+  orbdiff: {
+    toggles: [],
+    knobs: [
+      { key: 'scale',   label: 'Scale',   min: 0, max: 1, step: 0.01, default: 0.25, tip: 'Cell size 4–32px. Controls orb spacing and maximum size.' },
+      { key: 'sharp',   label: 'Sharp',   min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Orb falloff tightness. Low = soft diffuse blob, high = tight hard point.' },
+      { key: 'diffuse', label: 'Diffuse', min: 0, max: 1, step: 0.01, default: 0.35, tip: 'Y-axis drift — pseudo-random vertical offset per orb. 0 = grid-aligned, 1 = maximum scatter.' },
+      { key: 'thresh',  label: 'Thresh',  min: 0, max: 1, step: 0.01, default: 0.08, tip: 'Black cutoff — luma below this produces no orb. Raise to drop dark regions to pure black.' },
     ],
   },
   freqmod: {
