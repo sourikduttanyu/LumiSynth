@@ -95,19 +95,6 @@
         <div class="stage-divider" role="heading" aria-level="3" data-stage="structure" data-mode-section="synth">STRUCTURE <span class="stage-sub">geometry · pattern</span></div>
 
         <section class="control-section" data-mode-section="synth">
-          <div class="section-label" id="lbl-structure">Pick one</div>
-          <div class="toggle-group filter-swatch-group" id="structure-group" role="radiogroup" aria-labelledby="lbl-structure">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"  aria-label="No structure" data-tip="No structure stage. Video passes through to the COLOR stage unchanged."><span>None</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii" aria-label="ASCII shader" data-tip="STRUCTURE. ASCII art. Replaces video with a grid of 5×7 bitmap characters; denser glyphs for brighter regions."><span>ASCII</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="erode"     aria-label="Erode/dilate"   data-tip="STRUCTURE. Morphological op. Erode shrinks bright regions; Dilate (mode toggle) grows them. The Edge knob can isolate just the difference as an outline ring."><span>Erode</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="pixelsort"  aria-label="Pixel Sort"     data-tip="STRUCTURE. Bright pixels cast sharp sorted streak trails. Threshold, Length, Opacity, Direction."><span>PixSort</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"       aria-label="Melt"           data-tip="STRUCTURE. Luminance drips downward like heated wax. Amount, Drip Length, Viscosity, Direction."><span>Melt</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" aria-label="Motion Edge"   data-tip="STRUCTURE. Spatial edges + temporal motion (current frame vs ~4 frames back). Still scenes show outlines; anything moving lights up hard."><span>MotionEdge</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    aria-label="Edge Detect"    data-tip="STRUCTURE. Sobel edge detection. Thresh controls edge sensitivity; Glow sets line hardness; Hue colors the edges; Blend fades from neon-on-source to wireframe."><span>EdgeDet</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     aria-label="Bayer Dither"   data-tip="STRUCTURE. Bayer 4×4 ordered dithering — quantizes luma to N gray levels via a halftone matrix. Classic print and retro-game aesthetics."><span>Dither</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    aria-label="FM Demodulation"  data-tip="STRUCTURE. FM demodulation — pixel luminance drives instantaneous frequency; phase integrates left→right per row; envelope detector + IIR LPF reconstructs signal. Qtz adds discrete banding."><span>FreqMod</span></button>
-            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="moddiff" aria-label="Modulated Diffuse" data-tip="STRUCTURE. Modulated Diffuse — sine-wave dithering where luminance phase-shifts the threshold. Dense lines in bright areas, sparse in dark. The Marathon / Bungie art-style. Use Ink output with black + mint green for the full look."><span>ModDiff</span></button>
-          </div>
           <div class="section-label" id="lbl-structure-output">Output</div>
           <div class="toggle-group" id="structure-output-group" role="radiogroup" aria-labelledby="lbl-structure-output">
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="source" data-tip="Source output. The structure mask modulates the original source RGB before the COLOR rack.">Source</button>
@@ -124,6 +111,19 @@
               <input type="color" id="ink-high-input" class="color-picker-input" value="#ebe0c7" data-tip="Ink high color. Used for bright structure values when Output is Ink.">
               <span class="color-picker-label">INK HIGH</span>
             </label>
+          </div>
+          <div class="section-label" id="lbl-structure">Pick one</div>
+          <div class="toggle-group filter-swatch-group" id="structure-group" role="radiogroup" aria-labelledby="lbl-structure">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"  aria-label="No structure" data-tip="No structure stage. Video passes through to the COLOR stage unchanged."><span>None</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii" aria-label="ASCII shader" data-tip="STRUCTURE. ASCII art. Replaces video with a grid of 5×7 bitmap characters; denser glyphs for brighter regions."><span>ASCII</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="erode"     aria-label="Erode/dilate"   data-tip="STRUCTURE. Morphological op. Erode shrinks bright regions; Dilate (mode toggle) grows them. The Edge knob can isolate just the difference as an outline ring."><span>Erode</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="pixelsort"  aria-label="Pixel Sort"     data-tip="STRUCTURE. Bright pixels cast sharp sorted streak trails. Threshold, Length, Opacity, Direction."><span>PixSort</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"       aria-label="Melt"           data-tip="STRUCTURE. Luminance drips downward like heated wax. Amount, Drip Length, Viscosity, Direction."><span>Melt</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" aria-label="Motion Edge"   data-tip="STRUCTURE. Spatial edges + temporal motion (current frame vs ~4 frames back). Still scenes show outlines; anything moving lights up hard."><span>MotionEdge</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    aria-label="Edge Detect"    data-tip="STRUCTURE. Sobel edge detection. Thresh controls edge sensitivity; Glow sets line hardness; Hue colors the edges; Blend fades from neon-on-source to wireframe."><span>EdgeDet</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     aria-label="Bayer Dither"   data-tip="STRUCTURE. Bayer 4×4 ordered dithering — quantizes luma to N gray levels via a halftone matrix. Classic print and retro-game aesthetics."><span>Dither</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    aria-label="FM Demodulation"  data-tip="STRUCTURE. FM demodulation — pixel luminance drives instantaneous frequency; phase integrates left→right per row; envelope detector + IIR LPF reconstructs signal. Qtz adds discrete banding."><span>FreqMod</span></button>
+            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="moddiff" aria-label="Modulated Diffuse" data-tip="STRUCTURE. Modulated Diffuse — sine-wave dithering where luminance phase-shifts the threshold. Dense lines in bright areas, sparse in dark. The Marathon / Bungie art-style. Use Ink output with black + mint green for the full look."><span>ModDiff</span></button>
           </div>
         </section>
 
@@ -440,22 +440,6 @@
         <div class="stage-divider" role="heading" aria-level="3" data-stage="blob-structure" data-mode-section="track">BLOB STRUCT <span class="stage-sub">geometry · pattern</span></div>
 
         <section class="control-section" data-mode-section="track">
-          <div class="section-label" id="lbl-blob-structure">Pick one</div>
-          <div class="toggle-group filter-swatch-group" id="blob-structure-group" role="radiogroup" aria-labelledby="lbl-blob-structure">
-            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"      data-tip="No STRUCTURE pass — raw blob region passes through to color.">None</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="erode"     data-tip="BLOB STRUCT. Morphological erode/dilate + edge ring inside blob region.">Erode</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="pixelsort" data-tip="BLOB STRUCT. Pixel sort inside blob region.">PixSort</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"      data-tip="BLOB STRUCT. Melt drip inside blob region.">Melt</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii"      data-tip="BLOB STRUCT. ASCII art inside blob region.">ASCII</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" data-tip="BLOB STRUCT. Spatial edge extraction inside blob region. (Motion component unavailable in blob mode.)">Edges</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    data-tip="BLOB STRUCT. Sobel edge detection with color hue inside blob region.">EdgeDet</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     data-tip="BLOB STRUCT. Bayer dithering inside blob region.">Dither</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    data-tip="BLOB STRUCT. FM oscillography inside blob region.">FreqMod</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"    data-tip="BLOB STRUCT. Modulated Diffuse sine-wave dithering inside blob region.">ModDiff</button>
-          </div>
-        </section>
-
-        <section class="control-section" data-mode-section="track">
           <div class="section-label" id="lbl-blob-structure-output">Output</div>
           <div class="toggle-group" id="blob-structure-output-group" role="radiogroup" aria-labelledby="lbl-blob-structure-output">
             <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="mono"   data-tip="Greyscale.">Mono</button>
@@ -477,6 +461,22 @@
               <input type="color" id="blob-ink-cream-input" class="color-picker-input" value="#ebe0c7" data-tip="Blob ink light color (used when output = Ink).">
               <span class="color-picker-label">LIGHT</span>
             </label>
+          </div>
+        </section>
+
+        <section class="control-section" data-mode-section="track">
+          <div class="section-label" id="lbl-blob-structure">Pick one</div>
+          <div class="toggle-group filter-swatch-group" id="blob-structure-group" role="radiogroup" aria-labelledby="lbl-blob-structure">
+            <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"      data-tip="No STRUCTURE pass — raw blob region passes through to color.">None</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="erode"     data-tip="BLOB STRUCT. Morphological erode/dilate + edge ring inside blob region.">Erode</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="pixelsort" data-tip="BLOB STRUCT. Pixel sort inside blob region.">PixSort</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"      data-tip="BLOB STRUCT. Melt drip inside blob region.">Melt</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii"      data-tip="BLOB STRUCT. ASCII art inside blob region.">ASCII</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" data-tip="BLOB STRUCT. Spatial edge extraction inside blob region. (Motion component unavailable in blob mode.)">Edges</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    data-tip="BLOB STRUCT. Sobel edge detection with color hue inside blob region.">EdgeDet</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     data-tip="BLOB STRUCT. Bayer dithering inside blob region.">Dither</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    data-tip="BLOB STRUCT. FM oscillography inside blob region.">FreqMod</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"    data-tip="BLOB STRUCT. Modulated Diffuse sine-wave dithering inside blob region.">ModDiff</button>
           </div>
         </section>
 
