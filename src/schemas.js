@@ -56,7 +56,7 @@ export const DEFAULTS = Object.freeze({
   structure: 'none', structureOutputMode: 'mono', perBlob: 'none',
   color: 'none', colorHue: 0, colorSat: 0.5, colorHueRange: 0, colorHueRate: 0,
   inkBlackHex: '#0a0908', inkCreamHex: '#ebe0c7',
-  asciiCellSize: 0.3, asciiContrast: 0.3, asciiBlackThresh: 0.2, asciiGlyphStrength: 0.9, asciiEdgeThreshold: 0.0,
+  asciiCellSize: 0.33, asciiContrast: 0.3, asciiBlackThresh: 0.63, asciiGlyphStrength: 0.9, asciiEdgeThreshold: 0.5,
   erodeMode: 0,       erodeRadius: 0.3,    erodeStrength: 0.7,    erodeEdge: 0.0,
   pixelsortThresh: 0.4, pixelsortLength: 0.3, pixelsortOpacity: 0.8, pixelsortDir: 0.5,
   meltAmount: 0.5,     meltDrip: 0.4,         meltViscosity: 0.5,   meltDir: 0.0,
@@ -296,7 +296,7 @@ export const COLOR_PARAM_SCHEMAS = {
     knobs: [
       { key: 'storm',   label: 'Storm',   min: 0, max: 1, step: 0.01, default: 0.5, tip: '0 = gentle aurora. 1 = violent banding storm.' },
       { key: 'curtain', label: 'Curtain', min: 0, max: 1, step: 0.01, default: 0.4, tip: '0 = no vertical smear. 1 = heavy curtain streaking.' },
-      { key: 'color',   label: 'Color',   min: 0, max: 1, step: 0.01, default: 0,   tip: '0 = green dominant. 0.5 = magenta. 1 = mixed violent multi-color.' },
+      { key: 'color',   label: 'Color',   min: 0, max: 1, step: 0.01, default: 1.0, tip: '0 = green dominant. 0.5 = magenta. 1 = mixed violent multi-color.' },
       { key: 'stars',   label: 'Stars',   min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Star density in dark areas. 0 = no stars. 1 = dense starfield in the voids.' },
     ],
     toggles: [],
@@ -523,7 +523,7 @@ export const COLOR_PARAM_SCHEMAS = {
       { key: 'hue',    label: 'Hue',    min: 0, max: 1,  step: 0.01, default: 0.0,  tip: 'Base hue offset (0–1 = 0–360°). Rotates the entire palette around the OKLCH wheel.' },
       { key: 'rate',   label: 'Rate',   min: 0, max: 1,  step: 0.01, default: 0.0,  tip: 'Auto-randomize speed. 0 = locked palette. Higher = more frequent switches, from slow cycling to rapid strobe.' },
       { key: 'stops',      label: 'Stops', min: 4, max: 10, step: 1,    default: 6,    tip: 'Number of palette stops (4–10). Each stop is an independent hue with its own drift frequency.' },
-      { key: 'blackStops', label: 'Dark',  min: 0, max: 4,  step: 1,    default: 0,    tip: 'Force the first N stops to solid black. 0 = off. 1–4 = dark threshold that stays black regardless of palette hue.' },
+      { key: 'blackStops', label: 'Dark',  min: 0, max: 4,  step: 1,    default: 0,    control: 'slider', tip: 'Force the first N stops to solid black. 0 = off. 1–4 = dark threshold that stays black regardless of palette hue.' },
     ],
     toggles: [
       { key: 'relType', label: 'Harmony', default: 0, options: [
@@ -1102,11 +1102,11 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
   ascii: {
     toggles: [],
     knobs: [
-      { key: 'cellSize',  label: 'Cell',    min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Character cell size (10–32px). Smaller = denser grid.' },
-      { key: 'contrast',  label: 'Contrast',min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Gamma contrast on per-cell luma.' },
-      { key: 'blackThresh',label: 'Black',  min: 0, max: 1, step: 0.01, default: 0.2, tip: 'Cells darker than this render as solid black.' },
-      { key: 'glyph',     label: 'Glyph',   min: 0, max: 1, step: 0.01, default: 0.9, tip: 'Blend luma blocks→glyphs. 1 = full ASCII characters.' },
-      { key: 'edges',     label: 'Edges',   min: 0, max: 1, step: 0.01, default: 0.0, tip: 'Sobel edge sensitivity — overlays _/|\\ direction glyphs on density glyphs when > 0.' },
+      { key: 'cellSize',  label: 'Cell',    min: 0, max: 1, step: 0.01, default: 0.33, control: 'slider', tip: 'Character cell size (10–32px). Smaller = denser grid.' },
+      { key: 'contrast',  label: 'Contrast',min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'Gamma contrast on per-cell luma.' },
+      { key: 'blackThresh',label: 'Black',  min: 0, max: 1, step: 0.01, default: 0.63, control: 'slider', tip: 'Cells darker than this render as solid black.' },
+      { key: 'glyph',     label: 'Glyph',   min: 0, max: 1, step: 0.01, default: 0.9,  tip: 'Blend luma blocks→glyphs. 1 = full ASCII characters.' },
+      { key: 'edges',     label: 'Edges',   min: 0, max: 1, step: 0.01, default: 0.5,  control: 'slider', tip: 'Sobel edge sensitivity — overlays _/|\\ direction glyphs on density glyphs when > 0.' },
     ],
   },
   motionedge: {

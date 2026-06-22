@@ -892,15 +892,18 @@ void main() {
   else { float selector=fract(band*0.5); vec3 c1=mix(green1,mag2,selector); vec3 c2=mix(vio2,green2,selector); col=mix(c1,c2,bandFrac)*streakVal; }
   col *= smoothstep(0.02, 0.15, streakVal);
   col = mix(col, vec3(0.8,1.0,0.7), smoothstep(0.85,1.0,streakVal)*0.6);
-  if (uParams.w > 0.01 && val < 0.2) {
-    vec2 starGrid = floor(uv * res / 2.0);
+  if (uParams.w > 0.01) {
+    float luma = dot(texture(u_video, uv).rgb, vec3(0.299, 0.587, 0.114));
+    vec2 starGrid = floor(uv * res / 4.0);
     float sh = hash(starGrid);
-    if (sh > 1.0 - uParams.w * 0.04) {
-      float starBright = (sh - (1.0 - uParams.w * 0.04)) * 25.0;
-      float starDist = length(fract(uv * res / 2.0) - 0.5);
-      if (starDist < 0.25) {
+    float thresh = 1.0 - uParams.w * 0.18;
+    if (sh > thresh && streakVal < 0.35) {
+      float starBright = (sh - thresh) / max(1.0 - thresh, 0.001);
+      float starDist = length(fract(uv * res / 4.0) - 0.5);
+      if (starDist < 0.35) {
         vec3 starCol = mix(vec3(0.8,0.85,1.0), vec3(1.0,0.9,0.7), hash(starGrid * 3.1));
-        col += starCol * starBright * (1.0 - starDist/0.25) * (1.0 - val * 5.0);
+        float fade = (1.0 - starDist / 0.35) * max(0.0, 1.0 - streakVal * 3.0);
+        col += starCol * starBright * fade * 0.9;
       }
     }
   }
