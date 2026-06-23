@@ -63,7 +63,9 @@ export const DEFAULTS = Object.freeze({
   motionedgeEdge: 0.5, motionedgeMotion: 0.6, motionedgeThresh: 0.15, motionedgeBoost: 0.5,
   edgedetThresh: 0.3,  edgedetGlow: 0.5,      edgedetHue: 0.15,     edgedetBlend: 0.1,
   ditherScale: 0.4, ditherLevels: 0.3, ditherContrast: 0.5, ditherBias: 0.5,
-  freqmodCarrier: 0.3, freqmodSpread: 0.4, freqmodQtz: 0.25, freqmodAlpha: 0.2, freqmodBlack: 0.0,
+  colorisolationHue: 0.0, colorisolationOverlap: 0.3, colorisolationSteep: 0.5, colorisolationMode: 0.0,
+  cartoonPower: 0.3, cartoonSlope: 0.4,
+  kuwaharaStructRadius: 0.4, kuwaharaStructSharp: 0.5,
   moddiffFreq: 0.25, moddiffMod: 0.45, moddiffBlack: 0.08, moddiffAxis: 0.0, moddiffDrift: 0.0,
 
   // ============ TRACK-mode state ============
@@ -505,15 +507,15 @@ export const COLOR_PARAM_SCHEMAS = {
     toggles: [],
     order: ['scale', 'ink', 'angle', 'blend'],
   },
-  kuwahara: {
+  colorfulposter: {
     knobs: [
-      { key: 'radius', label: 'Radius', min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'Filter radius 1–5px. Larger = more painterly stroke-like blurring.' },
-      { key: 'sharp',  label: 'Sharp',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Quadrant selection sharpness. Low = blended soft oil-paint. High = hard region-locked paint.' },
-      { key: 'sat',    label: 'Sat',    min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'Saturation boost on painted output. Higher = more vivid, impressionist color.' },
-      { key: 'blend',  label: 'Blend',  min: 0, max: 1, step: 0.01, default: 0.0, tip: '0 = fully painterly Kuwahara result. 1 = source passthrough.' },
+      { key: 'levels', label: 'Levels', min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Number of luma posterization levels (2–20). Low = chunky flat zones. High = fine gradients.' },
+      { key: 'slope',  label: 'Slope',  min: 0, max: 1, step: 0.01, default: 0.6, tip: 'Logistic curve steepness for step transitions. Low = linear gradients. High = sharp hard-edged posterization.' },
+      { key: 'cont',   label: 'Cont',   min: 0, max: 1, step: 0.01, default: 0.8, tip: 'Continuity. 0 = fully broken step bands. 1 = smooth connected transitions between levels.' },
+      { key: 'tint',   label: 'Tint',   min: 0, max: 1, step: 0.01, default: 0.7, tip: 'Strength of the CMYK color layer hard-light blend. 0 = flat luma posterization. 1 = full cyan-tinted color.' },
     ],
     toggles: [],
-    order: ['radius', 'sharp', 'sat', 'blend'],
+    order: ['levels', 'slope', 'cont', 'tint'],
   },
   // PROCEDURAL tab — generative OKLCH palette effects.
   okdrift: {
@@ -844,13 +846,23 @@ export const FX_PARAM_SCHEMAS = {
     toggles: [],
     order: ['range', 'target', 'speed', 'gain'],
   },
+  fakehdr: {
+    knobs: [
+      { key: 'power', label: 'Power', min: 0, max: 1, step: 0.01, default: 0.3, tip: 'HDR expansion power. Controls the exponent applied to the combined bloom+source. Higher = more extreme local contrast.' },
+      { key: 'near',  label: 'Near',  min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Tight bloom radius. Small inner halo used for the subtraction step.' },
+      { key: 'far',   label: 'Far',   min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Wide bloom radius. Large outer halo. Difference from Near drives the HDR contrast push.' },
+      { key: 'mix',   label: 'Mix',   min: 0, max: 1, step: 0.01, default: 0.7, tip: 'Blend between original and the HDR-expanded result. 0 = bypass. 1 = full effect.' },
+    ],
+    toggles: [],
+    order: ['power', 'near', 'far', 'mix'],
+  },
 };
 
 export const FX_SECTIONS = [
   'rgbdelay', 'drag', 'lumadrag', 'flowfield', 'tunnel', 'burnin', 'wobbletape',
   'bloom', 'godrays', 'decayflow', 'feedbackwarp',
   'crt', 'crtrolling', 'scanlines', 'degrade', 'noise', 'okband',
-  'vignette', 'tonemap', 'chromab', 'sharpen', 'bokeh', 'filmgrain', 'ign', 'autoexp',
+  'vignette', 'tonemap', 'chromab', 'sharpen', 'bokeh', 'filmgrain', 'ign', 'autoexp', 'fakehdr',
 ];
 
 // ============================================================
@@ -889,7 +901,7 @@ export const TRACK_FX_PARAM_SCHEMAS = {
   },
 };
 
-export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'freqmod', 'moddiff'];
+export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'colorisolation', 'cartoon', 'kuwahara', 'moddiff'];
 // The MAPS tab of the COLOR picker — pure per-pixel color mapping (ramps,
 // grades, palette swaps; no neighbor sampling, no added elements). Adding a
 // map here (plus its schema/shader/label entries) is all the picker needs;
@@ -915,7 +927,7 @@ export const COLOR_UNIQUE_SECTIONS = [
   { key: 'deepsea',    label: 'Deep Sea',   effects: ['octopus'] },
   { key: 'print',      label: 'Print',      effects: ['risograph', 'newsprint', 'sketch', 'okband', 'halftone'] },
   { key: 'motion',     label: 'Motion',     effects: ['predator'] },
-  { key: 'painterly',  label: 'Painterly',  effects: ['kuwahara'] },
+  { key: 'painterly',  label: 'Painterly',  effects: ['colorfulposter'] },
 ];
 export const COLOR_UNIQUE_FLAT = COLOR_UNIQUE_SECTIONS.flatMap((c) => c.effects);
 export const COLOR_PROC_SECTIONS = ['okdrift'];
@@ -938,8 +950,9 @@ export const BLEND_MODES = {
   motionedge:   'source-over',
   edgedet:      'source-over',
   dither:       'source-over',
-  freqmod:      'source-over',
   moddiff:      'source-over',
+  colorisolation: 'source-over',
+  cartoon:        'source-over',
   predator:     'source-over',
   rgbdelay:     'source-over',
   tunnel:       'source-over',
@@ -996,6 +1009,7 @@ export const BLEND_MODES = {
   bokeh:        'source-over',
   filmgrain:    'source-over',
   autoexp:      'source-over',
+  fakehdr:      'source-over',
   palswap:      'source-over',
   csadjust:     'source-over',
   halftone:     'source-over',
@@ -1147,15 +1161,31 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
       { key: 'drift', label: 'Drift', min: 0, max: 1, step: 0.01, default: 0.0,  tip: 'Scroll speed — animates the line pattern over time. 0 = static.' },
     ],
   },
-  freqmod: {
+  colorisolation: {
     toggles: [],
     knobs: [
-      { key: 'carrier', label: 'Carrier', min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'FM carrier frequency (1–12 cycles). Controls base oscillation rate across the scan window.' },
-      { key: 'spread',  label: 'Spread',  min: 0, max: 1, step: 0.01, default: 0.4,  tip: 'FM bandwidth. How far luminance deviates the frequency from the carrier.' },
-      { key: 'qtz',     label: 'Qtz',     min: 0, max: 1, step: 0.01, default: 0.25, tip: 'Quantization steps (2–32). Low = coarse discrete banding. High = smoother gradients.' },
-      { key: 'alpha',   label: 'Alpha',   min: 0, max: 1, step: 0.01, default: 0.2,  tip: 'LPF response — envelope smoothing. Low = blurry, high = sharp local response.' },
-      { key: 'black',   label: 'Black',   min: 0, max: 1, step: 0.01, default: 0.0,  control: 'slider', tip: 'Black level — luma below this is crushed to 0 before FM encoding. Dark regions flatline cleanly.' },
+      { key: 'hue',    label: 'Hue',    min: 0, max: 1, step: 0.01, default: 0.0, tip: 'Target hue to isolate or reject (0–1 maps to 0–360°).' },
+      { key: 'overlap',label: 'Width',  min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Width of the hue acceptance window. Low = narrow slice. High = broad range.' },
+      { key: 'steep',  label: 'Steep',  min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Gaussian falloff steepness outside the window. High = hard edge at boundary.' },
+      { key: 'mode',   label: 'Mode',   min: 0, max: 1, step: 1,    default: 0.0, control: 'slider', tip: '0 = Isolate (target hue bright, rest dark). 1 = Reject (target hue dark, rest bright).' },
     ],
+    order: ['hue', 'overlap', 'steep', 'mode'],
+  },
+  cartoon: {
+    toggles: [],
+    knobs: [
+      { key: 'power', label: 'Power', min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Edge intensity multiplier. Higher = darker, more prominent outlines.' },
+      { key: 'slope', label: 'Slope', min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Edge threshold slope. Higher filters out faint edges, leaving only strong contours.' },
+    ],
+    order: ['power', 'slope'],
+  },
+  kuwahara: {
+    toggles: [],
+    knobs: [
+      { key: 'radius', label: 'Radius', min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Filter radius 1–5px. Larger = more painterly stroke-like blurring.' },
+      { key: 'sharp',  label: 'Sharp',  min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Quadrant selection sharpness. Low = blended soft paint. High = hard region-locked strokes.' },
+    ],
+    order: ['radius', 'sharp'],
   },
 };
 

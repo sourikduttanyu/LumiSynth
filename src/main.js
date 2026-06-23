@@ -1140,8 +1140,12 @@ function runEffect(name, opts) {
       return applyGLFilter('edgedet', canvas.width, canvas.height, [look.edgedetThresh, look.edgedetGlow, look.edgedetHue, look.edgedetBlend], opts);
     case 'dither':
       return applyGLFilter('dither', canvas.width, canvas.height, [look.ditherScale, look.ditherLevels, look.ditherContrast, look.ditherBias], opts);
-    case 'freqmod':
-      return applyGLFilter('freqmod', canvas.width, canvas.height, [look.freqmodCarrier, look.freqmodSpread, look.freqmodQtz, look.freqmodAlpha, look.freqmodBlack ?? 0], opts);
+    case 'colorisolation':
+      return applyGLFilter('colorisolation', canvas.width, canvas.height, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], opts);
+    case 'cartoon':
+      return applyGLFilter('cartoon', canvas.width, canvas.height, [look.cartoonPower, look.cartoonSlope, 0, 0], opts);
+    case 'kuwahara':
+      return applyGLFilter('kuwahara_struct', canvas.width, canvas.height, [look.kuwaharaStructRadius, look.kuwaharaStructSharp, 0, 0], opts);
     case 'moddiff':
       return applyGLFilter('moddiff', canvas.width, canvas.height, [look.moddiffFreq, look.moddiffMod, look.moddiffBlack, look.moddiffAxis ?? 0, look.moddiffDrift ?? 0], opts);
     case 'oxide':
@@ -1271,7 +1275,9 @@ function resolveBlobPipeline(look) {
       case 'motionedge':structureParams = [p.edge ?? 0.5, p.motion ?? 0.6, p.thresh ?? 0.15, p.boost ?? 0.5, p.rate ?? 0]; break;
       case 'edgedet':   structureParams = [p.thresh ?? 0.3, p.glow ?? 0.5, p.hue ?? 0.15, p.blend ?? 0.1]; break;
       case 'dither':    structureParams = [p.scale ?? 0.4, p.levels ?? 0.3, p.contrast ?? 0.5, p.bias ?? 0.5]; break;
-      case 'freqmod':   structureParams = [p.carrier ?? 0.3, p.spread ?? 0.4, p.qtz ?? 0.25, p.alpha ?? 0.2, p.black ?? 0]; break;
+      case 'colorisolation': structureParams = [p.hue ?? 0.0, p.overlap ?? 0.3, p.steep ?? 0.5, p.mode ?? 0]; break;
+      case 'cartoon':        structureParams = [p.power ?? 0.3, p.slope ?? 0.4, 0, 0]; break;
+      case 'kuwahara':       structureParams = [p.radius ?? 0.4, p.sharp ?? 0.5, 0, 0]; break;
       case 'moddiff':   structureParams = [p.freq ?? 0.25, p.mod ?? 0.45, p.black ?? 0.08, p.axis ?? 0, p.drift ?? 0]; break;
       default:          structureParams = [0, 0, 0, 0]; break;
     }
@@ -1536,7 +1542,7 @@ const COLOR_SWATCH_GRADIENTS = {
   palswap:    'linear-gradient(90deg, #1a0030, #8800cc, #cc4400, #aadd00, #00aaff)',
   csadjust:   'linear-gradient(90deg, #1a1a2a, #2a4470, #7080c8, #d8ddf8)',
   halftone:   'linear-gradient(90deg, #f5f0e8, #c85a5a, #5050b0, #28a040, #f5f0e8)',
-  kuwahara:   'linear-gradient(90deg, #1a0a00, #8b4513, #d4843f, #a3c48a, #5090c8)',
+  colorfulposter: 'linear-gradient(90deg, #1a0030, #7a1060, #c85a20, #d4c030, #6ab040)',
   okdrift:    'linear-gradient(90deg, #2d0060, #7b00ff, #00aaff, #00ffaa, #ffaa00, #ff0055)',
 };
 const COLOR_LABEL = {
@@ -1551,7 +1557,7 @@ const COLOR_LABEL = {
   polaroid: 'Polaroid', blacklight: 'Blacklight', dreamstatic: 'DreamStatic', predator: 'Predator',
   okband: 'OKBand',
   chroma: 'ChromaEngine',
-  palswap: 'PalSwap', csadjust: 'CSAdjust', halftone: 'Halftone', kuwahara: 'Kuwahara',
+  palswap: 'PalSwap', csadjust: 'CSAdjust', halftone: 'Halftone', colorfulposter: 'Poster',
   okdrift: 'OKDrift',
 };
 
@@ -1592,7 +1598,7 @@ const COLOR_MAP_TIPS = {
   palswap:    'OKLCH Palette Swap. Maps scene luma to a hue gradient in perceptual OKLCH space. Hue + Spread sweeps the color arc; Chroma sets intensity; Lift lifts the dark floor.',
   csadjust:   'OKLCH Color Space Adjust. Direct lightness, chroma, hue-rotation, and warmth knobs in perceptual OKLCH space — for creative grading without hue collisions.',
   halftone:   'CMYK halftone dot screens. Four angled dot-screen channels (C/M/Y/K) simulate offset-print reproduction. Scale controls dot size; Blend mixes with source.',
-  kuwahara:   'Kuwahara painterly filter. Samples four quadrant neighborhoods, outputs the least-variance mean — creating oil-painting-style brush strokes. Radius controls stroke size.',
+  colorfulposter: 'Luma posterization with CMYK color layer. Logistic curve quantizes the scene into flat tonal zones; a cyan-tinted hard-light blend adds graphic color. Levels/Slope/Continuity shape the posterization curve.',
   okdrift:    'Procedural OKLCH palette. Generates N color stops spaced by the golden angle and drifts each on an independent sinusoidal frequency. Low Rate = slow flow; High Rate = rapid snapping.',
 };
 
@@ -2533,6 +2539,7 @@ const FX_LABEL = {
   okband: 'OKBand',
   vignette: 'Vignette', tonemap: 'Tonemap', chromab: 'ChromAb', sharpen: 'Sharpen',
   bokeh: 'Bokeh', filmgrain: 'FilmGrain', ign: 'IGN', autoexp: 'AutoExp',
+  fakehdr: 'FakeHDR',
 };
 const FX_SWATCH_GRADIENTS = {
   rgbdelay:   'linear-gradient(90deg, #080010, #cc0033 28%, #00cc55 52%, #0033cc 76%, #080010)',
@@ -2560,6 +2567,7 @@ const FX_SWATCH_GRADIENTS = {
   filmgrain:  'linear-gradient(90deg, #111, #554433, #887766, #aaa, #777, #333)',
   ign:        'linear-gradient(90deg, #070709 0 12%, #13141a 12% 24%, #070709 24% 36%, #1a1b22 36% 48%, #0b0c10 48% 60%, #141520 60% 72%, #070709 72% 84%, #111219 84%)',
   autoexp:    'linear-gradient(90deg, #020202, #1a2a10, #446038, #aad870, #fdfff8)',
+  fakehdr:    'linear-gradient(90deg, #030308, #1a2a5a, #4080c0, #c8e8ff, #fffff0)',
 };
 const FX_CHIP_TIP = {
   rgbdelay:   'RGB Delay — each colour channel trails at a different rate. Spread diverges R (short) from B (long). Drift orbits the channel samples spatially so moving content splits into separate chromatic ghost halos. Click to swap.',
@@ -2587,6 +2595,7 @@ const FX_CHIP_TIP = {
   filmgrain:  'Analogue film grain. Animated per-frame, shadow-biased, spatially clumped. Halation adds a soft glow on bright areas like real film halation. Click to swap.',
   ign:        'Interleaved Gradient Noise — temporally animated with golden-ratio offset for blue-noise-quality grain. Scale controls block size (1–8px). Posterize quantises to N colour levels using IGN as the dither matrix — minimal clumping, no banding. Chroma splits R/G/B channels for colour-fringe grain. Click to swap.',
   autoexp:    'Auto exposure. Samples current frame brightness, exponentially adapts toward Target over time, applies EV correction. Corner-pixel feedback state storage. Click to swap.',
+  fakehdr:    'Fake HDR. Two concentric bloom rings at different radii — their difference creates local contrast expansion that mimics HDR look. Power controls the exponent. Click to swap.',
 };
 
 // Build the FX picker popover from FX_SECTIONS — adding an FX effect needs

@@ -53,69 +53,6 @@ void main() {
   fragColor = vec4(vec3(out_v), 1.0);
 }`;
 
-// FREQMOD — FM demodulation. Treats each image row as a 1D FM-modulated
-// signal: pixel luminance drives instantaneous frequency between
-// (carrier−spread) and (carrier+spread). Phase accumulates left→right via
-// a fixed-width SCAN window (uniform loop → zero GPU warp divergence);
-// an envelope detector + IIR LPF then reconstructs the signal level.
-// Qtz adds discrete frequency-step artifacts. All output modes work.
-// uParams: x=carrier(1–12 cyc), y=spread(bandwidth), z=qtz(2–32 steps), w=alpha(LPF)
-const FRAG_FREQMOD = `#version 300 es
-precision highp float;
-precision highp int;
-in vec2 vUV;
-uniform sampler2D u_video;
-uniform vec4 uParams;
-uniform float uParam4;   // black level — luma below this is crushed to 0 before FM encoding
-out vec4 fragColor;
-
-void main() {
-  const float PI   = 3.14159265358979;
-  const int   SCAN = 200; // fixed loop — every thread does exactly 200 iters, zero warp divergence
-
-  vec2  res   = vec2(textureSize(u_video, 0));
-  ivec2 cur_p = ivec2(vUV * res);
-
-  float f_c   = mix(1.0, 12.0, uParams.x);
-  float f_s   = mix(0.5, f_c * 0.9, uParams.y);
-  float qtz   = max(2.0, floor(mix(2.0, 32.0, uParams.z)));
-  float alpha = mix(0.01, 0.5, uParams.w);
-  float bl    = uParam4; // black level threshold [0, 1]
-
-  float oc = 2.0 * PI * f_c;
-  float os = 2.0 * PI * f_s;
-  float t  = vUV.x; // carrier position fixed to current pixel x (matches original)
-
-  float phase    = 0.0;
-  float dem_filt = 0.5;
-
-  for (int c = 0; c < SCAN; c++) {
-    // Clamp to col 0 for left-edge pixels — keeps loop uniform (no divergence)
-    int sx = max(0, cur_p.x - SCAN + 1 + c);
-    vec3  col  = texelFetch(u_video, ivec2(sx, cur_p.y), 0).rgb;
-    float luma = dot(col, vec3(0.299, 0.587, 0.114));
-
-    // Black level crush: remap luma so anything below bl → 0 (pure flatline in dark regions)
-    luma = max(0.0, (luma - bl) / max(0.001, 1.0 - bl));
-
-    // Luminance → instantaneous angular frequency → phase integral
-    float omega = oc - os + 2.0 * os * luma;
-    phase += omega;
-
-    // FM sample: carrier at current pixel x + accumulated phase
-    float sam = sin(oc * t + phase);
-
-    // Quantize to discrete steps
-    sam = floor((sam * 0.5 + 0.5) * qtz) / qtz * 2.0 - 1.0;
-
-    // Envelope detect + IIR LPF
-    dem_filt = alpha * abs(sam) + (1.0 - alpha) * dem_filt;
-  }
-
-  float structure = clamp(dem_filt, 0.0, 1.0);
-  fragColor = vec4(vec3(structure), 1.0);
-}`;
-
 // MOTIONEDGE — STRUCTURE. Spatial edges + temporal motion (current frame vs
 // the frame-history ring, ~4 frames back) combined into one structure mask.
 // Still scenes show outlines; anything moving lights up hard.
@@ -2584,7 +2521,6 @@ export const FRAGS = {
   watershed:    FRAG_WATERSHED,
   pixelsort:    FRAG_PIXELSORT,
   melt:         FRAG_MELT,
-  freqmod:      FRAG_FREQMOD,
   moddiff:      FRAG_MODDIFF,
   motionedge:   FRAG_MOTIONEDGE,
   dog:          FRAG_DOG,
@@ -2646,8 +2582,184 @@ export const FRAGS = {
   csadjust:     FRAG_CSADJUST,
   halftone:     FRAG_HALFTONE,
   kuwahara:     FRAG_KUWAHARA,
+  kuwahara_struct: FRAG_KUWAHARA_STRUCT,
+  colorisolation:  FRAG_COLORISOLATION,
+  cartoon:         FRAG_CARTOON_STRUCT,
+  colorfulposter:  FRAG_COLORFULPOSTER,
+  fakehdr:         FRAG_FAKEHDR,
   okdrift:      FRAG_OKDRIFT,
 };
+
+// COLORISOLATION — STRUCTURE. Hue isolation mask: outputs weight of how well
+// each pixel matches a target hue. Isolate mode = matching hue bright; Reject = inverted.
+// uParams: x=hue(0-1), y=overlap(0-1), z=steepness(0-1), w=mode(0=isolate,1=reject)
+const FRAG_COLORISOLATION = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  vec3 col = texture(u_video, vUV).rgb;
+  float maxC = max(col.r, max(col.g, col.b));
+  float minC = min(col.r, min(col.g, col.b));
+  float delta = maxC - minC;
+  float hue = 0.0;
+  if (delta > 0.001) {
+    if (maxC == col.r)      hue = mod((col.g - col.b) / delta, 6.0) / 6.0;
+    else if (maxC == col.g) hue = ((col.b - col.r) / delta + 2.0) / 6.0;
+    else                    hue = ((col.r - col.g) / delta + 4.0) / 6.0;
+  }
+  hue = fract(hue);
+  float sat = (maxC > 0.001) ? delta / maxC : 0.0;
+  float diff = hue - uParams.x;
+  diff = abs(diff - round(diff));
+  float overlap = max(0.001, uParams.y * 0.2 + 0.02);
+  float height  = mix(1.0, 10.0, uParams.z);
+  float weight  = clamp(height * exp(-(diff * diff) / (2.0 * overlap * overlap)), 0.0, 1.0);
+  weight *= sat;
+  float structure = uParams.w > 0.5 ? 1.0 - weight : weight;
+  fragColor = vec4(vec3(structure), 1.0);
+}`;
+
+// CARTOON_STRUCT — STRUCTURE. Diagonal 4-sample Sobel edge detection outputting
+// edge strength as raw structure float. Invert mode gives dark outlines on white.
+// uParams: x=power(0-1), y=slope(0-1)
+const FRAG_CARTOON_STRUCT = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  vec2 px = 1.0 / vec2(textureSize(u_video, 0));
+  const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+  float power = mix(0.5, 8.0, uParams.x);
+  float slope = mix(0.5, 4.0, uParams.y);
+  float diff1 = dot(luma, texture(u_video, vUV + px).rgb)
+              - dot(luma, texture(u_video, vUV - px).rgb);
+  float diff2 = dot(luma, texture(u_video, vUV + px * vec2(1.0, -1.0)).rgb)
+              - dot(luma, texture(u_video, vUV + px * vec2(-1.0,  1.0)).rgb);
+  float edge = diff1 * diff1 + diff2 * diff2;
+  float structure = clamp(pow(edge, slope) * power, 0.0, 1.0);
+  fragColor = vec4(vec3(structure), 1.0);
+}`;
+
+// KUWAHARA_STRUCT — STRUCTURE variant of the Kuwahara painterly filter.
+// Same 7×7 quadrant sampling, but outputs luma of the painted result (no sat boost/blend).
+// uParams: x=radius(1–5px), y=sharpness(quadrant hardness)
+const FRAG_KUWAHARA_STRUCT = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  vec2 px = 1.0 / vec2(textureSize(u_video, 0));
+  float stepScale = 1.0 + uParams.x * 4.0;
+  vec3 m0=vec3(0.0), m1=vec3(0.0), m2=vec3(0.0), m3=vec3(0.0);
+  float s0=0.0, s1=0.0, s2=0.0, s3=0.0;
+  float n0=0.0, n1=0.0, n2=0.0, n3=0.0;
+  for (int dx = -3; dx <= 3; dx++) {
+    for (int dy = -3; dy <= 3; dy++) {
+      vec2 off = vec2(float(dx), float(dy)) * px * stepScale / 3.0;
+      vec3 cv = texture(u_video, clamp(vUV + off, 0.0, 1.0)).rgb;
+      float L = dot(cv, vec3(0.299, 0.587, 0.114));
+      if (dx <= 0 && dy <= 0) { m0 += cv; s0 += L*L; n0 += 1.0; }
+      if (dx >= 0 && dy <= 0) { m1 += cv; s1 += L*L; n1 += 1.0; }
+      if (dx <= 0 && dy >= 0) { m2 += cv; s2 += L*L; n2 += 1.0; }
+      if (dx >= 0 && dy >= 0) { m3 += cv; s3 += L*L; n3 += 1.0; }
+    }
+  }
+  m0/=n0; m1/=n1; m2/=n2; m3/=n3;
+  vec3 lv = vec3(0.299, 0.587, 0.114);
+  float v0 = s0/n0 - dot(m0,lv)*dot(m0,lv);
+  float v1 = s1/n1 - dot(m1,lv)*dot(m1,lv);
+  float v2 = s2/n2 - dot(m2,lv)*dot(m2,lv);
+  float v3 = s3/n3 - dot(m3,lv)*dot(m3,lv);
+  float sharp = exp(mix(0.0, 7.0, uParams.y));
+  float w0=exp(-v0*sharp), w1=exp(-v1*sharp), w2=exp(-v2*sharp), w3=exp(-v3*sharp);
+  float wt = w0+w1+w2+w3;
+  vec3 result = (m0*w0 + m1*w1 + m2*w2 + m3*w3) / wt;
+  float structure = dot(result, lv);
+  fragColor = vec4(vec3(structure), 1.0);
+}`;
+
+// COLORFULPOSTER — COLOR. Luma posterization via logistic curve + CMYK-tinted
+// hard-light color layer. Levels/Slope/Continuity control the quantization curve;
+// Tint blends the colored hard-light layer. After Daodan317081/reshade-shaders.
+// uParams: x=levels(0-1→2-20), y=slope(0-1→0-20), z=continuity(0-1), w=tint(0-1)
+const FRAG_COLORFULPOSTER = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+float posterize(float x, float numLevels, float continuity, float slope) {
+  float sh = 1.0 / numLevels;
+  float sn = floor(x * numLevels);
+  float fr = fract(x * numLevels);
+  float step1 = floor(fr) * sh;
+  float step2 = (1.0 / (1.0 + exp(-slope * (fr - 0.5)))) * sh;
+  return mix(step1, step2, continuity) + sh * sn;
+}
+void main() {
+  const vec3 lumaW = vec3(0.2126, 0.7151, 0.0721);
+  float numLevels = mix(2.0, 20.0, uParams.x);
+  float slope     = mix(0.0, 20.0, uParams.y);
+  float cont      = uParams.z;
+  float tint      = uParams.w;
+  vec3 col   = texture(u_video, vUV).rgb;
+  float luma = dot(col, lumaW);
+  vec3 chroma = col - luma;
+  float lumaP = posterize(luma, numLevels, cont, slope);
+  float K = 1.0 - max(col.r, max(col.g, col.b));
+  float denom = max(1.0 - K, 0.001);
+  vec3 cmy = clamp((1.0 - col - K) / denom + vec3(0.2, -0.1, -0.2), 0.0, 1.0);
+  vec3 mask = (1.0 - cmy) * (1.0 - K);
+  vec3 image = chroma + lumaP;
+  vec3 colorLayer = mix(
+    2.0 * image * mask,
+    1.0 - 2.0 * (1.0 - image) * (1.0 - mask),
+    step(0.5, vec3(luma))
+  );
+  colorLayer = mix(image, colorLayer, tint);
+  fragColor = vec4(clamp(colorLayer, 0.0, 1.0), 1.0);
+}`;
+
+// FAKEHDR — FX. Two 8-sample blooms at different radii, difference drives a
+// local-contrast enhancement trick. Not real HDR but gives punchy expanded-range look.
+// After CeeJay.dk FakeHDR for ReShade.
+// uParams: x=power(0-1→0.1-8), y=near(0-1→0.5-3), z=far(0-1→0.6-4), w=mix(0-1)
+const FRAG_FAKEHDR = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  vec2 px = 1.0 / vec2(textureSize(u_video, 0));
+  vec3 color = texture(u_video, vUV).rgb;
+  float hdrPow = mix(0.1, 8.0, uParams.x);
+  float r1 = mix(0.5, 3.0, uParams.y);
+  float r2 = mix(0.6, 4.0, uParams.z);
+  vec3 bloom1 = vec3(0.0), bloom2 = vec3(0.0);
+  const vec2 offsets[8] = vec2[8](
+    vec2( 1.5,-1.5), vec2(-1.5,-1.5), vec2( 1.5, 1.5), vec2(-1.5, 1.5),
+    vec2( 0.0,-2.5), vec2( 0.0, 2.5), vec2(-2.5, 0.0), vec2( 2.5, 0.0)
+  );
+  for (int i = 0; i < 8; i++) {
+    bloom1 += texture(u_video, vUV + offsets[i] * r1 * px).rgb;
+    bloom2 += texture(u_video, vUV + offsets[i] * r2 * px).rgb;
+  }
+  bloom1 *= 0.005;
+  bloom2 *= 0.010;
+  float dist = max(r2 - r1, 0.001);
+  vec3 hdr  = (color + (bloom2 - bloom1)) * dist;
+  vec3 blnd = hdr + color;
+  vec3 result = pow(max(blnd, 0.0), vec3(max(hdrPow, 0.1))) + hdr;
+  fragColor = vec4(clamp(mix(color, result, uParams.w), 0.0, 1.0), 1.0);
+}`;
 
 // ---- WebGL helpers ----
 
@@ -2700,7 +2812,7 @@ function getProgram(name) {
     prev:   gl.getUniformLocation(prog, 'u_prev'),
     params: gl.getUniformLocation(prog, 'uParams'),
     // Optional 5th scalar param (uParams holds 4) — null for shaders that
-    // don't declare it, so the upload is skipped. freqmod uses it for rows.
+    // don't declare it, so the upload is skipped.
     param4: gl.getUniformLocation(prog, 'uParam4'),
     uTime:  gl.getUniformLocation(prog, 'uTime'),
     outputMode: gl.getUniformLocation(prog, 'uOutputMode'),

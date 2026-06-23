@@ -13,7 +13,7 @@
  *
  * blobPipe = {
  *   structure: string|null,          // effect name or null
- *   structureParams: number[],       // [p0..p3] or [p0..p4] for freqmod
+ *   structureParams: number[],       // [p0..p3] ordered params
  *   structureOutputMode: number,     // 0=mono 1=source 2=ink 3=invert
  *   inkLow: [r,g,b],
  *   inkHigh: [r,g,b],
@@ -28,7 +28,8 @@ import { VERT, FRAGS, FRAG_EDGEDET_STRUCT } from './glFilters.js';
 
 // Blob structure context: some effects share a name with FX RACK shaders that
 // lack applyStructureOutput. Override them here so mono/source/ink/invert work.
-const BLOB_STRUCT_FRAG_OVERRIDES = { edgedet: FRAG_EDGEDET_STRUCT };
+// kuwahara: blob STRUCTURE uses the luma-output STRUCT variant, not the color one.
+const BLOB_STRUCT_FRAG_OVERRIDES = { edgedet: FRAG_EDGEDET_STRUCT, kuwahara: FRAGS.kuwahara_struct };
 import { FX_FRAGS } from './glFx.js';
 import { COLOR_PARAM_SCHEMAS, FX_PARAM_SCHEMAS } from './schemas.js';
 
