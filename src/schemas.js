@@ -62,7 +62,7 @@ export const DEFAULTS = Object.freeze({
   meltAmount: 0.5,     meltDrip: 0.4,         meltViscosity: 0.5,   meltDir: 0.0,
   motionedgeEdge: 0.5, motionedgeMotion: 0.6, motionedgeThresh: 0.15, motionedgeBoost: 0.5,
   edgedetThresh: 0.3,  edgedetGlow: 0.5,      edgedetHue: 0.15,     edgedetBlend: 0.1,
-  ditherScale: 0.4, ditherLevels: 0.3, ditherContrast: 0.5, ditherBias: 0.5,
+  ditherScale: 0.5, ditherLevels: 0.25, ditherContrast: 0.5, ditherBias: 0.5,
   colorisolationHue: 0.0, colorisolationOverlap: 0.3, colorisolationSteep: 0.5, colorisolationMode: 0.0,
   cartoonPower: 0.3, cartoonSlope: 0.4,
   kuwaharaStructRadius: 0.4, kuwaharaStructSharp: 0.5,
