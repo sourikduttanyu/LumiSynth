@@ -121,9 +121,11 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="melt"       aria-label="Melt"           data-tip="STRUCTURE. Luminance drips downward like heated wax. Amount, Drip Length, Viscosity, Direction."><span>Melt</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" aria-label="Motion Edge"   data-tip="STRUCTURE. Spatial edges + temporal motion (current frame vs ~4 frames back). Still scenes show outlines; anything moving lights up hard."><span>MotionEdge</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    aria-label="Edge Detect"    data-tip="STRUCTURE. Sobel edge detection. Thresh controls edge sensitivity; Glow sets line hardness; Hue colors the edges; Blend fades from neon-on-source to wireframe."><span>EdgeDet</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     aria-label="Bayer Dither"   data-tip="STRUCTURE. Bayer 4×4 ordered dithering — quantizes luma to N gray levels via a halftone matrix. Classic print and retro-game aesthetics."><span>Dither</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    aria-label="FM Demodulation"  data-tip="STRUCTURE. FM demodulation — pixel luminance drives instantaneous frequency; phase integrates left→right per row; envelope detector + IIR LPF reconstructs signal. Qtz adds discrete banding."><span>FreqMod</span></button>
-            <button class="toggle-btn" type="button" role="radio" aria-checked="false" data-value="moddiff" aria-label="Modulated Diffuse" data-tip="STRUCTURE. Modulated Diffuse — sine-wave dithering where luminance phase-shifts the threshold. Dense lines in bright areas, sparse in dark. The Marathon / Bungie art-style. Use Ink output with black + mint green for the full look."><span>ModDiff</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"          aria-label="Bayer Dither"      data-tip="STRUCTURE. Bayer 4×4 ordered dithering — quantizes luma to N gray levels via a halftone matrix. Classic print and retro-game aesthetics."><span>Dither</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="colorisolation"   aria-label="Color Isolation"   data-tip="STRUCTURE. Hue isolation mask — isolates or rejects a target hue band. Matching pixels become bright structure; others go dark. Use Reject mode to knock out a color key."><span>ColorIso</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="cartoon"          aria-label="Cartoon Edges"     data-tip="STRUCTURE. Diagonal Sobel edge detector — outputs edge strength as raw structure. Ink output mode gives classic cartoon dark-line-on-source look."><span>Cartoon</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="kuwahara"         aria-label="Kuwahara Paint"    data-tip="STRUCTURE. Kuwahara painterly filter — 7×7 quadrant sampling outputs luma only. Drives the color stage with soft painted regions rather than sharp video."><span>Kuwahara</span></button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"          aria-label="Modulated Diffuse" data-tip="STRUCTURE. Modulated Diffuse — sine-wave dithering where luminance phase-shifts the threshold. Dense lines in bright areas, sparse in dark. The Marathon / Bungie art-style. Use Ink output with black + mint green for the full look."><span>ModDiff</span></button>
           </div>
         </section>
 
@@ -215,15 +217,30 @@
           </div>
         </section>
 
-        <section class="effect-card hidden" id="freqmod-controls" data-card-effect="freqmod" data-mode-section="synth" aria-label="WaveMod parameters">
-          <div class="effect-card-header"><div class="effect-card-title">FM Demod</div><button class="card-reset-btn" type="button" data-reset-card="freqmod" title="Reset FM Demod knobs" aria-label="Reset FM Demod knobs">×</button></div>
+        <section class="effect-card hidden" id="colorisolation-controls" data-card-effect="colorisolation" data-mode-section="synth" aria-label="Color Isolation parameters">
+          <div class="effect-card-header"><div class="effect-card-title">Color Isolation</div><button class="card-reset-btn" type="button" data-reset-card="colorisolation" title="Reset Color Isolation knobs" aria-label="Reset Color Isolation knobs">×</button></div>
           <div class="knob-grid">
-            <div class="knob" id="freqmod-carrier" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3"  aria-label="FreqMod Carrier" data-tip="FM carrier frequency (1–12 cycles). Controls the base oscillation rate across the scan window." tabindex="0"><span class="knob-label">Carrier</span><span class="knob-val" id="freqmod-carrier-val">0.3</span></div>
-            <div class="knob" id="freqmod-spread"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4"  aria-label="FreqMod Spread"  data-tip="FM bandwidth — how far luminance deviates the frequency from the carrier. More = stronger modulation depth." tabindex="0"><span class="knob-label">Spread</span><span class="knob-val" id="freqmod-spread-val">0.4</span></div>
-            <div class="knob" id="freqmod-qtz"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.25" aria-label="FreqMod Qtz"     data-tip="Quantization steps (2–32). Low = coarse discrete banding. High = smoother gradients." tabindex="0"><span class="knob-label">Qtz</span><span class="knob-val" id="freqmod-qtz-val">0.25</span></div>
-            <div class="knob" id="freqmod-alpha"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.2"  aria-label="FreqMod Alpha"   data-tip="LPF response — envelope smoothing. Low = blurry reconstruction, high = sharp local response." tabindex="0"><span class="knob-label">Alpha</span><span class="knob-val" id="freqmod-alpha-val">0.2</span></div>
+            <div class="knob" id="colorisolation-hue"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.0" aria-label="Target Hue"    data-tip="Target hue to isolate or reject (0–1 maps 0–360°). Red=0, Yellow=0.17, Green=0.33, Cyan=0.5, Blue=0.67, Magenta=0.83." tabindex="0"><span class="knob-label">Hue</span><span class="knob-val" id="colorisolation-hue-val">0.0</span></div>
+            <div class="knob" id="colorisolation-overlap" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Hue Width"      data-tip="Width of the hue acceptance window. Low = narrow color slice. High = broad range of accepted hues." tabindex="0"><span class="knob-label">Width</span><span class="knob-val" id="colorisolation-overlap-val">0.3</span></div>
+            <div class="knob" id="colorisolation-steep"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Falloff Steep"  data-tip="Gaussian falloff steepness outside the window. High = hard cutoff at hue edge. Low = gradual fade out." tabindex="0"><span class="knob-label">Steep</span><span class="knob-val" id="colorisolation-steep-val">0.5</span></div>
+            <div class="knob" id="colorisolation-mode"    data-knob data-control="slider" data-min="0" data-max="1" data-step="1" data-default="0.0" aria-label="Isolation Mode" data-tip="0 = Isolate (matching hue bright, others dark). 1 = Reject (matching hue dark, others bright)." tabindex="0"><span class="knob-label">Mode</span><span class="knob-val" id="colorisolation-mode-val">0</span></div>
           </div>
-          <div class="knob" id="freqmod-black" data-knob data-control="slider" data-min="0" data-max="1" data-step="0.01" data-default="0" aria-label="FreqMod Black Level" data-tip="Black level — luma below this is crushed to 0 before FM encoding. Dark regions flatline cleanly instead of adding noise." tabindex="0"><span class="knob-label">Black</span><span class="knob-val" id="freqmod-black-val">0</span></div>
+        </section>
+
+        <section class="effect-card hidden" id="cartoon-controls" data-card-effect="cartoon" data-mode-section="synth" aria-label="Cartoon parameters">
+          <div class="effect-card-header"><div class="effect-card-title">Cartoon</div><button class="card-reset-btn" type="button" data-reset-card="cartoon" title="Reset Cartoon knobs" aria-label="Reset Cartoon knobs">×</button></div>
+          <div class="knob-grid">
+            <div class="knob" id="cartoon-power" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Edge Power" data-tip="Edge intensity multiplier. Higher = darker, more prominent outlines." tabindex="0"><span class="knob-label">Power</span><span class="knob-val" id="cartoon-power-val">0.3</span></div>
+            <div class="knob" id="cartoon-slope" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Edge Slope" data-tip="Edge threshold slope. Higher filters out faint edges, leaving only strong contours." tabindex="0"><span class="knob-label">Slope</span><span class="knob-val" id="cartoon-slope-val">0.4</span></div>
+          </div>
+        </section>
+
+        <section class="effect-card hidden" id="kuwahara-controls" data-card-effect="kuwahara" data-mode-section="synth" aria-label="Kuwahara parameters">
+          <div class="effect-card-header"><div class="effect-card-title">Kuwahara</div><button class="card-reset-btn" type="button" data-reset-card="kuwahara" title="Reset Kuwahara knobs" aria-label="Reset Kuwahara knobs">×</button></div>
+          <div class="knob-grid">
+            <div class="knob" id="kuwahara-radius" data-knob data-state="kuwaharaStructRadius" data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Kuwahara Radius" data-tip="Filter radius 1–5px. Larger = more painterly stroke-like blurring." tabindex="0"><span class="knob-label">Radius</span><span class="knob-val" id="kuwahara-radius-val">0.4</span></div>
+            <div class="knob" id="kuwahara-sharp"  data-knob data-state="kuwaharaStructSharp"  data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Kuwahara Sharp"  data-tip="Quadrant selection sharpness. Low = blended soft paint. High = hard region-locked strokes." tabindex="0"><span class="knob-label">Sharp</span><span class="knob-val" id="kuwahara-sharp-val">0.5</span></div>
+          </div>
         </section>
 
         <section class="effect-card hidden" id="moddiff-controls" data-card-effect="moddiff" data-mode-section="synth" aria-label="ModDiff parameters">
@@ -474,9 +491,11 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ascii"      data-tip="BLOB STRUCT. ASCII art inside blob region.">ASCII</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" data-tip="BLOB STRUCT. Spatial edge extraction inside blob region. (Motion component unavailable in blob mode.)">Edges</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    data-tip="BLOB STRUCT. Sobel edge detection with color hue inside blob region.">EdgeDet</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"     data-tip="BLOB STRUCT. Bayer dithering inside blob region.">Dither</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="freqmod"    data-tip="BLOB STRUCT. FM oscillography inside blob region.">FreqMod</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"    data-tip="BLOB STRUCT. Modulated Diffuse sine-wave dithering inside blob region.">ModDiff</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"          data-tip="BLOB STRUCT. Bayer dithering inside blob region.">Dither</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="colorisolation"   data-tip="BLOB STRUCT. Hue isolation mask inside blob region.">ColorIso</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="cartoon"          data-tip="BLOB STRUCT. Cartoon edge detection inside blob region.">Cartoon</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="kuwahara"         data-tip="BLOB STRUCT. Kuwahara painterly filter inside blob region.">Kuwahara</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"          data-tip="BLOB STRUCT. Modulated Diffuse sine-wave dithering inside blob region.">ModDiff</button>
           </div>
         </section>
 

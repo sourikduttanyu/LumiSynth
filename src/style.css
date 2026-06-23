@@ -1107,7 +1107,10 @@ label.section-label { cursor: pointer; }
 .filter-swatch-group .toggle-btn[data-value="pixelsort"]  { background: linear-gradient(90deg, #0a0908 0 20%, #d9d2c4 20% 30%, #3b3630 30% 55%, #ff5722 55% 62%, #100f0d 62%); }
 .filter-swatch-group .toggle-btn[data-value="melt"]       { background: linear-gradient(180deg, #f0ede8, #b89669 35%, #ff5722 70%, #100f0d); }
 .filter-swatch-group .toggle-btn[data-value="motionedge"] { background: linear-gradient(135deg, #04040a, #0a2a3a 40%, #2fdfff 50%, #0a2a3a 60%, #04040a), linear-gradient(45deg, #000, #fff); }
-.filter-swatch-group .toggle-btn[data-value="moddiff"]    { background: repeating-linear-gradient(180deg, #040c06 0px 3px, #1a6632 3px 4px, #040c06 4px 9px, #0f4020 9px 10px, #040c06 10px 16px, #1d7038 16px 17px, #040c06 17px 20px, #0a3018 20px 21px); }
+.filter-swatch-group .toggle-btn[data-value="moddiff"]        { background: repeating-linear-gradient(180deg, #040c06 0px 3px, #1a6632 3px 4px, #040c06 4px 9px, #0f4020 9px 10px, #040c06 10px 16px, #1d7038 16px 17px, #040c06 17px 20px, #0a3018 20px 21px); }
+.filter-swatch-group .toggle-btn[data-value="colorisolation"] { background: linear-gradient(90deg, #c00 0%, #c80 17%, #0a0 33%, #0aa 50%, #00c 67%, #a0c 83%, #c00 100%); }
+.filter-swatch-group .toggle-btn[data-value="cartoon"]        { background: linear-gradient(90deg, #f8f8f4, #d0cfc8 30%, #1a1a18 38%, #f0efe8 46%, #1a1a18 54%, #e8e8e0 62%, #1a1a18 70%, #f4f4f0); }
+.filter-swatch-group .toggle-btn[data-value="kuwahara"]       { background: radial-gradient(ellipse at 30% 40%, #c87840 0%, #8040a0 40%, #2060a8 70%, #104030 100%); }
 
 /* Active = 2px orange border + white inner ring (shape affordance). */
 .filter-swatch-group .toggle-btn.active,
