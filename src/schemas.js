@@ -1140,7 +1140,7 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
   moddiff: {
     toggles: [],
     knobs: [
-      { key: 'freq',  label: 'Freq',  min: 0, max: 1, step: 0.01, default: 0.25, tip: 'Line density — sine cycles across the frame (2–50). Low = wide spaced bands, high = fine lines.' },
+      { key: 'freq',  label: 'Freq',  min: 0, max: 3, step: 0.01, default: 0.25, tip: 'Line density — sine cycles across the frame (2–50 at 1.0, up to ~150 at 3.0). Low = wide spaced bands, high = fine lines.' },
       { key: 'mod',   label: 'Mod',   min: 0, max: 1, step: 0.01, default: 0.45, tip: 'Modulation depth — how much luminance phase-shifts the lines. High = lines drift and flow at content edges.' },
       { key: 'black', label: 'Black', min: 0, max: 1, step: 0.01, default: 0.08, tip: 'Black level — luma below this outputs solid black, keeping dark backgrounds clean.' },
       { key: 'axis',  label: 'Axis',  min: 0, max: 1, step: 1,    default: 0.0,  tip: '0 = Y axis (horizontal lines, Marathon default). 1 = X axis (vertical lines).' },
