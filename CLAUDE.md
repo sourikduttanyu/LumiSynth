@@ -9,12 +9,41 @@ npm install        # first time only
 npm run dev        # dev server at http://localhost:5173
 npm run build      # production build → dist/
 npm run preview    # serve dist/ locally
-npm run test:e2e   # Playwright smoke tests
+npm run test:e2e   # Playwright E2E test suite (107 tests, ~40s)
 npm run cf:dev     # build + Cloudflare Pages local dev for Functions
 npm run cf:deploy  # build + deploy dist/ to Cloudflare Pages
 ```
 
-No linter. The app is vanilla JS + Vite with Playwright smoke tests — verify visual/interaction correctness in the browser.
+No linter. The app is vanilla JS + Vite with Playwright E2E tests — verify visual/interaction correctness in the browser.
+
+## Test suite
+
+Two spec files under `tests/e2e/`:
+
+| File | Scope | Count |
+|---|---|---|
+| `smoke.spec.js` | Core happy-path smoke tests — quick sanity check after changes | 15 |
+| `pipeline.spec.js` | Comprehensive E2E: happy paths, sad paths, edge cases for all major features | 92 |
+
+**Test threshold**: 107 tests / 107 must pass before merging any change. If a test starts failing due to a deliberate UI change, update the test in the same PR.
+
+### Test helper conventions
+
+- `gotoClean(page)` — clear all localStorage keys and reload; used as the base for all tests.
+- `gotoDismissed(page)` — `gotoClean` + click the intro overlay "Start" button.
+- `activatePipelinePanel(page)` — removes `hidden` from `#pipeline-panel` without a real video file; required before interacting with STRUCTURE / COLOR / FX / TRACK sidebar controls.
+- `readLS(page, key)` — reads and JSON-parses a localStorage key; used with `expect.poll` to wait for the 200ms debounced persist to fire before reloading.
+
+### Why timeline tests are DOM-only
+
+Full timeline interaction (add/delete/duplicate segments, SET look) requires a real loaded video element (`video.duration > 0`). No video fixture is bundled in the test assets, so timeline tests only cover DOM structure and button presence. Functional timeline testing must be done in the browser.
+
+### Adding new tests
+
+When adding a new UI feature:
+1. Add a happy-path test in `pipeline.spec.js` under the relevant `test.describe` block.
+2. Add at least one sad-path or edge-case test.
+3. If the feature involves a persist cycle, use `expect.poll(() => readLS(...)).toBe(...)` before calling `page.reload()` to ensure the 200ms debounce has fired.
 
 ## Tech stack constraints
 
