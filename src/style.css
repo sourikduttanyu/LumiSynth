@@ -240,43 +240,204 @@ html, body {
   padding-right: var(--space-lg);
 }
 
-/* Record button — Snap's neighbor in the topbar. Has a small dot
-   inside the label that pulses red while recording, plus the button
-   itself takes on a danger-red border so it reads as "armed" from
-   across the room. The label flips to the live elapsed-time string
-   ("0:14") while recording. */
-#btn-record {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-variant-numeric: tabular-nums;
+/* ---- Export button ---- */
+#btn-export {
+  background: oklch(22% 0.07 140);
+  border-color: oklch(40% 0.10 140);
+  color: oklch(88% 0.09 140);
 }
-#btn-record .rec-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-faint);
-  transition: background var(--duration-base) var(--ease-out);
+#btn-export:hover:not([disabled]) { background: oklch(30% 0.08 140); }
+#btn-export.exporting {
+  background: oklch(18% 0.04 140);
+  border-color: oklch(35% 0.07 140);
+  color: oklch(60% 0.06 140);
+  cursor: not-allowed;
 }
-#btn-record.recording {
-  background: oklch(28% 0.10 25);
+
+/* ---- Preview button ---- */
+#btn-preview {
+  background: oklch(20% 0.06 65);
+  border-color: oklch(38% 0.10 65);
+  color: oklch(86% 0.09 65);
+}
+#btn-preview:hover:not([disabled]) { background: oklch(28% 0.08 65); }
+#btn-preview.previewing {
+  background: oklch(16% 0.05 25);
   border-color: var(--state-danger);
-  color: oklch(94% 0.06 25);
+  color: var(--state-danger);
 }
-#btn-record.recording .rec-dot {
-  background: var(--state-danger);
-  /* Pulse only when motion isn't reduced — heart-beat effect for the
-     "live indicator" affordance, but never inflict it on people who
-     opted out of motion. */
-  animation: rec-pulse 1.2s ease-in-out infinite;
+
+/* ---- Preview active — orange ring around the canvas ---- */
+#canvas-area.preview-active {
+  outline: 2px solid var(--orange-signal);
+  outline-offset: -2px;
 }
-#btn-record.recording:hover { background: oklch(34% 0.11 25); }
-@keyframes rec-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.45; transform: scale(0.8); }
+
+/* ---- Track-mode segment chips ---- */
+.timeline-segment.has-track-mode {
+  border-top: 2px solid var(--orange-signal);
 }
+
+/* ---- Export locked — sidebar + topbar become inert during export/preview ---- */
+#sidebar.export-locked,
+.topbar.export-locked {
+  pointer-events: none;
+  opacity: 0.38;
+  transition: opacity 0.25s var(--ease-out);
+}
+
+/* ================================================================
+   OVERDRIVE export progress overlay
+   Two-phase: Detecting (cyan) → Rendering (orange).
+   The title text switches phase; the bar colour follows via a CSS
+   data-attribute on the inner panel.
+   ================================================================ */
+.export-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(5% 0.01 85 / 0.92);
+  z-index: 60;
+  backdrop-filter: blur(4px);
+  animation: export-overlay-in 0.16s var(--ease-out) both;
+}
+@keyframes export-overlay-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.export-overlay.hidden { display: none; }
+
+.export-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 40px 28px;
+  background: oklch(10% 0.01 85);
+  border: 1px solid oklch(22% 0.01 85);
+  border-radius: 4px;
+  min-width: 300px;
+  position: relative;
+  overflow: hidden;
+  /* Ambient scanner line across the top */
+  box-shadow: 0 0 0 1px oklch(22% 0.01 85),
+              0 16px 48px oklch(0% 0 0 / 0.7),
+              inset 0 1px 0 oklch(28% 0.02 85);
+}
+
+/* Animated top scan-line — overdrive "active" indicator */
+.export-overlay-inner::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--orange-signal), transparent);
+  animation: export-scan 1.8s linear infinite;
+}
+@keyframes export-scan {
+  from { left: -100%; }
+  to   { left: 100%; }
+}
+
+.export-overlay-kicker {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: oklch(40% 0.01 85);
+}
+
+.export-overlay-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(96% 0.005 85);
+  /* flash on phase change */
+  transition: color 0.2s var(--ease-out);
+}
+
+/* Bar track */
+.export-overlay-bar-wrap {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  background: oklch(18% 0.01 85);
+  border-radius: 2px;
+  overflow: visible;
+}
+
+/* Filled progress */
+.export-overlay-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--orange-signal);
+  border-radius: 2px;
+  transition: width 0.1s linear;
+  position: relative;
+  z-index: 1;
+}
+
+/* During detection phase override bar to cyan */
+.export-overlay-inner[data-phase="detect"] .export-overlay-bar {
+  background: oklch(72% 0.18 195);
+}
+
+/* Large halo that blooms at the leading edge */
+.export-overlay-bar-glow {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--orange-signal);
+  opacity: 0.55;
+  filter: blur(8px);
+  pointer-events: none;
+  transition: left 0.1s linear;
+  z-index: 0;
+}
+.export-overlay-inner[data-phase="detect"] .export-overlay-bar-glow {
+  background: oklch(72% 0.18 195);
+}
+
+/* Frame counter */
+.export-overlay-label {
+  font-size: 11px;
+  color: oklch(50% 0.01 85);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  font-family: monospace;
+}
+
+/* Cancel — minimal, danger-red on hover */
+.export-overlay-cancel {
+  margin-top: 2px;
+  padding: 5px 20px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid oklch(25% 0.01 85);
+  border-radius: 2px;
+  color: oklch(42% 0.01 85);
+  cursor: pointer;
+  transition: border-color var(--duration-base) var(--ease-out),
+              color var(--duration-base) var(--ease-out);
+}
+.export-overlay-cancel:hover {
+  border-color: var(--state-danger);
+  color: var(--state-danger);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  #btn-record.recording .rec-dot { animation: none; }
+  .export-overlay { animation: none; }
+  .export-overlay-inner::before { animation: none; }
 }
 
 /* ============================================================

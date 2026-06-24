@@ -20,6 +20,8 @@
     "wrangler": "^4.94.0"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^0.10.35"
+    "@mediapipe/tasks-vision": "^0.10.35",
+    "fflate": "^0.8.3",
+    "mp4-muxer": "^5.2.2"
   }
 }

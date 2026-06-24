@@ -1,4 +1,6 @@
 import './style.css';
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { zipSync, strToU8 } from 'fflate';
 import { detectBlobs, resetFrameHistory, setColorKeyTarget, clearColorKeyTarget } from './blobDetector.js';
 import { applyFilterToSubregion } from './filters.js';
 import { drawTrackOverlay, resetTrackOverlay } from './overlays.js';
@@ -93,8 +95,13 @@ const fileStatus   = document.getElementById('file-status');
 const topbarSource = document.getElementById('topbar-source');
 const toastRegion  = document.getElementById('toast-region');
 const btnSnapshot      = document.getElementById('btn-snapshot');
-const btnRecord        = document.getElementById('btn-record');
-const btnRecordLbl     = document.getElementById('btn-record-label');
+const btnPreview       = document.getElementById('btn-preview');
+const btnExport        = document.getElementById('btn-export');
+const exportOverlay    = document.getElementById('export-overlay');
+const exportOverlayTitle = document.getElementById('export-overlay-title');
+const exportOverlayBar   = document.getElementById('export-overlay-bar');
+const exportOverlayLabel = document.getElementById('export-overlay-label');
+const btnExportCancel  = document.getElementById('btn-export-cancel');
 const exportResSelect  = document.getElementById('export-res-select');
 let exportResKey = 'display';
 exportResSelect?.addEventListener('change', () => { exportResKey = exportResSelect.value; });
@@ -3968,207 +3975,596 @@ async function takeSnapshot() {
 }
 btnSnapshot.addEventListener('click', () => { takeSnapshot(); });
 
-// ---- Clip recording (MediaRecorder against canvas.captureStream) ----
-//
-// Records the display canvas — same pixels the user sees, including
-// raw video, all GL chain output, per-blob CPU pass, and overlays.
-// `captureStream(60)` requests up to 60 frames/sec from the canvas;
-// the actual rate is whatever our render loop produces (capped at 60
-// by the FPS_CAP code), so the recording's cadence matches what's
-// on screen — no surprises with stuttery playback or doubled frames.
-//
-// MIME negotiation: try mp4 → webm/vp9 → webm/vp8. mp4 plays natively
-// on every modern OS / device; webm is the fallback for browsers that
-// can't encode it (Safari historically). The user gets a single click
-// → file in their downloads folder, regardless of which codec we
-// landed on.
-//
-// No audio: the canvas stream is video-only by definition. Audio from
-// the source video file is intentionally NOT included — the artistic
-// content is the visuals; pulling audio in would also raise privacy
-// expectations for the camera path. v2 could opt-in.
 
-// Codec preference order. First isTypeSupported match wins. Each entry
-// pairs the MediaRecorder MIME string with the file extension users
-// expect — keeps downloads from getting saddled with `.bin` or wrong
-// extensions for OS-level video previews.
-const RECORDER_FORMATS = [
-  { mime: 'video/mp4;codecs=avc1.640034', ext: 'mp4' },  // H.264 High Profile 5.2 (best quality)
-  { mime: 'video/mp4;codecs=avc1.640032', ext: 'mp4' },  // H.264 High Profile 5.0
-  { mime: 'video/mp4;codecs=avc1.42E01E', ext: 'mp4' },  // H.264 Baseline fallback
-  { mime: 'video/webm;codecs=vp9',        ext: 'webm' },
-  { mime: 'video/webm;codecs=vp8',        ext: 'webm' },
-  { mime: 'video/webm',                   ext: 'webm' },
-];
+// ---- Offline render export ----
+//
+// Unlike MediaRecorder (which screen-records the canvas in real-time), this
+// path renders every frame deterministically at a fixed timeline:
+//
+//   for each frame N:
+//     1. seek video to N/fps
+//     2. wait for 'seeked'
+//     3. draw the full render pipeline onto the canvas
+//     4. encode the canvas pixels as a VideoFrame → VideoEncoder → mp4-muxer
+//
+// The resulting MP4 contains exactly duration×fps frames — no drops, no
+// clock jitter, no encoding artifacts from the display refresh rate.
+//
+// Falls back to a PNG-sequence ZIP (via fflate) when VideoEncoder is
+// unavailable or returns unsupported for H.264 — works in all browsers
+// including older Safari.
+//
+// Source constraints: only works on video sources (not image / webcam /
+// shader) since those have no seekable timeline.
 
-// Module state for the active recording. _recorder is non-null only
-// while a recording is in progress; everything else gates off that.
-let _recorder       = null;
-let _recordChunks   = [];
-let _recordFormat   = null;
-let _recordStartT   = 0;
-let _recordTickRaf  = 0;
+let _exportAborted = false;
 
-function pickRecorderFormat() {
-  if (typeof MediaRecorder === 'undefined') return null;
-  for (const f of RECORDER_FORMATS) {
-    try { if (MediaRecorder.isTypeSupported(f.mime)) return f; } catch { /* keep going */ }
+const exportOverlayBarGlow  = document.getElementById('export-overlay-bar-glow');
+const exportOverlayInner    = document.querySelector('.export-overlay-inner');
+const sidebar      = document.getElementById('sidebar');
+const topBar       = document.querySelector('.topbar');
+
+// title drives the phase: titles containing 'Detect' → cyan phase indicator.
+function _exportSetProgress(done, total, title) {
+  if (!exportOverlay) return;
+  const pct = total > 0 ? (done / total) * 100 : 0;
+  const pctStr = `${pct.toFixed(1)}%`;
+  exportOverlayBar.style.width = pctStr;
+  if (exportOverlayBarGlow) exportOverlayBarGlow.style.left = pctStr;
+  exportOverlayLabel.textContent = `${done} / ${total} frames`;
+  if (title && exportOverlayTitle) {
+    exportOverlayTitle.textContent = title;
+    if (exportOverlayInner) {
+      exportOverlayInner.dataset.phase = /detect/i.test(title) ? 'detect' : 'render';
+    }
   }
-  return null;
 }
 
-// Detect support once at boot — if MediaRecorder isn't available or
-// can't encode any of our preferred MIMEs (extremely rare today, but
-// possible on locked-down enterprise browsers), hide the button so
-// users never see a control they can't use.
-const _recorderSupported = !!pickRecorderFormat();
-if (!_recorderSupported && btnRecord) {
-  btnRecord.style.display = 'none';
+function _exportShowOverlay(title) {
+  if (!exportOverlay) return;
+  _exportSetProgress(0, 0, title || 'Rendering…');
+  exportOverlay.classList.remove('hidden');
+  if (btnExport)   { btnExport.disabled = true; btnExport.classList.add('exporting'); }
+  if (btnSnapshot) btnSnapshot.disabled = true;
+  sidebar?.classList.add('export-locked');
+  topBar?.classList.add('export-locked');
 }
 
-function formatRecordTime(ms) {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+function _exportHideOverlay() {
+  if (!exportOverlay) return;
+  exportOverlay.classList.add('hidden');
+  if (btnExport)   { btnExport.classList.remove('exporting'); btnExport.disabled = !state.hasSource; }
+  if (btnSnapshot) btnSnapshot.disabled = !state.hasSource;
+  sidebar?.classList.remove('export-locked');
+  topBar?.classList.remove('export-locked');
 }
 
-let _recordTickLast = 0;
-function tickRecordLabel(now) {
-  if (!_recorder) return;
-  if (now - _recordTickLast >= 500) {
-    btnRecordLbl.textContent = formatRecordTime(now - _recordStartT);
-    _recordTickLast = now;
+// Seek the video to `t` and wait for the seeked event (or timeout).
+function _seekTo(t) {
+  return new Promise((resolve) => {
+    const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
+    video.addEventListener('seeked', onSeeked);
+    video.currentTime = t;
+    // Safety timeout: some browsers don't fire 'seeked' for out-of-range seeks.
+    setTimeout(resolve, 500);
+  });
+}
+
+// Run the full render pipeline for the current video frame onto the canvas.
+// blobs[] comes from the pre-detection pass; empty array for synth-mode frames.
+function _renderOneFrame(look, cw, ch, blobs = []) {
+  const srcEl = activeSourceEl();
+  ctx.drawImage(srcEl, 0, 0, cw, ch);
+
+  const pipe = resolveActivePipeline(look);
+  const chained = [];
+  if (pipe.color) chained.push({ type: pipe.color.type, run: (opts) => runColorEffect(pipe.color.type, pipe.color.params, opts) });
+  if (pipe.grade) chained.push({ type: 'grade',         run: (opts) => runGradeEffect(pipe.grade, opts) });
+  chained.push(...pipe.fx.map((f) => ({ type: f.type, run: (opts) => runFxEffect(f.type, f.params, opts, f.key) })));
+
+  const totalStages = (pipe.structure ? 1 : 0) + chained.length;
+  if (totalStages > 0) {
+    ensureContext(cw, ch);
+    uploadVideoFrame(srcEl);
+    if (pipe.structure === 'motionedge' || pipe.color?.type === 'predator') captureFrameHistory();
+
+    if (totalStages === 1) {
+      if (pipe.structure) {
+        const chain = getChainFBOs();
+        runEffect(pipe.structure, { outputFBO: chain.a.fb });
+        const structModeVal = structureOutputModeValue(look);
+        const inkColors = inkColorUniforms(look);
+        applyStructureMode(cw, ch, chain.a.tex, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
+        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
+      } else {
+        const stage = chained[0];
+        stage.run({});
+        compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[stage.type] || 'source-over');
+      }
+    } else {
+      const chain = getChainFBOs();
+      let currentTex = null;
+      let writeIdx = 0;
+      const writeFBOs = [chain.a.fb, chain.b.fb];
+      const readTexs  = [chain.a.tex, chain.b.tex];
+
+      if (pipe.structure) {
+        runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
+        currentTex = readTexs[writeIdx]; writeIdx ^= 1;
+        const structModeVal = structureOutputModeValue(look);
+        const inkColors = inkColorUniforms(look);
+        applyStructureMode(cw, ch, currentTex, structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
+        currentTex = readTexs[writeIdx]; writeIdx ^= 1;
+        if (BLEND_MODES[pipe.structure] === 'screen') {
+          applyCompose(cw, ch, currentTex, writeFBOs[writeIdx]);
+          currentTex = readTexs[writeIdx]; writeIdx ^= 1;
+        }
+      }
+
+      for (let i = 0; i < chained.length; i++) {
+        const isLast = (i === chained.length - 1);
+        const outFB = isLast ? null : writeFBOs[writeIdx];
+        const opts = currentTex ? { inputTex: currentTex, outputFBO: outFB } : { outputFBO: outFB };
+        chained[i].run(opts);
+        if (!isLast) { currentTex = readTexs[writeIdx]; writeIdx ^= 1; }
+      }
+
+      const terminal = chained[chained.length - 1].type;
+      compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[terminal] || 'source-over');
+    }
   }
-  _recordTickRaf = requestAnimationFrame(tickRecordLabel);
+
+  // Track mode — mirrors the renderFrame track block exactly.
+  if (look.mode === 'track') {
+    if (look.trackComposite === 'isolated') {
+      ctx.save();
+      ctx.fillStyle = '#0a0908';
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.restore();
+    }
+    if (blobs.length > 0) {
+      const effects = look.trackFxRack
+        .filter((s) => s.enabled && s.type !== 'none')
+        .map((s) => ({ type: s.type, params: s.params }));
+      drawTrackOverlay(ctx, blobs, cw, ch, {
+        shape: {
+          type:       look.trackShape,
+          hueColor:   look.trackShapeColor,
+          thickness:  look.trackShapeThickness,
+          padding:    look.trackShapePadding,
+          styleParam: look.trackShapeStyle,
+        },
+        lines: {
+          type:      look.trackLines,
+          hueColor:  look.trackLinesColor,
+          thickness: look.trackLinesThickness,
+          param:     look.trackLinesParam,
+          taper:     look.trackLinesTaper,
+        },
+        effects,
+        labels: { show: false },
+      });
+    }
+  }
+
+  // Blob LumiSynth — uses pre-detected blobs, same gating as renderFrame.
+  if (blobs.length > 0) {
+    const blobPipe = resolveBlobPipeline(look);
+    const blobHasWork = blobPipe.structure || blobPipe.color || blobPipe.grade || blobPipe.fx.length > 0;
+    if (blobHasWork) {
+      const MAX_BLOBS = 6;
+      for (let i = 0; i < Math.min(blobs.length, MAX_BLOBS); i++) {
+        const blob = blobs[i];
+        if ((blob.presence ?? 1) < 0.02) continue;
+        const bx = Math.max(0, Math.floor(blob.cx - blob.w / 2));
+        const by = Math.max(0, Math.floor(blob.cy - blob.h / 2));
+        const bw = Math.min(cw - bx, Math.ceil(blob.w));
+        const bh = Math.min(ch - by, Math.ceil(blob.h));
+        if (bw < 8 || bh < 8) continue;
+        runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, ctx, cw, ch, blob.presence ?? 1);
+      }
+    }
+  }
+
+  // Unified labels — mirrors renderFrame.
+  if (look.mode === 'track' && look.trackLabels !== 'off' && blobs.length > 0) {
+    const fSize = 10;
+    const padX = 5, padY = 3;
+    const tagH = fSize + padY * 2;
+    ctx.save();
+    ctx.font = `bold ${fSize}px monospace`;
+    for (const blob of blobs) {
+      const bx = Math.max(0, Math.floor(blob.cx - blob.w / 2));
+      const by = Math.max(0, Math.floor(blob.cy - blob.h / 2));
+      const bw = Math.min(cw - bx, Math.ceil(blob.w));
+      let text = null;
+      let alignRight = false;
+      if (look.trackLabels === 'confidence' && blob.category) {
+        text = `${blob.category}  ${Math.round(blob.score * 100)}%`;
+      } else if (look.trackLabels === 'position') {
+        text = `X:${Math.round(blob.cx)} Y:${Math.round(blob.cy)}`;
+        alignRight = true;
+      }
+      if (!text) continue;
+      const tagW = ctx.measureText(text).width + padX * 2;
+      const tagX = alignRight
+        ? Math.min(cw - tagW, bx + bw - tagW)
+        : Math.max(0, bx);
+      const tagY = Math.max(0, by - tagH - 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.70)';
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(tagX, tagY, tagW, tagH, 3); ctx.fill(); }
+      else ctx.fillRect(tagX, tagY, tagW, tagH);
+      ctx.fillStyle = '#e8e8e8';
+      ctx.fillText(text, tagX + padX, tagY + padY + fSize - 1);
+    }
+    ctx.restore();
+  }
 }
 
-async function startRecording() {
+// Check if the browser can encode H.264 via VideoEncoder.
+async function _canWebCodecs() {
+  if (typeof VideoEncoder === 'undefined') return false;
+  try {
+    const support = await VideoEncoder.isConfigSupported({
+      codec: 'avc1.640034',
+      width: 640, height: 360,
+      bitrate: 5_000_000, framerate: 30,
+    });
+    return support.supported === true;
+  } catch (_) { return false; }
+}
+
+// Compute export bitrate based on resolution key (sane, platform-aligned values).
+function _exportBitrate(resKey, w, h) {
+  if (resKey === '4k')   return 50_000_000;
+  if (resKey === '1080p') return 15_000_000;
+  if (resKey === '720p')  return  8_000_000;
+  // 'display' — derive from pixel count relative to 1080p budget
+  const px = w * h;
+  return Math.round(Math.max(2_000_000, Math.min(15_000_000, (px / (1920 * 1080)) * 15_000_000)));
+}
+
+// Main offline render: WebCodecs path — produces a real MP4.
+async function _exportWebCodecs(fps, totalFrames, cw, ch, bitrate, ts, blobsPerFrame) {
+  const muxer = new Muxer({
+    target: new ArrayBufferTarget(),
+    video: { codec: 'avc', width: cw, height: ch },
+    fastStart: 'in-memory',
+  });
+
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: (e) => { showToast(`Encoder error: ${e.message || e}`, 'error'); _exportAborted = true; },
+  });
+
+  encoder.configure({
+    codec: 'avc1.640034',
+    width: cw, height: ch,
+    bitrate,
+    framerate: fps,
+    bitrateMode: 'variable',
+    latencyMode: 'quality',
+  });
+
+  const savedTime = video.currentTime;
+  const wasPaused = video.paused;
+  if (!wasPaused) video.pause();
+
+  resetAllState();
+
+  for (let n = 0; n < totalFrames; n++) {
+    if (_exportAborted) break;
+
+    const t = n / fps;
+    await _seekTo(t);
+
+    const timelineResolved = resolveTimelineLook(t);
+    _renderLook = timelineResolved.look;
+    const look = currentLook();
+    _renderOneFrame(look, cw, ch, blobsPerFrame.get(n) ?? []);
+    _renderLook = null;
+
+    const frame = new VideoFrame(canvas, {
+      timestamp: Math.round(t * 1_000_000),
+      duration:  Math.round(1_000_000 / fps),
+    });
+    encoder.encode(frame, { keyFrame: n % (fps * 2) === 0 });
+    frame.close();
+
+    _exportSetProgress(n + 1, totalFrames, 'Rendering…');
+    if (n % 10 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  if (!_exportAborted) {
+    await encoder.flush();
+    muxer.finalize();
+    const { buffer } = muxer.target;
+    const blob = new Blob([buffer], { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lumisynth-export-${ts}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
+    showToast(`Exported ${totalFrames} frames · ${sizeMb} MB`, 'ok', 4000);
+  }
+
+  encoder.close();
+
+  await _seekTo(savedTime);
+  resetAllState();
+  if (!wasPaused) video.play();
+}
+
+// Fallback offline render: PNG-sequence ZIP via fflate.
+async function _exportPNGZip(fps, totalFrames, cw, ch, ts, blobsPerFrame) {
+  const files = {};
+  const savedTime = video.currentTime;
+  const wasPaused = video.paused;
+  if (!wasPaused) video.pause();
+  resetAllState();
+
+  for (let n = 0; n < totalFrames; n++) {
+    if (_exportAborted) break;
+
+    const t = n / fps;
+    await _seekTo(t);
+
+    const timelineResolved = resolveTimelineLook(t);
+    _renderLook = timelineResolved.look;
+    const look = currentLook();
+    _renderOneFrame(look, cw, ch, blobsPerFrame.get(n) ?? []);
+    _renderLook = null;
+
+    const pngBuf = await new Promise((resolve) => {
+      canvas.toBlob(async (b) => {
+        resolve(new Uint8Array(await b.arrayBuffer()));
+      }, 'image/png');
+    });
+
+    const name = `frame_${String(n + 1).padStart(6, '0')}.png`;
+    files[name] = pngBuf;
+
+    _exportSetProgress(n + 1, totalFrames, 'Rendering…');
+    if (n % 5 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  if (!_exportAborted) {
+    _exportSetProgress(totalFrames, totalFrames, 'Compressing…');
+    await new Promise(r => setTimeout(r, 0));
+    const zipped = zipSync(files, { level: 0 });
+    const blob = new Blob([zipped], { type: 'application/zip' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lumisynth-frames-${ts}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
+    showToast(`Exported ${totalFrames} PNG frames · ${sizeMb} MB`, 'ok', 4000);
+  }
+
+  await _seekTo(savedTime);
+  resetAllState();
+  if (!wasPaused) video.play();
+}
+
+// Pass 1 of the two-pass export: seek every frame in order and run blob
+// detection, storing results in a Map<frameIndex, blobs[]>. Frames whose
+// segment look is not in track mode get an empty array immediately without
+// seeking, so the cost scales only with the track-mode portion of the video.
+// MediaPipe's detectForVideo receives synthetic monotonically-increasing
+// timestamps (frameN * frameDurationMs) — seeking in frame order guarantees
+// monotonicity throughout the entire detection pass.
+async function _preDetectAllFrames(fps, totalFrames, cw, ch) {
+  const blobsPerFrame = new Map();
+  const detectScale = resolveDetectScale(cw, ch);
+  const ow = Math.max(1, Math.round(cw * detectScale));
+  const oh = Math.max(1, Math.round(ch * detectScale));
+  offscreen.width = ow; offscreen.height = oh;
+
+  const frameDurationMs = 1000 / fps;
+  let mpTimestamp = 0;
+
+  for (let n = 0; n < totalFrames; n++) {
+    if (_exportAborted) break;
+
+    const t = n / fps;
+    const look = resolveTimelineLook(t).look;
+
+    if (look.mode !== 'track') {
+      blobsPerFrame.set(n, []);
+      _exportSetProgress(n + 1, totalFrames, 'Detecting…');
+      if (n % 20 === 0) await new Promise(r => setTimeout(r, 0));
+      continue;
+    }
+
+    await _seekTo(t);
+    offCtx.drawImage(activeSourceEl(), 0, 0, ow, oh);
+
+    const cap = Math.min(30, look.trackMaxBlobs);
+    const sx = cw / ow, sy = ch / oh;
+    let rawBlobs;
+
+    if (state.trackBackend === 'object') {
+      mpTimestamp += frameDurationMs;
+      if (!isObjectDetectorReady()) {
+        rawBlobs = [];
+      } else {
+        const scoreThreshold = Math.min(0.9, Math.max(0.05, look.threshold / 100));
+        rawBlobs = detectObjects(offscreen, mpTimestamp, { scoreThreshold, maxResults: cap });
+      }
+    } else {
+      const minSizeDetect = look.trackMinSize * detectScale;
+      const offImageData = offCtx.getImageData(0, 0, ow, oh);
+      if (look.trackChannel === 'color') {
+        const hex = look.colorKeyHex.replace('#', '');
+        const cr = parseInt(hex.slice(0, 2), 16);
+        const cg = parseInt(hex.slice(2, 4), 16);
+        const cb = parseInt(hex.slice(4, 6), 16);
+        setColorKeyTarget(cr, cg, cb, look.colorKeyHueTol, look.colorKeySatMin, 0.10);
+      } else {
+        clearColorKeyTarget();
+      }
+      rawBlobs = detectBlobs(offImageData, look.threshold, cap, look.trackChannel, minSizeDetect);
+    }
+
+    const scaledRaw = rawBlobs.map(b => ({
+      ...b, x: b.x*sx, y: b.y*sy, w: b.w*sx, h: b.h*sy, cx: b.cx*sx, cy: b.cy*sy,
+    }));
+    const tracked = trackBlobs(scaledRaw, cw, cap);
+    blobsPerFrame.set(n, smoothBlobs(tracked, cw));
+
+    _exportSetProgress(n + 1, totalFrames, 'Detecting…');
+    if (n % 10 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  return blobsPerFrame;
+}
+
+async function startOfflineExport() {
   if (!state.hasSource) {
-    showToast('Load a video or open the camera first', 'error');
-    return;
+    showToast('Load a video first', 'error'); return;
   }
-  if (!(await requireExportAccess('recording'))) return;
-  if (_recorder) return; // guard double-clicks
-  _recordFormat = pickRecorderFormat();
-  if (!_recordFormat) {
-    showToast('Recording not supported in this browser', 'error');
-    return;
+  if (state.sourceKind !== 'video') {
+    showToast('Offline export only works with video files (not webcam/shader/image)', 'error'); return;
   }
+  if (!(await requireExportAccess('export'))) return;
+
+  const duration = video.duration;
+  if (!duration || !isFinite(duration) || duration <= 0) {
+    showToast('Video has no duration — cannot export', 'error'); return;
+  }
+
   const exportDims = getExportDimensions();
+  const cw = exportDims ? exportDims.w : canvas.width;
+  const ch = exportDims ? exportDims.h : canvas.height;
+
+  // Temporarily resize the canvas to export dimensions.
   if (exportDims) {
     canvas.width  = exportDims.w;
     canvas.height = exportDims.h;
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   }
-  // captureStream pulls frames from the canvas at the rate we draw to
-  // it (capped at FPS_CAP). The 60 here is a hint to the browser, not
-  // a guarantee — actual rate matches our render loop.
-  let stream;
+
+  const fps = Math.min(60, Math.max(1, Math.round(video.playbackRate > 0 ? 60 : 30)));
+  const totalFrames = Math.max(1, Math.round(duration * fps));
+  const bitrate = _exportBitrate(exportResKey, cw, ch);
+  const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+
+  // Pause the live RAF loop — the export seek loop drives rendering instead.
+  if (rafHandle) { cancelAnimationFrame(rafHandle); rafHandle = 0; }
+
+  _exportAborted = false;
+  const useWebCodecs = await _canWebCodecs();
+
+  // Determine if any part of the video requires blob detection.
+  const needsDetection = state.mode === 'track' ||
+    state.timelineSegments.some((s) => s.look?.mode === 'track');
+
+  // Ensure MediaPipe is initialised before the detection pass if needed.
+  if (needsDetection && state.trackBackend === 'object' && !isObjectDetectorReady()) {
+    showToast('Initialising object detector…', 'info', 2000);
+    try { await initObjectDetector('GPU'); } catch { /* fall back to CPU results silently */ }
+  }
+
+  _exportShowOverlay('Detecting…');
+
+  let blobsPerFrame = new Map();
   try {
-    stream = canvas.captureStream(FPS_CAP);
+    if (needsDetection) {
+      resetTracker();
+      blobsPerFrame = await _preDetectAllFrames(fps, totalFrames, cw, ch);
+    }
+    if (!_exportAborted) {
+      _exportSetProgress(0, totalFrames, useWebCodecs ? 'Rendering MP4…' : 'Rendering PNG frames…');
+      if (useWebCodecs) {
+        await _exportWebCodecs(fps, totalFrames, cw, ch, bitrate, ts, blobsPerFrame);
+      } else {
+        await _exportPNGZip(fps, totalFrames, cw, ch, ts, blobsPerFrame);
+      }
+    }
   } catch (err) {
+    showToast(`Export failed: ${err.message || err}`, 'error');
+  } finally {
+    _exportHideOverlay();
     if (exportDims) resizeCanvas();
-    showToast(`Couldn't capture canvas: ${err.message || err}`, 'error');
-    return;
+    if (state.hasSource && rafHandle === 0) rafHandle = requestAnimationFrame(renderFrame);
   }
-  const bitsPerSecond = { '720p': 25_000_000, '1080p': 80_000_000, '4k': 200_000_000 }[exportResKey] ?? 25_000_000;
-  try {
-    _recorder = new MediaRecorder(stream, { mimeType: _recordFormat.mime, videoBitsPerSecond: bitsPerSecond });
-  } catch (err) {
-    showToast(`Recorder init failed: ${err.message || err}`, 'error');
-    _recorder = null;
-    return;
-  }
-  _recordChunks = [];
-  _recorder.addEventListener('dataavailable', (e) => {
-    if (e.data && e.data.size > 0) _recordChunks.push(e.data);
-  });
-  _recorder.addEventListener('error', (e) => {
-    showToast(`Recording error: ${e.error?.message || 'unknown'}`, 'error');
-    teardownRecording();
-  });
-  _recorder.addEventListener('stop', () => {
-    finalizeRecording();
-  });
-  // Request a chunk every second so a long recording isn't held in
-  // a single giant blob — also means a browser crash mid-record loses
-  // at most one second of data via the dataavailable accumulation.
-  _recorder.start(1000);
-  _recordStartT = performance.now();
-  btnRecord.classList.add('recording');
-  btnRecord.setAttribute('aria-pressed', 'true');
-  btnRecord.title = 'Stop recording (click to save)';
-  btnRecordLbl.textContent = '0:00';
-  _recordTickRaf = requestAnimationFrame(tickRecordLabel);
-  renderTimelinePanel();
-  showToast(`Recording started (${_recordFormat.ext.toUpperCase()})`, 'ok', 1800);
 }
 
-function stopRecording() {
-  if (!_recorder) return;
-  // Recorder.stop() flushes a final dataavailable then fires 'stop',
-  // which calls finalizeRecording. teardown happens there to keep the
-  // sequencing single-path.
-  try { _recorder.stop(); } catch { /* already stopped */ }
+if (btnExport) {
+  btnExport.addEventListener('click', () => { startOfflineExport(); });
 }
-
-function finalizeRecording() {
-  const chunks = _recordChunks;
-  const fmt    = _recordFormat;
-  const durMs  = performance.now() - _recordStartT;
-  teardownRecording();
-  resizeCanvas();
-
-  if (!chunks.length) {
-    showToast('Recording produced no data', 'error');
-    return;
-  }
-  const blob = new Blob(chunks, { type: fmt.mime.split(';')[0] });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  const ts   = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
-  const qual = exportResKey === 'display' ? 'disp' : exportResKey;
-  a.href = url;
-  a.download = `lumisynth-${qual}-${ts}.${fmt.ext}`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-
-  const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
-  showToast(`Saved ${formatRecordTime(durMs)} clip · ${sizeMb} MB`, 'ok', 3500);
-}
-
-function teardownRecording() {
-  if (_recordTickRaf) {
-    cancelAnimationFrame(_recordTickRaf);
-    _recordTickRaf = 0;
-  }
-  _recorder = null;
-  _recordChunks = [];
-  btnRecord.classList.remove('recording');
-  btnRecord.setAttribute('aria-pressed', 'false');
-  btnRecord.title = 'Record canvas as a video clip (click again to stop)';
-  btnRecordLbl.textContent = 'Rec';
-  renderTimelinePanel();
-}
-
-if (btnRecord) {
-  btnRecord.addEventListener('click', () => {
-    if (_recorder) stopRecording();
-    else           startRecording();
+if (btnExportCancel) {
+  btnExportCancel.addEventListener('click', () => {
+    _exportAborted = true;
+    showToast('Export cancelled', 'info', 2000);
   });
 }
 
-// Auto-stop if the user yanks the source mid-recording (e.g. switches
-// from camera to video file). The captureStream keeps "running" but
-// produces black frames once the canvas isn't being redrawn, which
-// would be a confusing artifact in the saved clip. Better to finalize
-// what they've already captured.
-function handleSourceChangeForRecording() {
-  if (_recorder) {
-    showToast('Source changed — finalizing recording', 'info', 2000);
-    stopRecording();
+// ---- Segment preview — plays the whole video from the start so all
+// segment looks (including track mode) are applied by the live render loop.
+let _previewActive = false;
+
+function _previewUpdateButton() {
+  if (!btnPreview) return;
+  if (_previewActive) {
+    btnPreview.textContent = 'Stop';
+    btnPreview.classList.add('previewing');
+    btnPreview.title = 'Stop preview';
+  } else {
+    btnPreview.textContent = 'Preview';
+    btnPreview.classList.remove('previewing');
+    btnPreview.title = 'Preview all segments end-to-end with their looks applied';
   }
+}
+
+function stopPreview() {
+  if (!_previewActive) return;
+  _previewActive = false;
+  video.pause();
+  sidebar?.classList.remove('export-locked');
+  topBar?.classList.remove('export-locked');
+  document.getElementById('canvas-area')?.classList.remove('preview-active');
+  if (btnExport)   btnExport.disabled = !state.hasSource;
+  if (btnSnapshot) btnSnapshot.disabled = !state.hasSource;
+  _previewUpdateButton();
+  _updatePreviewBtnEnabled();
+}
+
+function startPreview() {
+  if (!state.hasSource || state.sourceKind !== 'video') return;
+  if (_previewActive) { stopPreview(); return; }
+  _previewActive = true;
+  video.currentTime = 0;
+  video.play().catch(() => {});
+  sidebar?.classList.add('export-locked');
+  topBar?.classList.add('export-locked');
+  document.getElementById('canvas-area')?.classList.add('preview-active');
+  if (btnExport)   btnExport.disabled = true;
+  if (btnSnapshot) btnSnapshot.disabled = true;
+  _previewUpdateButton();
+  showToast('Previewing — all segment looks applied live', 'info', 2000);
+}
+
+function _updatePreviewBtnEnabled() {
+  if (!btnPreview) return;
+  const hasSegs = state.timelineSegments && state.timelineSegments.length > 0;
+  btnPreview.disabled = !(state.hasSource && state.sourceKind === 'video' && hasSegs);
+}
+
+video.addEventListener('ended', () => { if (_previewActive) stopPreview(); });
+
+if (btnPreview) {
+  btnPreview.addEventListener('click', () => {
+    if (_previewActive) stopPreview(); else startPreview();
+  });
 }
 
 // ---- Help panel ----
@@ -4271,11 +4667,6 @@ document.addEventListener('keydown', (e) => {
         return;
       case 'f':
         btnFps.click(); e.preventDefault(); return;
-      case 'r':
-        if (btnRecord && !btnRecord.disabled && btnRecord.style.display !== 'none') {
-          btnRecord.click(); e.preventDefault();
-        }
-        return;
     }
   }
 });
@@ -4552,14 +4943,11 @@ function updateSourceLabel(text) {
 }
 
 function setHasSource(val, label) {
-  // If a recording is active and the source changes (or goes away),
-  // finalize it. Otherwise the saved clip would tail off into black
-  // frames once the canvas stops being updated.
-  handleSourceChangeForRecording();
   state.hasSource = val;
   placeholder.style.display = val ? 'none' : 'flex';
   btnSnapshot.disabled = !val;
-  if (btnRecord) btnRecord.disabled = !val;
+  if (btnExport) btnExport.disabled = !val;
+  _updatePreviewBtnEnabled();
   if (val) {
     const w = activeSourceWidth();
     const h = activeSourceHeight();
@@ -4679,19 +5067,21 @@ function renderTimelinePanel() {
     return;
   }
 
-  const recording = !!_recorder;
-  setTimelineDisabled(recording);
+  setTimelineDisabled(false);
+  _updatePreviewBtnEnabled();
   const selected = selectedTimelineSegment();
   const duration = video.duration;
   for (const seg of sortedTimelineSegments()) {
     const btn = document.createElement('button');
     btn.type = 'button';
+    const segIsTrack = seg.look?.mode === 'track';
     btn.className = 'timeline-segment';
     btn.dataset.segmentId = seg.id;
     btn.classList.toggle('is-selected', seg.id === state.selectedTimelineSegmentId);
+    btn.classList.toggle('has-track-mode', segIsTrack);
     btn.style.left = `${(seg.start / duration) * 100}%`;
     btn.style.width = `${Math.max(0.5, ((seg.end - seg.start) / duration) * 100)}%`;
-    btn.dataset.tip = `${seg.name} · ${formatTimePrecise(seg.start)}–${formatTimePrecise(seg.end)}s. Drag to move; drag edges to retime.`;
+    btn.dataset.tip = `${seg.name} · ${formatTimePrecise(seg.start)}–${formatTimePrecise(seg.end)}s${segIsTrack ? ' · TRACK' : ''}. Drag to move; drag edges to retime.`;
 
     const segLabel = document.createElement('span');
     segLabel.className = 'timeline-segment-label';
@@ -4814,10 +5204,6 @@ function addTimelineSegment() {
     showToast('Load an uploaded video before adding timeline segments', 'error');
     return;
   }
-  if (_recorder) {
-    showToast('Stop recording before editing the timeline', 'error');
-    return;
-  }
   const t = clamp(video.currentTime ?? 0, 0, video.duration);
   const start = t;
   const end = Math.min(t + 1, video.duration);
@@ -4839,10 +5225,6 @@ function addTimelineSegment() {
 function duplicateTimelineSegment() {
   const selected = selectedTimelineSegment();
   if (!selected || !timelineAvailable()) return;
-  if (_recorder) {
-    showToast('Stop recording before editing the timeline', 'error');
-    return;
-  }
   const len = selected.end - selected.start;
   const gap = findTimelineGap(selected.end, len);
   if (!gap) {
@@ -4859,10 +5241,6 @@ function duplicateTimelineSegment() {
 function deleteTimelineSegment() {
   const selected = selectedTimelineSegment();
   if (!selected) return;
-  if (_recorder) {
-    showToast('Stop recording before editing the timeline', 'error');
-    return;
-  }
   state.timelineSegments = state.timelineSegments.filter((s) => s.id !== selected.id);
   state.selectedTimelineSegmentId = null;
   renderTimelinePanel();
@@ -4907,7 +5285,7 @@ if (timelineTrack) {
 // keeping the pointer down keeps scrubbing. Segments swallow their own
 // pointerdown so drag-to-move and drag-to-resize win over scrubbing.
 timelineTrack?.addEventListener('pointerdown', (e) => {
-  if (!timelineAvailable() || _recorder) return;
+  if (!timelineAvailable()) return;
   if (e.target.closest('.timeline-segment')) return;
   e.preventDefault();
   timelineTrack.setPointerCapture(e.pointerId);
@@ -5928,6 +6306,7 @@ initAuth();
 canvas.width  = canvasArea.clientWidth;
 canvas.height = canvasArea.clientHeight;
 btnSnapshot.disabled = !state.hasSource;
-if (btnRecord) btnRecord.disabled = !state.hasSource;
+if (btnExport) btnExport.disabled = !state.hasSource;
+_updatePreviewBtnEnabled();
 
 // No autoplay on cold start — user must explicitly pick a shader from the library.

@@ -585,7 +585,8 @@
               <option value="4k">4K</option>
             </select>
             <button id="btn-snapshot" class="icon-btn" type="button" title="Save current frame as PNG" disabled>Snap</button>
-            <button id="btn-record"   class="icon-btn" type="button" title="Record canvas as a video clip (click again to stop)" disabled><span class="rec-dot" aria-hidden="true"></span><span id="btn-record-label">Rec</span></button>
+            <button id="btn-preview"  class="icon-btn" type="button" title="Preview all segments end-to-end with their looks applied" disabled>Preview</button>
+            <button id="btn-export"   class="icon-btn" type="button" title="Offline render — renders every frame and exports a perfect MP4 (or PNG zip)" disabled>Export</button>
           </div>
         </div>
 
@@ -599,6 +600,18 @@
             </div>
           </div>
           <div id="drop-overlay" aria-hidden="true">Drop video or image</div>
+          <div id="export-overlay" class="export-overlay hidden" role="status" aria-live="polite" aria-atomic="true">
+            <div class="export-overlay-inner">
+              <div class="export-overlay-kicker">LUMISYNTH</div>
+              <div class="export-overlay-title" id="export-overlay-title">Rendering…</div>
+              <div class="export-overlay-bar-wrap">
+                <div class="export-overlay-bar" id="export-overlay-bar"></div>
+                <div class="export-overlay-bar-glow" id="export-overlay-bar-glow"></div>
+              </div>
+              <div class="export-overlay-label" id="export-overlay-label">0 / 0 frames</div>
+              <button id="btn-export-cancel" class="export-overlay-cancel" type="button">Cancel</button>
+            </div>
+          </div>
           <div id="timeline-panel" class="timeline-panel hidden" aria-label="Playback and timeline segments">
             <div class="timeline-bar">
               <button id="btn-play" type="button" aria-label="Play / pause">▶</button>
