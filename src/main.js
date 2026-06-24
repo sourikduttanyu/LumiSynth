@@ -5267,9 +5267,9 @@ function renderTimelinePanel() {
   }
   timelineTrack.appendChild(timelinePlayhead);
 
-  if (timelineDuplicate) timelineDuplicate.disabled = recording || !selected;
-  if (timelineDelete) timelineDelete.disabled = recording || !selected;
-  if (timelineCapture) timelineCapture.disabled = recording || !selected;
+  if (timelineDuplicate) timelineDuplicate.disabled = _previewActive || !selected;
+  if (timelineDelete)    timelineDelete.disabled    = _previewActive || !selected;
+  if (timelineCapture)   timelineCapture.disabled   = _previewActive || !selected;
   updateTimelinePlayhead();
 }
 
