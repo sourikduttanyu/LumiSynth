@@ -1,6 +1,14 @@
-/* Inter font is loaded via <link rel=preconnect> + <link rel=stylesheet> in
-   index.html so the browser parallelizes the fetch with the rest of the page.
-   CSS @import would block style.css parsing on the Google Fonts round-trip. */
+/* Space Grotesk + Doto are loaded via <link rel=preconnect> + <link rel=stylesheet>
+   in index.html so the browser parallelizes the fetch with the rest of the
+   page. CSS @import would block style.css parsing on the Google Fonts round-trip.
+
+   Font system — two fonts, two surfaces:
+   - Space Grotesk (--font-body): chassis panel — knob labels, section headers,
+     button text, body copy. Geometric sans with hardware-instrument character.
+   - Doto (--font-doto): dark LCD surfaces only — topbar title, FPS overlay,
+     export frame counter, timeline timecode, segment labels. Dot-matrix
+     variable font; two axes: DOTF (fill 0=hollow→1=solid), ROND (0=square→1=circle).
+     Never use on the cream chassis — dot gaps read as noise on light backgrounds. */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -37,14 +45,18 @@
 :root {
   /* Chassis ladder (hue 70, warm dark graphite — Octatrack / Push / Eurorack
      dark variant read). On a DARK chassis "raised" reads as LIGHTER-than-room
-     (dark-mode convention) and hover lightens one more step. */
+     (dark-mode convention) and hover lightens one more step.
+     Perceptually equidistant: OKLCH L climbs in even +5 steps so each rung
+     reads as the same visual distance apart (Oswald's equal-increment harmony,
+     which only holds in a perceptually-uniform space). Chroma rises
+     monotonically with L (lighter = slightly warmer); hue held constant. */
   --bg-stage:        oklch(13% 0.008 70);
   --bg-room:         oklch(18% 0.010 70);
-  --surface-card:    oklch(22% 0.012 70);
-  --surface-raised:  oklch(27% 0.012 70);
+  --surface-card:    oklch(23% 0.012 70);
+  --surface-raised:  oklch(28% 0.013 70);
   --surface-hover:   oklch(33% 0.014 70);
-  --border-hairline: oklch(36% 0.010 70);
-  --border-strong:   oklch(46% 0.014 70);   /* one step up from hairline; used for expanded/active container chrome (e.g. expanded color rack slot) */
+  --border-hairline: oklch(38% 0.015 70);
+  --border-strong:   oklch(48% 0.016 70);   /* deliberate +10 emphasis rung (two ladder steps); used for expanded/active container chrome (e.g. expanded color rack slot) */
 
   /* Display surfaces (deep, embedded screen — the dark LCD set into the cream
      chassis, exactly like TE hardware). Unchanged across the palette flip. */
@@ -52,11 +64,14 @@
   --display-screen:   oklch(5%  0.005 70);
   --display-hairline: oklch(24% 0.005 70);   /* subtle separators on display surfaces */
 
-  /* Text on chassis (light legends on dark graphite — Octatrack/Push silkscreen) */
+  /* Text on chassis (light legends on dark graphite — Octatrack/Push silkscreen).
+     Perceptually equidistant: OKLCH L descends in even −16 steps and chroma
+     climbs in even +.003 steps (Oswald equal-increment harmony in a uniform
+     space); hue held constant. */
   --text-key:    oklch(95% 0.005 70);
-  --text-body:   oklch(82% 0.008 70);
-  --text-muted:  oklch(62% 0.012 70);
-  --text-faint:  oklch(46% 0.014 70);
+  --text-body:   oklch(79% 0.008 70);
+  --text-muted:  oklch(63% 0.011 70);
+  --text-faint:  oklch(47% 0.014 70);
 
   /* Text on display */
   --text-on-display: oklch(92% 0.005 70);
@@ -106,6 +121,15 @@
   /* The single justified ambient shadow. Deep neutral black, low alpha,
      reads as a true cast shadow rather than a colored glow. */
   --modal-lift: 0 12px 48px oklch(0% 0 0 / 0.55);
+
+  /* Space Grotesk — geometric sans for the chassis: section labels, knob
+     legends, button text, body copy. Geometric construction matches Doto's
+     DNA; quirky terminals give it hardware-instrument personality. */
+  --font-body: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Doto — dot-matrix display font for dark LCD surfaces only.
+     DOTF=1 (solid filled dots) at every usage site; ROND varies per surface. */
+  --font-doto: 'Doto', ui-monospace, monospace;
 }
 
 html, body {
@@ -113,9 +137,9 @@ html, body {
   width: 100%;
   background: var(--bg-room);
   color: var(--text-body);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-body);
   font-size: 12px;
-  font-feature-settings: 'cv11', 'ss01';
+  font-feature-settings: 'ss01';
   overflow: hidden;
 }
 
@@ -158,6 +182,7 @@ html, body {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0 0 var(--space-xl) 0;
+  scroll-behavior: smooth;
 }
 #sidebar::-webkit-scrollbar { width: 6px; }
 #sidebar::-webkit-scrollbar-track { background: transparent; }
@@ -407,11 +432,13 @@ html, body {
 
 /* Frame counter */
 .export-overlay-label {
+  font-family: var(--font-doto);
+  font-variation-settings: 'DOTF' 1, 'ROND' 0;
+  font-weight: 400;
   font-size: 11px;
   color: oklch(50% 0.01 85);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
-  font-family: monospace;
 }
 
 /* Cancel — minimal, danger-red on hover */
@@ -438,6 +465,122 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .export-overlay { animation: none; }
   .export-overlay-inner::before { animation: none; }
+}
+
+/* ---- Export quality modal ---- */
+.export-quality-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(5% 0.01 85 / 0.80);
+  z-index: 55;
+  backdrop-filter: blur(6px);
+  animation: export-overlay-in 0.14s var(--ease-out) both;
+}
+.export-quality-modal.hidden { display: none; }
+
+.export-quality-inner {
+  background: var(--bg-room);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: var(--space-2xl) var(--space-2xl) var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  min-width: 280px;
+  box-shadow: 0 8px 40px oklch(2% 0.01 85 / 0.6);
+}
+
+.export-quality-title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-key);
+}
+
+.export-quality-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.export-quality-opt {
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: 4px;
+  padding: var(--space-lg) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: border-color var(--duration-base) var(--ease-out),
+              background var(--duration-base) var(--ease-out);
+}
+.export-quality-opt:hover {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+}
+.export-quality-opt.active,
+.export-quality-opt[aria-checked="true"] {
+  border-color: var(--orange-signal);
+  background: rgba(255, 87, 34, 0.1);
+}
+
+.eqo-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-key);
+}
+.eqo-sub {
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.export-quality-opt.active .eqo-label,
+.export-quality-opt[aria-checked="true"] .eqo-label {
+  color: var(--orange-signal);
+}
+
+.export-quality-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+.export-quality-btn {
+  padding: 5px 18px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background var(--duration-base) var(--ease-out),
+              color var(--duration-base) var(--ease-out),
+              border-color var(--duration-base) var(--ease-out);
+}
+.export-quality-btn.secondary {
+  background: transparent;
+  border: 1px solid var(--border-hairline);
+  color: var(--text-muted);
+}
+.export-quality-btn.secondary:hover {
+  border-color: var(--border-strong);
+  color: var(--text-key);
+}
+.export-quality-btn.primary {
+  background: var(--orange-signal);
+  border: 1px solid var(--orange-signal);
+  color: #1a0e00;
+}
+.export-quality-btn.primary:hover {
+  background: oklch(from var(--orange-signal) calc(l + 0.05) c h);
+  filter: brightness(1.1);
 }
 
 /* ============================================================
@@ -531,6 +674,11 @@ label.section-label { cursor: pointer; }
   position: relative;
   contain: layout style paint;
   transition: border-color var(--duration-base) var(--ease-out);
+  animation: card-enter var(--duration-base) var(--ease-out) both;
+}
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
 }
 .effect-card.active-card {
   border-color: oklch(70% 0.21 45 / 0.55);
@@ -632,6 +780,11 @@ label.section-label { cursor: pointer; }
   align-items: center;
   gap: var(--space-xs);
   padding: var(--space-xs);
+  border-radius: 5px;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.color-rack-slot:hover > .color-rack-slot-row {
+  background: var(--surface-hover);
 }
 .color-rack-slot[data-empty="true"] .color-rack-slot-row {
   grid-template-columns: auto 1fr;
@@ -1200,7 +1353,8 @@ label.section-label { cursor: pointer; }
   border-radius: 4px;
   transition:
     background   var(--duration-base) var(--ease-out),
-    color        var(--duration-base) var(--ease-out);
+    color        var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
   white-space: nowrap;
   position: relative;
 }
@@ -1247,6 +1401,13 @@ label.section-label { cursor: pointer; }
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.95),
     0 0 4px rgba(0, 0, 0, 0.6);
+  transition:
+    border-color var(--duration-base) var(--ease-out),
+    transform    var(--duration-fast) var(--ease-out);
+}
+.filter-swatch-group .toggle-btn:hover {
+  transform: scale(1.03);
+  z-index: 1;
 }
 .filter-swatch-group .toggle-btn::before {
   content: "";
@@ -1430,6 +1591,62 @@ label.section-label { cursor: pointer; }
 .knob:hover .knob-val,
 .knob:focus-visible .knob-val,
 .knob.dragging .knob-val { opacity: 1; }
+
+/* ============================================================
+   KNOB TEXT ENTRY — inline input that replaces the knob-val tooltip
+   when the user dblclicks or presses Enter on a focused knob/slider.
+   ============================================================ */
+.knob-entry-input {
+  position: absolute;
+  bottom: calc(-1 * var(--space-xl));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 22px;
+  padding: 0 var(--space-xs);
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-key);
+  background: var(--bg-stage);
+  border: 1.5px solid var(--orange-signal);
+  border-radius: 3px;
+  text-align: center;
+  outline: none;
+  z-index: 20;
+  box-shadow: 0 0 0 3px oklch(70% 0.21 45 / 0.18), 0 4px 12px oklch(0% 0 0 / 0.5);
+  caret-color: var(--orange-signal);
+}
+.knob-entry-input::selection {
+  background: oklch(70% 0.21 45 / 0.35);
+}
+/* While text entry is open, show a subtle orange outline on the host knob */
+.knob.entering {
+  background: oklch(70% 0.21 45 / 0.22);
+  outline: 1.5px solid var(--orange-signal);
+  outline-offset: 1px;
+}
+/* param-slider text entry sits inline with the val readout */
+.param-slider .knob-entry-input {
+  position: static;
+  transform: none;
+  bottom: auto;
+  left: auto;
+  width: 52px;
+  height: 20px;
+  justify-self: end;
+  font-size: 9px;
+}
+
+/* Keyboard shortcut hint — appears in the knob-val when knob is focused
+   but not dragging; subtle, muted, only for orientation. */
+.knob:focus-visible:not(.dragging):not(.entering) .knob-val::after {
+  content: " ↵";
+  color: var(--text-faint);
+  font-size: 8px;
+  letter-spacing: 0;
+}
 
 /* ============================================================
    PARAM SLIDER — same value plumbing as knobs, for threshold / size /
@@ -1619,9 +1836,12 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   letter-spacing: 0.04em;
 }
 #canvas-topbar .topbar-title {
-  font-weight: 600;
+  font-family: var(--font-doto);
+  font-variation-settings: 'DOTF' 1, 'ROND' 0.3;
+  font-weight: 400;
+  font-size: 12px;
   color: var(--text-on-display);
-  letter-spacing: 0.10em;
+  letter-spacing: 0.08em;
 }
 #canvas-topbar .topbar-projectname {
   font-family: ui-monospace, Menlo, monospace;
@@ -1801,11 +2021,15 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   text-decoration: line-through;
 }
 .video-time {
-  font-size: 10px;
+  font-family: var(--font-doto);
+  font-variation-settings: 'DOTF' 1, 'ROND' 0;
+  font-weight: 400;
+  font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   text-align: right;
+  letter-spacing: 0.04em;
 }
 .timeline-actions {
   display: flex;
@@ -1851,9 +2075,10 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   background: oklch(83% 0.09 65 / 0.92);
   color: var(--text-key);
   cursor: grab;
-  font: inherit;
-  font-size: 9px;
-  font-weight: 700;
+  font-family: var(--font-doto);
+  font-variation-settings: 'DOTF' 1, 'ROND' 0.4;
+  font-weight: 400;
+  font-size: 10px;
   overflow: hidden;
   padding: 0 var(--space-xs);
   text-overflow: ellipsis;
@@ -1930,7 +2155,10 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
 #fps-overlay {
   position: absolute;
   bottom: var(--space-md); right: var(--space-lg);
-  font-size: 10px;
+  font-family: var(--font-doto);
+  font-variation-settings: 'DOTF' 1, 'ROND' 0.5;
+  font-weight: 400;
+  font-size: 11px;
   color: oklch(92% 0.005 70 / 0.7);
   font-variant-numeric: tabular-nums;
   background: var(--display-bezel);
@@ -1939,7 +2167,6 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   border: 1px solid var(--display-hairline);
   z-index: 12;
   pointer-events: none;
-  font-family: inherit;
 }
 #fps-overlay.hidden { display: none; }
 
@@ -2081,7 +2308,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
 }
 #help-panel kbd {
   display: inline-block;
-  font-family: 'Inter', monospace;
+  font-family: var(--font-body);
   font-size: 10px;
   font-weight: 600;
   padding: var(--space-2xs) var(--space-sm);
@@ -2251,6 +2478,8 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+  .effect-card { animation: none; }
+  .filter-swatch-group .toggle-btn:hover { transform: none; }
 }
 
 /* ============================================================
@@ -2261,6 +2490,220 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
    ============================================================ */
 body[data-mode="synth"] [data-mode-section="track"] { display: none !important; }
 body[data-mode="track"] [data-mode-section="synth"] { display: none !important; }
+
+/* ============================================================
+   TRACK PANEL — right-side overlay sidebar.
+
+   Pattern: panel is fixed to the right edge of the viewport,
+   overlaying the canvas. It slides fully off-screen to the right
+   when closed; the toggle tab pokes out at the left edge of the
+   panel at all times so there's always a visible affordance.
+
+   body[data-track-panel="open"]  → panel slides in (translateX 0)
+   body[data-track-panel="closed"] → panel slides off (translateX 100%)
+                                     only the tab remains visible via
+                                     left:-tab-width offset
+   ============================================================ */
+:root {
+  --track-panel-width: var(--sidebar-width);
+  --track-panel-tab-w: 28px;
+}
+
+#track-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--track-panel-width);
+  background: var(--bg-room);
+  border-left: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  /* Open: panel visible */
+  transform: translateX(0);
+  transition: transform var(--duration-slow) var(--ease-out);
+  z-index: 30;
+}
+
+/* Closed: slide panel fully off-screen; tab stays visible */
+body[data-track-panel="closed"] #track-panel {
+  transform: translateX(100%);
+}
+
+/* The scrollable content area */
+.track-panel-inner {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 var(--space-xl) 0;
+  scroll-behavior: smooth;
+}
+.track-panel-inner::-webkit-scrollbar { width: 6px; }
+.track-panel-inner::-webkit-scrollbar-track { background: transparent; }
+.track-panel-inner::-webkit-scrollbar-thumb { background: var(--surface-raised); border-radius: 3px; }
+.track-panel-inner::-webkit-scrollbar-thumb:hover { background: var(--surface-hover); }
+
+/* Sticky header inside the track panel */
+.track-panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-room);
+  border-bottom: 1px solid var(--border-hairline);
+  padding: var(--space-lg) var(--space-xl);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Toggle tab — anchored to the panel left edge, always visible.
+   Negative left margin pulls it outside the panel border. */
+#track-panel-toggle {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%) translateX(-100%);
+  width: var(--track-panel-tab-w);
+  min-height: 72px;
+  background: var(--bg-room);
+  border: 1px solid var(--border-hairline);
+  border-right: none;
+  border-radius: var(--space-sm) 0 0 var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  cursor: pointer;
+  padding: var(--space-md) 0;
+  color: var(--text-muted);
+  transition: background var(--duration-base) var(--ease-out),
+              color var(--duration-base) var(--ease-out),
+              opacity var(--duration-base) var(--ease-out);
+  z-index: 20;
+}
+#track-panel-toggle:hover {
+  background: var(--surface-card);
+  color: var(--text-key);
+}
+#track-panel-toggle:focus-visible {
+  outline: 2px solid var(--orange-signal);
+  outline-offset: -2px;
+}
+/* No source — tab is visible but inert: cross cursor, dimmed, no hover */
+body:not([data-has-source="true"]) #track-panel-toggle {
+  cursor: not-allowed;
+  opacity: 0.45;
+  pointer-events: auto;
+}
+body:not([data-has-source="true"]) #track-panel-toggle:hover {
+  background: var(--bg-room);
+  color: var(--text-muted);
+}
+/* Orange accent when track mode is active */
+body[data-mode="track"] #track-panel-toggle {
+  color: var(--orange-signal);
+  border-color: var(--border-strong);
+}
+
+.track-panel-toggle-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.track-panel-toggle-arrow {
+  font-size: 11px;
+  line-height: 1;
+  transition: transform var(--duration-base) var(--ease-out);
+  display: block;
+}
+/* When open, arrow points right (›); when closed, points left (‹) */
+body[data-track-panel="closed"] .track-panel-toggle-arrow {
+  transform: scaleX(-1);
+}
+
+/* ============================================================
+   SEGMENT INDICATOR — sticky pill in each sidebar that signals
+   which segment's look is currently being edited.
+   Shown via JS: remove .hidden when a segment is selected.
+   ============================================================ */
+.segment-indicator {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-xl);
+  background: rgba(255, 87, 34, 0.12);
+  border-bottom: 1px solid rgba(255, 87, 34, 0.35);
+  color: var(--orange-signal);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  min-height: 24px;
+  /* entry animation */
+  animation: seg-indicator-in var(--duration-slow) var(--ease-out) both;
+}
+@keyframes seg-indicator-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.segment-indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange-signal);
+  flex-shrink: 0;
+  /* pulse animation so it's hard to miss */
+  animation: seg-dot-pulse 1.6s ease-in-out infinite;
+}
+@keyframes seg-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.6); }
+}
+.segment-indicator-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Sidebar header gets a subtle orange top border when a segment is active */
+body[data-segment-active="true"] #sidebar .sidebar-header {
+  border-top: 2px solid rgba(255, 87, 34, 0.6);
+}
+body[data-segment-active="true"] .track-panel-header {
+  border-top: 2px solid rgba(255, 87, 34, 0.6);
+}
+
+/* Export locked covers both panels */
+#track-panel.export-locked {
+  pointer-events: none;
+  opacity: 0.38;
+  transition: opacity 0.25s var(--ease-out);
+}
+
+/* Mobile: track panel is already fixed/overlay; default to closed */
+@media (max-width: 640px) {
+  #track-panel {
+    width: min(var(--track-panel-width), 90vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #track-panel { transition: none; }
+  .track-panel-toggle-arrow { transition: none; }
+  .segment-indicator { animation: none; }
+  .segment-indicator-dot { animation: none; }
+  @keyframes seg-indicator-in { from { opacity: 1; transform: none; } }
+}
 
 /* Topbar mode toggle group — sits in the canvas-topbar between source
    label and topbar-actions. Compact two-button radio matching the rest

@@ -103,9 +103,7 @@ const exportOverlayTitle = document.getElementById('export-overlay-title');
 const exportOverlayBar   = document.getElementById('export-overlay-bar');
 const exportOverlayLabel = document.getElementById('export-overlay-label');
 const btnExportCancel  = document.getElementById('btn-export-cancel');
-const exportResSelect  = document.getElementById('export-res-select');
 let exportResKey = 'display';
-exportResSelect?.addEventListener('change', () => { exportResKey = exportResSelect.value; });
 const btnReset     = document.getElementById('btn-reset');
 const btnFps       = document.getElementById('btn-fps');
 const btnHelp      = document.getElementById('btn-help');
@@ -238,7 +236,7 @@ function currentLook() {
 // applyLookToState).
 let _baseLook = null;
 const BASE_LOOK_KEYS = [
-  'mode', 'trackBackend', 'trackChannel', 'threshold', 'trackMaxBlobs',
+  'trackBackend', 'trackChannel', 'threshold', 'trackMaxBlobs',
   'trackMinSize', 'updateInterval', 'colorKeyHex', 'colorKeyHueTol',
   'colorKeySatMin', 'trackComposite', 'trackShape', 'trackShapeColor',
   'trackShapeThickness', 'trackShapePadding', 'trackShapeStyle',
@@ -408,40 +406,11 @@ function makeLookSnapshot(source = state) {
 }
 
 function makeRawTimelineLook() {
-  // A neutral look for inter-segment gaps: all GL effects are off to prevent
-  // bleeding from adjacent segments. Detection and track-overlay settings come
-  // from _baseLook (the user's own global settings, snapshotted before the
-  // last segment was applied), so blob detection keeps running between
-  // segments without inheriting the selected segment's settings.
-  const base = _baseLook || {};
-  return sanitizeLook({
-    mode:                base.mode,
-    trackBackend:        base.trackBackend,
-    trackChannel:        base.trackChannel,
-    threshold:           base.threshold,
-    trackMaxBlobs:       base.trackMaxBlobs,
-    trackMinSize:        base.trackMinSize,
-    updateInterval:      base.updateInterval,
-    colorKeyHex:         base.colorKeyHex,
-    colorKeyHueTol:      base.colorKeyHueTol,
-    colorKeySatMin:      base.colorKeySatMin,
-    trackComposite:      base.trackComposite,
-    trackShape:          base.trackShape,
-    trackShapeColor:     base.trackShapeColor,
-    trackShapeThickness: base.trackShapeThickness,
-    trackShapePadding:   base.trackShapePadding,
-    trackShapeStyle:     base.trackShapeStyle,
-    trackLines:          base.trackLines,
-    trackLinesColor:     base.trackLinesColor,
-    trackLinesThickness: base.trackLinesThickness,
-    trackLinesParam:     base.trackLinesParam,
-    trackLinesTaper:     base.trackLinesTaper,
-    trackLabels:         base.trackLabels,
-    trackStability:      base.trackStability,
-    trackAttack:         base.trackAttack,
-    trackRelease:        base.trackRelease,
-    trackFxRack:         base.trackFxRack,
-  });
+  // Gap between user-created segments: fully passive — raw video only.
+  // No GL effects (sanitizeLook fills all pipeline keys with DEFAULTS = 'none'),
+  // no blob detection, no track overlays. trackBackend 'off' skips the
+  // detection loop; mode 'synth' skips the TRACK overlay block entirely.
+  return sanitizeLook({ trackBackend: 'off', mode: 'synth' });
 }
 
 function applyLookToState(look) {
@@ -523,7 +492,6 @@ function resolveTimelineLook(time) {
 
 function timelineRuntimeSignature(look) {
   return JSON.stringify({
-    mode: look.mode,
     trackBackend: look.trackBackend,
     perBlob: look.perBlob,
     trackComposite: look.trackComposite,
@@ -918,6 +886,54 @@ authCode?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') verifyLoginCode();
 });
 
+// ---- Knob text-entry popup ----
+// dblclick or Enter on a focused knob/slider opens a small inline input that
+// lets the user type an exact value. Dismissed by Enter (commit), Escape
+// (cancel), or blur. Only one open at a time.
+let _activeKnobEntry = null;
+function openKnobTextEntry(anchorEl, currentValue, min, max, step, isInt, setValue, valEl) {
+  // Close any existing entry first
+  if (_activeKnobEntry) _activeKnobEntry.close(false);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'knob-entry-input';
+  input.value = formatValue(currentValue, step);
+  input.setAttribute('aria-label', anchorEl.getAttribute('aria-label') || 'value');
+
+  // Position over the valEl if present, otherwise below the SVG
+  const target = valEl || anchorEl.querySelector('.knob-svg') || anchorEl;
+  target.style.visibility = 'hidden';
+  anchorEl.classList.add('entering');
+  anchorEl.appendChild(input);
+
+  function commit() {
+    const raw = parseFloat(input.value);
+    if (!isNaN(raw)) setValue(raw);
+  }
+  function close(doCommit) {
+    if (_activeKnobEntry !== entry) return;
+    _activeKnobEntry = null;
+    if (doCommit) commit();
+    input.remove();
+    target.style.visibility = '';
+    anchorEl.classList.remove('entering');
+    anchorEl.focus();
+  }
+  const entry = { close };
+  _activeKnobEntry = entry;
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false); }
+    else e.stopPropagation(); // prevent knob keydown while typing
+  });
+  input.addEventListener('blur', () => close(true));
+
+  // Select all on open so user can just type a new value
+  requestAnimationFrame(() => { input.focus(); input.select(); });
+}
+
 // ---- Knob component ----
 const knobRegistry = new Map();   // id -> { setValue, getValue, min, max, step, default, stateKey, el }
 let _knobDragActive = false;
@@ -996,7 +1012,39 @@ function initSliderControl(el, opts = {}) {
   function getValue() { return currentValue; }
 
   input.addEventListener('input', () => setValue(parseFloat(input.value)));
-  el.addEventListener('dblclick', (e) => { setValue(def); e.preventDefault(); });
+
+  // Ctrl/Cmd+click → reset; dblclick → text entry (mirrors knob behavior)
+  el.addEventListener('click', (e) => {
+    if (e.ctrlKey || e.metaKey) { setValue(def); e.preventDefault(); }
+  });
+  el.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    const valDisplay = el.querySelector('.knob-val');
+    openKnobTextEntry(el, currentValue, min, max, step, isInt, setValue, valDisplay);
+  });
+
+  // Enhanced keyboard: Shift+Arrow = ±10×, Ctrl+Arrow = ±0.1× (same as knob)
+  input.addEventListener('keydown', (e) => {
+    const fine   = step * 0.1;
+    const coarse = step * 10;
+    let delta = 0;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      delta = e.shiftKey ? coarse : e.ctrlKey || e.metaKey ? fine : step;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      delta = -(e.shiftKey ? coarse : e.ctrlKey || e.metaKey ? fine : step);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const valDisplay = el.querySelector('.knob-val');
+      openKnobTextEntry(el, currentValue, min, max, step, isInt, setValue, valDisplay);
+      return;
+    } else {
+      return;
+    }
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      setValue(currentValue + delta);
+    }
+  });
 
   paint(currentValue);
   if (isSlotKnob) {
@@ -1124,18 +1172,36 @@ function initKnob(el, opts = {}) {
   el.addEventListener('pointerup', stopDrag);
   el.addEventListener('pointercancel', stopDrag);
 
-  el.addEventListener('dblclick', (e) => { setValue(def); e.preventDefault(); });
+  // Ctrl/Cmd+click → reset (standard pro-audio convention)
+  el.addEventListener('click', (e) => {
+    if (e.ctrlKey || e.metaKey) { setValue(def); e.preventDefault(); }
+  });
+
+  // dblclick → inline text entry for exact value input
+  el.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    openKnobTextEntry(el, currentValue, min, max, step, isInt, setValue, valEl);
+  });
 
   el.addEventListener('keydown', (e) => {
     let next = currentValue;
-    const big = step * 10;
+    const fine   = step * 0.1;
+    const coarse = step * 10;
+    // Enter / Space open text entry for the focused knob
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openKnobTextEntry(el, currentValue, min, max, step, isInt, setValue, valEl);
+      return;
+    }
     switch (e.key) {
       case 'ArrowUp':
-      case 'ArrowRight': next = currentValue + step; break;
+      case 'ArrowRight':
+        next = currentValue + (e.shiftKey ? coarse : e.ctrlKey || e.metaKey ? fine : step); break;
       case 'ArrowDown':
-      case 'ArrowLeft':  next = currentValue - step; break;
-      case 'PageUp':     next = currentValue + big;  break;
-      case 'PageDown':   next = currentValue - big;  break;
+      case 'ArrowLeft':
+        next = currentValue - (e.shiftKey ? coarse : e.ctrlKey || e.metaKey ? fine : step); break;
+      case 'PageUp':     next = currentValue + coarse; break;
+      case 'PageDown':   next = currentValue - coarse; break;
       case 'Home':       next = min; break;
       case 'End':        next = max; break;
       case 'Delete':
@@ -1158,6 +1224,7 @@ function initKnob(el, opts = {}) {
     while (wheelAccum <= -WHEEL_TICK_PX) { wheelAccum += WHEEL_TICK_PX; ticks++; }
     while (wheelAccum >=  WHEEL_TICK_PX) { wheelAccum -= WHEEL_TICK_PX; ticks--; }
     if (!ticks) return;
+    // Normal wheel = fine (1× step); Shift+wheel = coarse (10×); matches FabFilter/Serum
     const mult = e.shiftKey ? 10 : 1;
     setValue(currentValue + ticks * step * mult);
   }, { passive: false });
@@ -1493,13 +1560,14 @@ function onMpDelegateChange(v) {
   }
 }
 
-// Mode toggle. Drives section visibility via body[data-mode] (the CSS
-// rule [data-mode-section="track"] / [data-mode-section="synth"] reacts
-// to this attribute). Also resets per-source overlay state when leaving
-// TRACK so stale trails / heatmap residue don't bleed into the next
-// session.
+// Mode toggle. Drives left-sidebar section visibility via body[data-mode]
+// and opens/closes the right track panel. No longer gates rendering —
+// detection and track overlay run based on trackBackend !== 'off' only.
 function onModeChange(v) {
   document.body.setAttribute('data-mode', v);
+  document.body.dataset.trackPanel = (v === 'track') ? 'open' : 'closed';
+  const toggleBtn = document.getElementById('track-panel-toggle');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', v === 'track' ? 'true' : 'false');
   if (v !== 'track') resetTrackOverlay();
 }
 
@@ -3972,6 +4040,7 @@ function performFullReset() {
   state.selectedTimelineSegmentId = null;
   applyStateToUI();
   renderTimelinePanel();
+  updateSegmentIndicators();
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   showToast('Reset to defaults', 'ok', 2500);
 }
@@ -4075,6 +4144,7 @@ let _exportAborted = false;
 const exportOverlayBarGlow  = document.getElementById('export-overlay-bar-glow');
 const exportOverlayInner    = document.querySelector('.export-overlay-inner');
 const sidebar      = document.getElementById('sidebar');
+const trackPanel   = document.getElementById('track-panel');
 const topBar       = document.querySelector('.topbar');
 
 
@@ -4101,6 +4171,7 @@ function _exportShowOverlay(title) {
   if (btnExport)   { btnExport.disabled = true; btnExport.classList.add('exporting'); }
   if (btnSnapshot) btnSnapshot.disabled = true;
   sidebar?.classList.add('export-locked');
+  trackPanel?.classList.add('export-locked');
   topBar?.classList.add('export-locked');
 }
 
@@ -4110,6 +4181,7 @@ function _exportHideOverlay() {
   if (btnExport)   { btnExport.classList.remove('exporting'); btnExport.disabled = !state.hasSource; }
   if (btnSnapshot) btnSnapshot.disabled = !state.hasSource;
   sidebar?.classList.remove('export-locked');
+  trackPanel?.classList.remove('export-locked');
   topBar?.classList.remove('export-locked');
 }
 
@@ -4188,8 +4260,8 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
     }
   }
 
-  // Track mode — mirrors the renderFrame track block exactly.
-  if (look.mode === 'track') {
+  // Track overlay — mirrors the renderFrame track block exactly.
+  if (look.trackBackend !== 'off') {
     if (look.trackComposite === 'isolated') {
       ctx.save();
       ctx.fillStyle = '#0a0908';
@@ -4241,7 +4313,7 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
   }
 
   // Unified labels — mirrors renderFrame.
-  if (look.mode === 'track' && look.trackLabels !== 'off' && blobs.length > 0) {
+  if (look.trackBackend !== 'off' && look.trackLabels !== 'off' && blobs.length > 0) {
     const fSize = 10;
     const padX = 5, padY = 3;
     const tagH = fSize + padY * 2;
@@ -4451,8 +4523,8 @@ async function _preDetectAllFrames(fps, totalFrames, cw, ch) {
   // during export (which start at 0). Force-rebuild the detector to reset
   // its internal timestamp watermark before the export pass begins.
   const needsObjectDetect = state.timelineSegments.some(
-    (s) => s.look?.mode === 'track' && s.look?.trackBackend === 'object'
-  ) || (state.mode === 'track' && state.trackBackend === 'object' && !state.timelineSegments?.length);
+    (s) => s.look?.trackBackend === 'object'
+  ) || (state.trackBackend === 'object' && !state.timelineSegments?.length);
   if (needsObjectDetect) {
     await resetObjectDetector(state.mpDelegate);
   }
@@ -4466,7 +4538,7 @@ async function _preDetectAllFrames(fps, totalFrames, cw, ch) {
     const t = n / fps;
     const look = resolveTimelineLook(t).look;
 
-    if (look.mode !== 'track' || look.trackBackend === 'off') {
+    if (look.trackBackend === 'off') {
       blobsPerFrame.set(n, []);
       _exportSetProgress(n + 1, totalFrames, 'Detecting…');
       if (n % 20 === 0) await new Promise(r => setTimeout(r, 0));
@@ -4554,8 +4626,8 @@ async function startOfflineExport() {
   // A segment only needs detection if it is track mode AND its backend is not 'off'.
   // The global state.mode='track' similarly only matters if its backend is not 'off'.
   const hasTrackSegment =
-    (state.mode === 'track' && state.trackBackend !== 'off' && !state.timelineSegments?.length) ||
-    state.timelineSegments.some((s) => s.look?.mode === 'track' && s.look?.trackBackend !== 'off');
+    (state.trackBackend !== 'off' && !state.timelineSegments?.length) ||
+    state.timelineSegments.some((s) => s.look?.trackBackend !== 'off');
   const needsDetection = hasTrackSegment;
 
   // Ensure MediaPipe is initialised before the detection pass if needed.
@@ -4590,9 +4662,62 @@ async function startOfflineExport() {
   }
 }
 
-if (btnExport) {
-  btnExport.addEventListener('click', () => { startOfflineExport(); });
-}
+// ---- Export quality modal ----
+(function initExportQualityModal() {
+  const modal      = document.getElementById('export-quality-modal');
+  const optsGroup  = document.getElementById('export-quality-opts');
+  const confirmBtn = document.getElementById('export-quality-confirm');
+  const cancelBtn  = document.getElementById('export-quality-cancel');
+  if (!modal || !optsGroup || !confirmBtn || !cancelBtn) return;
+
+  function _showModal() {
+    // Sync selected option to current exportResKey
+    optsGroup.querySelectorAll('.export-quality-opt').forEach((btn) => {
+      const active = btn.dataset.res === exportResKey;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+    modal.classList.remove('hidden');
+  }
+
+  function _hideModal() {
+    modal.classList.add('hidden');
+  }
+
+  optsGroup.addEventListener('click', (e) => {
+    const opt = e.target.closest('.export-quality-opt');
+    if (!opt) return;
+    exportResKey = opt.dataset.res;
+    optsGroup.querySelectorAll('.export-quality-opt').forEach((btn) => {
+      const active = btn === opt;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+  });
+
+  confirmBtn.addEventListener('click', () => {
+    _hideModal();
+    startOfflineExport();
+  });
+
+  cancelBtn.addEventListener('click', _hideModal);
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) _hideModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+      e.stopPropagation();
+      _hideModal();
+    }
+  }, { capture: true });
+
+  if (btnExport) {
+    btnExport.addEventListener('click', _showModal);
+  }
+})();
+
 if (btnExportCancel) {
   btnExportCancel.addEventListener('click', () => {
     _exportAborted = true;
@@ -4622,6 +4747,7 @@ function stopPreview() {
   _previewActive = false;
   video.pause();
   sidebar?.classList.remove('export-locked');
+  trackPanel?.classList.remove('export-locked');
   topBar?.classList.remove('export-locked');
   document.getElementById('canvas-area')?.classList.remove('preview-active');
   if (btnExport)   btnExport.disabled = !state.hasSource;
@@ -4637,6 +4763,7 @@ function startPreview() {
   video.currentTime = 0;
   video.play().catch(() => {});
   sidebar?.classList.add('export-locked');
+  trackPanel?.classList.add('export-locked');
   topBar?.classList.add('export-locked');
   document.getElementById('canvas-area')?.classList.add('preview-active');
   if (btnExport)   btnExport.disabled = true;
@@ -4856,6 +4983,7 @@ function loadVideoSource(url, label) {
   state.sourceKind = 'video';
   setHasSource(true, label || 'Video');
   renderTimelinePanel();
+  updateSegmentIndicators();
   video.addEventListener('loadedmetadata', () => {
     if (!Number.isFinite(video.duration) || video.duration <= 0) return;
     const seg = makeTimelineSegment(0, video.duration / 2);
@@ -5037,6 +5165,7 @@ function updateSourceLabel(text) {
 
 function setHasSource(val, label) {
   state.hasSource = val;
+  document.body.dataset.hasSource = val ? 'true' : 'false';
   placeholder.style.display = val ? 'none' : 'flex';
   if (pipelinePanel) pipelinePanel.classList.toggle('hidden', !val);
   btnSnapshot.disabled = !val;
@@ -5293,6 +5422,7 @@ function selectTimelineSegment(id, { applyLook = true } = {}) {
     finally { _timelineApplyingLook = false; }
   }
   renderTimelinePanel();
+  updateSegmentIndicators();
   schedulePersist();
 }
 
@@ -5312,6 +5442,7 @@ function addTimelineSegment() {
     showToast('Overlaps an existing segment — scrub to an empty area', 'error');
     return;
   }
+  if (state.timelineSegments.length === 0) snapshotBaseLook();
   const seg = makeTimelineSegment(start, end);
   state.timelineSegments.push(seg);
   sortTimelineInPlace();
@@ -5341,6 +5472,7 @@ function deleteTimelineSegment() {
   state.timelineSegments = state.timelineSegments.filter((s) => s.id !== selected.id);
   state.selectedTimelineSegmentId = null;
   renderTimelinePanel();
+  updateSegmentIndicators();
   schedulePersist();
 }
 
@@ -5348,10 +5480,6 @@ function captureSelectedTimelineLook() {
   const selected = selectedTimelineSegment();
   if (!selected) return;
   const snap = makeLookSnapshot(state);
-  // Preserve the segment's mode — the topbar mode toggle is a panel-view
-  // switcher when a segment is selected; it must not overwrite the segment's
-  // track/synth identity when the user presses SET.
-  snap.mode = selected.look.mode;
   selected.look = snap;
   renderTimelinePanel();
   schedulePersist();
@@ -5743,7 +5871,7 @@ function applyPresenceSmoother(blobs) {
 
 function needsBlobPipeline() {
   const look = currentLook();
-  return look.mode === 'track' || look.perBlob !== 'none';
+  return look.trackBackend !== 'off' || look.perBlob !== 'none';
 }
 
 function resolveDetectScale(cw, ch) {
@@ -6025,13 +6153,13 @@ function renderFrame(nowDOMHi) {
     if (touched) ctx.putImageData(full, 0, 0);
   }
 
-  // ============ BlobTracking overlay (TRACK mode only) ============
+  // ============ BlobTracking overlay (runs whenever trackBackend is active) ============
   // ISOLATED composite: clear the canvas to black, then paint overlays —
   // every LumiSynth pixel from above is wiped, leaving the tracking
   // visualization on a clean black backdrop (spec: "clean export for
   // VJs and analysts"). OVERLAY composite leaves the LumiSynth output
   // alone and paints overlays on top.
-  if (look.mode === 'track') {
+  if (look.trackBackend !== 'off') {
     if (look.trackComposite === 'isolated') {
       ctx.save();
       ctx.fillStyle = '#0a0908'; // Match display-screen instead of pure black.
@@ -6086,7 +6214,7 @@ function renderFrame(nowDOMHi) {
   }
 
   // Unified label overlay — drawn last so tags sit above everything.
-  if (look.mode === 'track' && look.trackLabels !== 'off' && blobs.length > 0) {
+  if (look.trackBackend !== 'off' && look.trackLabels !== 'off' && blobs.length > 0) {
     const fSize = 10;
     const padX = 5, padY = 3;
     const tagH = fSize + padY * 2;
@@ -6398,11 +6526,63 @@ if (projectNameEl) {
   });
 }
 
+// ---- Track panel collapse/expand ----
+(function initTrackPanel() {
+  const trackPanel = document.getElementById('track-panel');
+  const toggleBtn  = document.getElementById('track-panel-toggle');
+  if (!trackPanel || !toggleBtn) return;
+
+  // Default: open
+  if (!document.body.dataset.trackPanel) {
+    document.body.dataset.trackPanel = 'open';
+  }
+
+  function _updateToggleAria() {
+    const open = document.body.dataset.trackPanel === 'open';
+    toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  _updateToggleAria();
+
+  toggleBtn.addEventListener('click', () => {
+    if (!state.hasSource) return; // no source — tab is decorative only
+    const isOpen = document.body.dataset.trackPanel === 'open';
+    document.body.dataset.trackPanel = isOpen ? 'closed' : 'open';
+    _updateToggleAria();
+  });
+})();
+
+// ---- Segment indicator (both panels) ----
+function updateSegmentIndicators() {
+  const segId   = state.selectedTimelineSegmentId;
+  const seg     = segId ? state.timelineSegments?.find((s) => s.id === segId) : null;
+  const active  = !!seg;
+  document.body.dataset.segmentActive = active ? 'true' : 'false';
+
+  const label = seg
+    ? `${seg.name || 'SEG'} · ${formatTimePrecise(seg.start)}–${formatTimePrecise(seg.end)}s`
+    : '';
+
+  const synthInd   = document.getElementById('synth-segment-indicator');
+  const synthText  = document.getElementById('synth-segment-indicator-text');
+  const trackInd   = document.getElementById('track-segment-indicator');
+  const trackText  = document.getElementById('track-segment-indicator-text');
+
+  if (synthInd) {
+    synthInd.classList.toggle('hidden', !active);
+    if (synthText) synthText.textContent = label;
+  }
+  if (trackInd) {
+    trackInd.classList.toggle('hidden', !active);
+    if (trackText) trackText.textContent = label;
+  }
+}
+
 // ---- Init ----
 loadProjectName();
 loadPersistedState();
 snapshotBaseLook(); // capture global settings before any segment is applied
 applyStateToUI();
+updateSegmentIndicators();
 showIntroIfNeeded();
 renderAccountUi();
 initAuth();
