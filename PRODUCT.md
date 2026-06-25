@@ -112,6 +112,7 @@ LumiSynth must not look like:
 3. **Density without noise.** Power users need every knob visible. Newcomers need to find their way without a tutorial. Tighten spacing aggressively, label tersely, let muscle memory do the rest.
 4. **Weird is allowed, slop is not.** The output can be visually unhinged. The control surface cannot. Discipline in the chrome buys permission for chaos in the canvas.
 5. **Stay local, stay fast.** Nothing leaves the machine. Frame budget is sacred. Every UI affordance must justify its frame cost. If it cannot keep up at 60fps on a 1080p source, it does not ship.
+6. **Color the way the eye sees it.** The chrome palette is authored in OKLCH, a perceptually uniform color space, because equal numeric steps must read as equal *perceived* steps — something HSL/RGB cannot guarantee. Surface and text ladders use constant, equidistant lightness steps at a fixed warm hue, so tonal hierarchy reads as even rhythm rather than uneven jumps. An instrument that quantizes its own output owes the same rigor to its chrome. (See `DESIGN.md` §2 "The Perceptual-Uniformity Rule".)
 
 ## Accessibility & Inclusion
 

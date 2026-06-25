@@ -2,6 +2,7 @@
   "schemaVersion": 2,
   "generatedAt": "2026-05-08T19:10:00Z",
   "title": "Design System: LumiSynth (Workbench palette — dark graphite)",
+  "colorSpaceNote": "All chrome tokens are authored in OKLCH for perceptual uniformity (equal numeric steps = equal perceived steps; HSL/RGB are not uniform). Token ladders are perceptually equidistant: chassis surfaces step lightness +5 (13→18→23→28→33→38), chassis text steps −16 (95→79→63→47), chroma is monotonic, and hue is held constant at 70. border-strong (48) is a deliberate +10 emphasis rung. Only orange-signal / red-accent are hex. style.css is canonical.",
   "extensions": {
     "colorMeta": {
       "orange-signal": {
@@ -37,7 +38,7 @@
       "bg-stage": {
         "role": "neutral-chassis",
         "displayName": "Bg Stage",
-        "canonical": "oklch(14% 0.008 70)",
+        "canonical": "oklch(13% 0.008 70)",
         "tonalRamp": [
           "oklch(8% 0.005 70)",
           "oklch(14% 0.008 70)",
@@ -67,22 +68,27 @@
       "surface-card": {
         "role": "neutral-chassis",
         "displayName": "Surface Card",
-        "canonical": "oklch(22% 0.012 70)"
+        "canonical": "oklch(23% 0.012 70)"
       },
       "surface-raised": {
         "role": "neutral-chassis",
         "displayName": "Surface Raised",
-        "canonical": "oklch(26% 0.012 70)"
+        "canonical": "oklch(28% 0.013 70)"
       },
       "surface-hover": {
         "role": "neutral-chassis",
         "displayName": "Surface Hover",
-        "canonical": "oklch(32% 0.014 70)"
+        "canonical": "oklch(33% 0.014 70)"
       },
       "border-hairline": {
         "role": "neutral-chassis",
         "displayName": "Border Hairline",
-        "canonical": "oklch(34% 0.010 70)"
+        "canonical": "oklch(38% 0.015 70)"
+      },
+      "border-strong": {
+        "role": "neutral-chassis",
+        "displayName": "Border Strong",
+        "canonical": "oklch(48% 0.016 70)"
       },
       "display-bezel": {
         "role": "neutral-display",
@@ -117,17 +123,17 @@
       "text-body": {
         "role": "text-on-chassis",
         "displayName": "Text Body",
-        "canonical": "oklch(82% 0.008 70)"
+        "canonical": "oklch(79% 0.008 70)"
       },
       "text-muted": {
         "role": "text-on-chassis",
         "displayName": "Text Muted",
-        "canonical": "oklch(62% 0.012 70)"
+        "canonical": "oklch(63% 0.011 70)"
       },
       "text-faint": {
         "role": "text-on-chassis",
         "displayName": "Text Faint",
-        "canonical": "oklch(48% 0.014 70)"
+        "canonical": "oklch(47% 0.014 70)"
       },
       "text-on-display": {
         "role": "text-on-display",

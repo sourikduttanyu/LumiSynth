@@ -1,31 +1,32 @@
 ---
 name: LumiSynth
-description: Browser-only real-time video instrument. Teenage Engineering cream chassis, dark embedded LCD display surfaces, orange signals.
+description: Browser-only real-time video instrument. Warm dark-graphite chassis (OKLCH hue 70), dark embedded LCD display surfaces, orange signals.
 colors:
   orange-signal:    "#ff5722"
   red-accent:       "#e63946"
-  bg-stage:         "#d6d0c3"
-  bg-room:          "#e9e3d8"
-  surface-card:     "#f3eee4"
-  surface-raised:   "#fbf7ee"
-  surface-hover:    "#ded8cb"
-  border-hairline:  "#beb7a8"
-  display-screen:   "#0a0908"
-  display-bezel:    "#100f0d"
-  display-hairline: "#393631"
-  text-key:         "#262220"
-  text-body:        "#46413a"
-  text-muted:       "#6e675c"
-  text-faint:       "#948c7e"
-  text-on-display:  "#eae7e1"
-  state-ok:         "#3f7a48"
-  state-danger:     "#b03a2e"
-  state-info:       "#2f6189"
-  stage-osc:        "#8a6a36"
-  stage-filter:     "#8c3a4e"
-  stage-fx:         "#3f6a82"
-  knob-cap-white:   "#faf7f0"
-  knob-cap-black:   "#1f1b17"
+  bg-stage:         "oklch(13% 0.008 70)"
+  bg-room:          "oklch(18% 0.010 70)"
+  surface-card:     "oklch(23% 0.012 70)"
+  surface-raised:   "oklch(28% 0.013 70)"
+  surface-hover:    "oklch(33% 0.014 70)"
+  border-hairline:  "oklch(38% 0.015 70)"
+  border-strong:    "oklch(48% 0.016 70)"
+  display-screen:   "oklch(5% 0.005 70)"
+  display-bezel:    "oklch(8% 0.005 70)"
+  display-hairline: "oklch(24% 0.005 70)"
+  text-key:         "oklch(95% 0.005 70)"
+  text-body:        "oklch(79% 0.008 70)"
+  text-muted:       "oklch(63% 0.011 70)"
+  text-faint:       "oklch(47% 0.014 70)"
+  text-on-display:  "oklch(92% 0.005 70)"
+  state-ok:         "oklch(65% 0.10 145)"
+  state-danger:     "oklch(60% 0.18 25)"
+  state-info:       "oklch(60% 0.10 235)"
+  stage-osc:        "oklch(68% 0.09 65)"
+  stage-filter:     "oklch(60% 0.13 5)"
+  stage-fx:         "oklch(64% 0.08 220)"
+  knob-cap-white:   "oklch(97% 0.005 70)"
+  knob-cap-black:   "oklch(12% 0.008 70)"
 typography:
   headline:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -131,9 +132,9 @@ components:
 
 **Creative North Star: "The Studio Workbench"**
 
-> **Palette pivot (June 2026):** the chassis flipped from the dark Octatrack-style graphite to the Teenage Engineering K.O. II / OP-1 **cream** — light warm-bone plastic chassis, dark silkscreen legends, full-orange active keys with dark text, and the display surfaces kept near-black so the canvas reads as a dark LCD set into the cream body. The chassis ladder direction inverted ("raised" = lighter / near-white plastic keys, hover darkens one step like a pressed key); text ladder inverted to dark-on-light; state and stage hues darkened for legibility on cream. Everything else below — spacing, typography, component anatomy, the orange-is-signal rule, the display-vs-chassis split — is unchanged. Sections below that describe surface lightness in dark-chassis terms should be read through this pivot; the CSS tokens in `style.css` are canonical.
+> **Canonical palette: warm dark graphite (OKLCH, hue 70).** The shipped chassis is dark — the Octatrack / Push / Eurorack dark read — NOT cream. A cream (TE K.O. II / OP-1) pivot was explored and is still referenced in some older notes, but the canonical CSS tokens in `style.css` (and `DESIGN.json`) are dark graphite at a constant warm hue 70, low chroma. On the dark chassis "raised" reads as LIGHTER and hover lightens one step (dark-mode convention); text is light-on-dark. **Every chrome token is authored in OKLCH** specifically for *perceptual uniformity* — equal numeric steps = equal perceived steps, which HSL/RGB do not deliver — and the surface/text ladders are perceptually equidistant (see §2 "The Perceptual-Uniformity Rule"). If you find "cream / hue 85 / light warm-bone" wording anywhere, it is stale; `style.css` is canonical.
 
-LumiSynth is built for a workbench in a dim studio. The chassis is light, restrained, warm cream — TE K.O. II plastic. The work — the canvas — sits inside a deep dark display embedded in that chassis, the way the LCD sits in an OP-1 body. The chassis recedes by being quiet bone-white; the canvas asserts itself by being the deepest surface on the page, framed by a slightly lighter bezel. Orange appears only when something is changing, active, or being touched.
+LumiSynth is built for a workbench in a dim studio. The chassis is restrained, warm dark graphite — anodized-instrument plastic, not charcoal-cold black. The work — the canvas — sits inside an even deeper dark display embedded in that chassis, the way the LCD sits in an Octatrack/Push body. The chassis recedes by being quiet mid-dark grey; the canvas asserts itself by being the deepest surface on the page, framed by a slightly lighter bezel. Orange appears only when something is changing, active, or being touched.
 
 The aesthetic family is **browser shader playground crossed with industrial sampler hardware**, with named references in PRODUCT.md to Teenage Engineering K.O. II / K.O. Sidekick (TE chrome language: knobs, type, button shapes), Lumen, Cables.gl, and Ableton Push. Where K.O. II is cream and built for daylight, LumiSynth picks the *dark* sibling aesthetic — Octatrack, Push 3 black, Eurorack — for chassis lightness, because a screen-based instrument lives in a different lighting environment than physical hardware. The TE *language* is preserved (single saturated accent, white plastic knob caps, terse uppercase labels, flat surfaces) while the *lightness* matches a dim-studio screen.
 
@@ -152,7 +153,7 @@ Density is high on purpose. Power users need every knob visible at once, newcome
 
 ## 2. Colors: The Workbench Palette
 
-Every neutral is tinted slightly toward warm-yellow (hue 70, low chroma 0.005–0.014) so the surfaces read as anodized warm graphite rather than charcoal-cool black. The CSS uses `oklch()` directly; the hex shown is the rendered sRGB approximation for tooling that cannot consume OKLCH.
+Every neutral is tinted slightly toward warm-yellow (hue 70, low chroma 0.005–0.016) so the surfaces read as anodized warm graphite rather than charcoal-cool black. The CSS uses `oklch()` directly and is canonical; OKLCH is chosen deliberately for **perceptual uniformity** (equal numeric steps = equal perceived steps — see "The Perceptual-Uniformity Rule" below), and the ladders below step their lightness by a constant delta on purpose.
 
 The single accent is `orange-signal` (TE-style #ff5722). The single rare emphasis color is `red-accent` (the Japanese-text red, ~#e63946), used for danger state and for one or two intentional typographic moments. Everything else in the chrome is greyscale.
 
@@ -168,12 +169,15 @@ The single accent is `orange-signal` (TE-style #ff5722). The single rare emphasi
 
 The lightness ladder runs from `Bg Stage` (the darkest chassis surface, edges of the page) up through the chassis surfaces, then there's a hard break DOWN to `Display Bezel` and `Display Screen` — those two even-deeper surfaces are the "embedded screens" where the canvas and other display content live. The contrast between chassis (warm-dark grey) and display (near-black) is the primary depth cue in the system.
 
-- **Bg Stage** (`oklch(14% 0.008 70)`, ≈`#1f1c19`): The page background visible at the edges, behind everything. The deepest chassis surface. Reads as "ambient room" around the device.
-- **Bg Room** (`oklch(18% 0.010 70)`, ≈`#28241f`): Sidebar background and top bar background. The main chassis surface. The thing the buttons and knobs are mounted on.
-- **Surface Card** (`oklch(22% 0.012 70)`, ≈`#322d27`): Effect-card background and some panel groupings. One step lighter than `Bg Room` — reads as a raised inlay on the chassis. ("Raised reads as lighter" is the dark-theme convention.)
-- **Surface Raised** (`oklch(26% 0.012 70)`, ≈`#3b3630`): Default button background, toggle inactive background, swatch container. The interactive layer; one step lighter than `Surface Card`.
-- **Surface Hover** (`oklch(32% 0.014 70)`, ≈`#48433b`): Hover state for any `Surface Raised` surface. One tonal step lighter signals "ready to be pressed."
-- **Border Hairline** (`oklch(34% 0.010 70)`, ≈`#4c4740`): All 1px borders on chassis surfaces. Tinted just enough lighter than `Surface Hover` to draw a hairline boundary without becoming a divider.
+The ladder steps OKLCH lightness by an even **+5** each rung (`13 → 18 → 23 → 28 → 33 → 38`) with monotonically rising chroma and constant hue 70 — perceptually equidistant by construction.
+
+- **Bg Stage** (`oklch(13% 0.008 70)`): The page background visible at the edges, behind everything. The deepest chassis surface. Reads as "ambient room" around the device.
+- **Bg Room** (`oklch(18% 0.010 70)`): Sidebar background and top bar background. The main chassis surface. The thing the buttons and knobs are mounted on.
+- **Surface Card** (`oklch(23% 0.012 70)`): Effect-card background and some panel groupings. One step lighter than `Bg Room` — reads as a raised inlay on the chassis. ("Raised reads as lighter" is the dark-theme convention.)
+- **Surface Raised** (`oklch(28% 0.013 70)`): Default button background, toggle inactive background, swatch container. The interactive layer; one step lighter than `Surface Card`.
+- **Surface Hover** (`oklch(33% 0.014 70)`): Hover state for any `Surface Raised` surface. One tonal step lighter signals "ready to be pressed."
+- **Border Hairline** (`oklch(38% 0.015 70)`): All 1px borders on chassis surfaces. Tinted just enough lighter than `Surface Hover` to draw a hairline boundary without becoming a divider.
+- **Border Strong** (`oklch(48% 0.016 70)`): A deliberate **+10** emphasis rung (two ladder steps above hairline, not a rhythm break). Used for expanded/active container chrome — e.g. the border of an expanded color-rack slot — where a 1px boundary must read as "this container is active."
 
 ### Display surfaces (the screens embedded in the chassis)
 
@@ -187,10 +191,12 @@ These three colors are reserved for the canvas viewport, the canvas top bar, the
 
 Chassis text is light on dark. Display text is also light on dark, but with slightly different lightness for hierarchy distinction.
 
-- **Text Key** (`oklch(95% 0.005 70)`, ≈`#f5f2ed`): Primary text on chassis surfaces. Headlines, knob value tooltip, active button label, logo.
-- **Text Body** (`oklch(82% 0.008 70)`, ≈`#cfcac2`): Default body color on chassis. Inactive toggle label, card body copy.
-- **Text Muted** (`oklch(62% 0.012 70)`, ≈`#988f83`): Section labels, file status, knob labels, top-bar muted readouts.
-- **Text Faint** (`oklch(48% 0.014 70)`, ≈`#736b5f`): Empty-state copy, footer, divider sublabels. The dimmest legible text on chassis. Borderline WCAG AA on `Bg Room` for body copy — only used for non-essential disambiguation.
+The chassis-text ramp descends OKLCH lightness by an even **−16** each tier (`95 → 79 → 63 → 47`) with chroma rising in even **+.003** steps and constant hue 70 — perceptually equidistant like the surface ladder.
+
+- **Text Key** (`oklch(95% 0.005 70)`): Primary text on chassis surfaces. Headlines, knob value tooltip, active button label, logo.
+- **Text Body** (`oklch(79% 0.008 70)`): Default body color on chassis. Inactive toggle label, card body copy.
+- **Text Muted** (`oklch(63% 0.011 70)`): Section labels, file status, knob labels, top-bar muted readouts.
+- **Text Faint** (`oklch(47% 0.014 70)`): Empty-state copy, footer, divider sublabels. The dimmest legible text on chassis. Borderline WCAG AA on `Bg Room` for body copy — only used for non-essential disambiguation.
 - **Text On Display** (`oklch(92% 0.005 70)`, ≈`#eae7e1`): Text rendered on `Display Screen` or `Display Bezel`. Used for the canvas top bar buttons (Snap / FPS / ?), the FPS overlay, the toast body, the help panel body, the empty-state placeholder copy on a black canvas. One tonal step dimmer than `Text Key` to keep display text feeling "displayed" rather than "lit by chrome."
 
 ### State (semantic, three roles)
@@ -217,6 +223,8 @@ These are exposed as design tokens because they appear inside the SVG knob and n
 - **Knob Cap Black** (`#16140f`): The "black knob" cap and the dark pointer line that notches into the white cap. Also doubles as the text color on the orange-signal active toggle background, where a near-black on saturated orange reads more legibly than white.
 
 ### Named Rules
+
+**The Perceptual-Uniformity Rule.** All chrome color tokens are authored in **OKLCH**, never hex or HSL (the two saturated signals `--orange-signal` / `--red-accent` are the only hex exceptions). OKLCH is chosen because it is *perceptually uniform*: equal numeric steps produce equal perceived steps. HSL/HSV/raw-RGB do not — equal numeric steps look uneven (blues go muddy, reds read too intense), so a "uniform" ladder built in them is not visually uniform. Two consequences are enforced in `:root`: **(1)** every token ladder is perceptually equidistant — lightness steps by a constant delta (chassis surfaces `+5`, chassis text `−16`), chroma is monotonic, and **(2)** hue is the held-constant dimension (`70` on every chassis/text ramp). `--border-strong` is the one deliberate exception: a `+10` emphasis rung (exactly two ladder steps), not a rhythm break. When adding or retuning a ladder, hold hue constant, pick one lightness step delta, and keep chroma monotonic — never reach for hex/HSL for chrome.
 
 **The Orange-Is-Signal Rule.** Orange (`#ff5722`) appears only where a value is being changed, an effect is active, or a control is currently being touched. The logo, card titles, dividers, and any decorative element must be a neutral or stage-coded tone. Test: take a screenshot of the app at rest with no interaction. If orange is visible anywhere except the active toggle button, the active filter card's accent edge, and the active scrub thumb, the rule is violated.
 

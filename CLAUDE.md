@@ -324,7 +324,9 @@ later.
 
 ### Design system
 
-Tokens defined in `DESIGN.md` / `DESIGN.json`. June 2026 pivot: the chassis is now **Teenage Engineering K.O. II cream** — light warm-bone surfaces (hue 85), dark silkscreen text, full-orange active keys (`#ff5722` with dark legends), and near-black display surfaces (canvas / top bar / toast / help) kept dark so they read as LCDs set into the cream body. On the light chassis "raised" = lighter (white plastic keys) and hover darkens one step (pressed key). Typography: Inter, 9–13px, heavy letter-spacing. CSS variables are the source of truth — don't hardcode color values; the dark-graphite values quoted in older docs are superseded by the tokens in `style.css`.
+Tokens defined in `DESIGN.md` / `DESIGN.json`. The chassis is **warm dark graphite** (Octatrack / Push / Eurorack dark read): every chrome token is authored in **OKLCH** at a constant warm hue 70 and low chroma; orange active keys (`#ff5722` with near-black legends); near-black display surfaces (canvas / top bar / toast / help) read as LCDs set into the chassis. On the dark chassis "raised" = lighter and hover lightens one step. Typography: Inter, 9–13px, heavy letter-spacing. CSS variables in `style.css` are the source of truth — don't hardcode color values, and don't use hex/HSL for chrome (only `--orange-signal` / `--red-accent` stay hex).
+
+**OKLCH is chosen for perceptual uniformity** — equal numeric steps produce equal *perceived* steps, which HSL/RGB do not (the lesson the design follows). Token ladders are therefore **perceptually equidistant**: lightness steps by a constant delta with monotonic chroma and constant hue. Chassis ladder L = `13 → 18 → 23 → 28 → 33 → 38` (`--bg-stage` → `--border-hairline`, +5 each); `--border-strong` (`48`) is a deliberate +10 emphasis rung. Text-on-chassis ramp L = `95 → 79 → 63 → 47` (`--text-key` → `--text-faint`, −16 each). See `DESIGN.md` §2 "The Perceptual-Uniformity Rule" and the `lumisynth-ui` skill. (Any "cream / hue 85" wording in older notes is stale; the shipped palette is dark graphite hue 70.)
 
 ### Two top-level modes
 
@@ -452,6 +454,21 @@ Production email login expects these Cloudflare env vars:
 - `APP_ORIGIN`
 
 D1 must be bound as `DB`. The real `database_id` is **not** in `wrangler.toml` because it is only known after creating the real Cloudflare D1 database. Do not invent it. After D1 exists, add the binding in Cloudflare Pages settings or update `wrangler.toml` with the real `database_id` and `preview_database_id`.
+
+#### Future hosting tasks
+
+Concrete, grounded in the current Cloudflare Pages + Functions + D1 + Resend setup (no new product scope):
+
+1. **Provision D1 + run migrations.** Create the real D1 database, wire `database_id` / `preview_database_id` into `wrangler.toml` (or Pages bindings), and apply `migrations/0001_auth_presets.sql`.
+2. **Set production env vars in Pages.** `RESEND_API_KEY`, `AUTH_FROM_EMAIL`, `APP_ORIGIN`. Verify the Resend sender domain (SPF/DKIM) so login codes actually deliver.
+3. **Custom domain + origin match.** Configure the Pages custom domain and set `APP_ORIGIN` to match so the `lumisynth_session` cookie domain is correct.
+4. **Lock down the localhost fallback.** Confirm the internal-login fallback (`lumisynth-internal-auth` / `lumisynth-internal-presets`) can ONLY trigger on `localhost`/`127.0.0.1`/empty-host — never on the deployed origin. Verify the hostname gate before launch.
+5. **Session cookie flags.** Confirm `lumisynth_session` is `HttpOnly` + `Secure` + `SameSite` appropriate for the production origin.
+6. **D1 row hygiene.** Add expiry/cleanup for `sessions` and `auth_challenges` (TTL or scheduled purge) so they don't accumulate stale rows.
+7. **Rate-limit `POST /api/auth/start`.** Cap requests/attempts per email + per challenge to prevent email-bomb and brute force of the 6-digit code.
+8. **Static-asset headers for `dist/`.** The MediaPipe WASM files and `efficientdet_lite0.tflite` are large — set long-cache immutable headers and confirm correct MIME types for `.wasm` / `.tflite`.
+9. **Data/retention note.** Document what `presets` and `export_events` store and for how long before any public launch, consistent with the "stay local" product principle.
+10. **CI gate before deploy.** Run `npm run build` + `npm run test:e2e` (107 tests) on PRs prior to `npm run cf:deploy`.
 
 Local/internal testing before D1 exists: the frontend has a localhost-only fallback. On `localhost`, `127.0.0.1`, or file-host style empty hostname, if `/api` is unavailable, login code is shown in a toast and internal user/presets are stored in `localStorage` under `lumisynth-internal-auth` and `lumisynth-internal-presets`. This is only for internal testing of export gating and cloud preset UI.
 
