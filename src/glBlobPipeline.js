@@ -9,7 +9,12 @@
  * them in its own context.
  *
  * Usage (from renderFrame in main.js):
- *   runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx)
+ *   runBlobsFrame(srcEl, eligibleBlobs, blobPipe, displayCtx, cw, ch)
+ *
+ * Architecture:
+ *   1. Mask canvas  — blobs drawn white at presence opacity (temporal fade-in/out)
+ *   2. GL pipeline  — full source frame through STRUCTURE→COLOR→GRADE→FX
+ *   3. Composite    — GL output masked by blob shapes → source-over display
  *
  * blobPipe = {
  *   structure: string|null,          // effect name or null
@@ -26,10 +31,38 @@
 
 import { VERT, FRAGS, FRAG_EDGEDET_STRUCT } from './glFilters.js';
 
+// Passthrough shader that applies the structure output mode (mono/source/ink/invert)
+// to the raw source video when no structure effect is selected.
+// structureOutputMode values: 0=mono  1=source(passthrough)  2=ink  3=invert
+const FRAG_BLOB_OUTPUT_MODE_ONLY = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform float uOutputMode;
+uniform vec3 uInkLow;
+uniform vec3 uInkHigh;
+out vec4 fragColor;
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  vec4 src = texture(u_video, vUV);
+  float l = luma(src.rgb);
+  vec3 col;
+  if      (uOutputMode < 0.5) col = vec3(l);
+  else if (uOutputMode < 1.5) col = src.rgb;
+  else if (uOutputMode < 2.5) col = mix(uInkLow, uInkHigh, smoothstep(0.42, 0.58, l));
+  else                        col = 1.0 - src.rgb;
+  fragColor = vec4(col, src.a);
+}`;
+
 // Blob structure context: some effects share a name with FX RACK shaders that
 // lack applyStructureOutput. Override them here so mono/source/ink/invert work.
 // kuwahara: blob STRUCTURE uses the luma-output STRUCT variant, not the color one.
-const BLOB_STRUCT_FRAG_OVERRIDES = { edgedet: FRAG_EDGEDET_STRUCT, kuwahara: FRAGS.kuwahara_struct };
+// _blobOutputMode: no-structure passthrough that still applies the output mode.
+const BLOB_STRUCT_FRAG_OVERRIDES = {
+  edgedet:          FRAG_EDGEDET_STRUCT,
+  kuwahara:         FRAGS.kuwahara_struct,
+  _blobOutputMode:  FRAG_BLOB_OUTPUT_MODE_ONLY,
+};
 import { FX_FRAGS } from './glFx.js';
 import { COLOR_PARAM_SCHEMAS, FX_PARAM_SCHEMAS } from './schemas.js';
 
@@ -53,6 +86,14 @@ const _blobFeedback = new Map();
 // 2D canvas for cropping blob regions from srcEl
 let _cropCanvas = null;
 let _cropCtx = null;
+
+// Mask canvas — blobs drawn white at presence opacity (temporal smoothing via presence)
+let _maskCanvas = null;
+let _maskCtx    = null;
+
+// Composite canvas — GL output masked by blob shapes before hitting the display
+let _compCanvas = null;
+let _compCtx    = null;
 
 // Prev-frame state for motionedge motion extraction.
 // One texture/FB pair per blob pipeline (shared across blobs — approximate
@@ -96,6 +137,67 @@ in vec2 vUV;
 uniform sampler2D u_video;
 out vec4 fragColor;
 void main(){ fragColor = texture(u_video, vUV); }`;
+
+// After any structure stage: blend the raw structure mask (u_struct) with the
+// source video (u_video = _tex), then apply the output mode.
+// Mirrors FRAG_STRUCT_MODE in glFilters.js so blob and synth look identical.
+const FRAG_BLOB_STRUCT_BLEND = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform sampler2D u_struct;
+uniform float uOutputMode;
+uniform vec3 uInkLow;
+uniform vec3 uInkHigh;
+out vec4 fragColor;
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  float s      = clamp(texture(u_struct, vUV).r, 0.0, 1.0);
+  vec3  src    = texture(u_video, vUV).rgb;
+  float srcLum = max(luma(src), 0.001);
+  float tgt    = mix(srcLum, s, 0.55);
+  vec3  blended = clamp(src * (tgt / srcLum), 0.0, 1.0);
+  float bLum   = luma(blended);
+  vec3  col;
+  if      (uOutputMode < 0.5) col = vec3(bLum);
+  else if (uOutputMode < 1.5) col = blended;
+  else if (uOutputMode < 2.5) col = mix(uInkLow, uInkHigh, smoothstep(0.42, 0.58, bLum));
+  else                        col = 1.0 - blended;
+  fragColor = vec4(col, 1.0);
+}`;
+
+let _structBlendProg = null;
+let _structBlendU    = null;
+
+function runBlobStructBlend(w, h, structTex, outputMode, inkLow, inkHigh, outputFBO) {
+  const gl = _gl;
+  if (!_structBlendProg) {
+    _structBlendProg = createProgram(gl, VERT, FRAG_BLOB_STRUCT_BLEND);
+    _structBlendU = {
+      video:  gl.getUniformLocation(_structBlendProg, 'u_video'),
+      struct: gl.getUniformLocation(_structBlendProg, 'u_struct'),
+      mode:   gl.getUniformLocation(_structBlendProg, 'uOutputMode'),
+      inkLo:  gl.getUniformLocation(_structBlendProg, 'uInkLow'),
+      inkHi:  gl.getUniformLocation(_structBlendProg, 'uInkHigh'),
+    };
+  }
+  const u = _structBlendU;
+  gl.viewport(0, 0, w, h);
+  gl.bindVertexArray(_vao);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, outputFBO ?? null);
+  gl.useProgram(_structBlendProg);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, _tex);
+  gl.uniform1i(u.video, 0);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, structTex);
+  gl.uniform1i(u.struct, 1);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1f(u.mode, outputMode ?? 1);
+  if (inkLow)  gl.uniform3f(u.inkLo, inkLow[0],  inkLow[1],  inkLow[2]);
+  if (inkHigh) gl.uniform3f(u.inkHi, inkHigh[0], inkHigh[1], inkHigh[2]);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
 
 function compileShader(gl, type, src) {
   const s = gl.createShader(type);
@@ -233,7 +335,7 @@ function ensureChain(w, h) {
 }
 
 function runEffect(name, w, h, params, opts = {}) {
-  if (!FRAGS[name]) return;
+  if (!FRAGS[name] && !BLOB_STRUCT_FRAG_OVERRIDES[name]) return;
   const gl = _gl;
   const entry = getProgram(name);
   if (!entry) return;
@@ -364,7 +466,7 @@ function runFeedbackEffect(name, slotKey, w, h, params, opts = {}) {
  * presence (0–1) is applied as globalAlpha so lingering/decaying blobs
  * fade out their synth output naturally.
  */
-export function runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx, displayW, displayH, presence = 1) {
+export function runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx, displayW, displayH, presence = 1, skipComposite = false) {
   if (!ensureBlobContext()) return;
 
   // Crop blob region from srcEl into the crop canvas.
@@ -470,29 +572,52 @@ export function runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx, displa
     });
   }
 
-  const totalStages = (structure ? 1 : 0) + chained.length;
+  // When structure is set: output mode is applied POST-structure via runBlobStructBlend
+  // (which mirrors the synth's applyStructureMode). When structure is absent: output mode
+  // runs as a pre-pass on the raw source.
+  const hasOutputMode = (structureOutputMode ?? 0) !== 1;
+  const hasOutputModeNoStruct = hasOutputMode && !structure;
+  // structure contributes 2 stages: the structure effect + the source-blend/output-mode pass.
+  const totalStages = (hasOutputModeNoStruct ? 1 : 0) + (structure ? 2 : 0) + chained.length;
   if (totalStages === 0) return;
 
   const gl = _gl;
 
   if (totalStages === 1) {
-    // Single-stage fast path: render directly to GL canvas (outFB = null)
-    if (structure) {
-      runEffect(structure, bw, bh, structureParams, { ...structOpts });
+    // Only possible case: no structure, hasOutputMode alone, no chained
+    if (hasOutputModeNoStruct) {
+      runEffect('_blobOutputMode', bw, bh, [0, 0, 0, 0, 0], { ...structOpts });
     } else {
       chained[0].run({});
     }
   } else {
-    // Multi-stage ping-pong through chain FBOs
     let currentTex = null;
     let writeIdx = 0;
     const writeFBOs = [chain.a.fb, chain.b.fb];
     const readTexs  = [chain.a.tex, chain.b.tex];
 
-    if (structure) {
-      runEffect(structure, bw, bh, structureParams, { ...structOpts, outputFBO: writeFBOs[writeIdx] });
+    // Pre-pass output mode — only when no structure (otherwise output mode is
+    // embedded in the post-structure runBlobStructBlend call below).
+    if (hasOutputModeNoStruct) {
+      runEffect('_blobOutputMode', bw, bh, [0, 0, 0, 0, 0], { ...structOpts, outputFBO: writeFBOs[writeIdx] });
       currentTex = readTexs[writeIdx];
       writeIdx ^= 1;
+    }
+
+    if (structure) {
+      // Stage 1: run structure effect (reads _tex — raw source)
+      runEffect(structure, bw, bh, structureParams, { ...structOpts, outputFBO: writeFBOs[writeIdx] });
+      const structTex = readTexs[writeIdx];
+      writeIdx ^= 1;
+
+      // Stage 2: source-blend + output mode (mirrors synth's applyStructureMode)
+      const isStructLast = chained.length === 0;
+      runBlobStructBlend(bw, bh, structTex, structureOutputMode, inkLow, inkHigh,
+        isStructLast ? null : writeFBOs[writeIdx]);
+      if (!isStructLast) {
+        currentTex = readTexs[writeIdx];
+        writeIdx ^= 1;
+      }
     }
 
     for (let i = 0; i < chained.length; i++) {
@@ -519,10 +644,77 @@ export function runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx, displa
 
   // Composite blob GL output onto display canvas at blob position.
   // globalAlpha = presence so decaying blobs fade out their synth output.
+  if (!skipComposite) {
+    displayCtx.save();
+    displayCtx.globalCompositeOperation = composite || 'source-over';
+    displayCtx.globalAlpha = Math.max(0, Math.min(1, presence));
+    displayCtx.drawImage(_canvas, 0, 0, bw, bh, bx, by, bw, bh);
+    displayCtx.restore();
+  }
+}
+
+/**
+ * Collect all eligible blob crops onto a single full-size canvas, then run
+ * the blob LumiSynth pipeline ONCE and composite the result onto displayCtx.
+ *
+ * blobs must already be filtered to eligible entries (presence >= 0.02,
+ * valid size). Each blob's presence is baked in as opacity when stamping
+ * the crop so the pipeline receives naturally weighted content.
+ */
+export function runBlobsFrame(srcEl, blobs, blobPipe, displayCtx, cw, ch) {
+  if (!blobs.length) return;
+
+  // ── Layer 1: mask canvas ──────────────────────────────────────────────────
+  // Each blob drawn as a filled white rectangle, opacity = blob.presence.
+  // presence is already the temporally-smoothed attack/release envelope, so
+  // blobs fade in on detection and fade out when lost — no spatial blur needed.
+  if (!_maskCanvas) {
+    _maskCanvas = document.createElement('canvas');
+    _maskCtx    = _maskCanvas.getContext('2d', { alpha: true });
+  }
+  if (_maskCanvas.width !== cw || _maskCanvas.height !== ch) {
+    _maskCanvas.width  = cw;
+    _maskCanvas.height = ch;
+  } else {
+    _maskCtx.clearRect(0, 0, cw, ch);
+  }
+  _maskCtx.fillStyle = '#fff';
+  for (const blob of blobs) {
+    const bx = Math.max(0, Math.floor(blob.cx - blob.w / 2));
+    const by = Math.max(0, Math.floor(blob.cy - blob.h / 2));
+    const bw = Math.min(cw - bx, Math.ceil(blob.w));
+    const bh = Math.min(ch - by, Math.ceil(blob.h));
+    if (bw < 8 || bh < 8) continue;
+    _maskCtx.globalAlpha = Math.max(0, Math.min(1, blob.presence ?? 1));
+    _maskCtx.fillRect(bx, by, bw, bh);
+  }
+  _maskCtx.globalAlpha = 1;
+
+  // ── Layer 2: GL pipeline on the full source frame ─────────────────────────
+  // Shaders receive real video content — no transparent gaps, no garbage output.
+  runBlobFrame(srcEl, 0, 0, cw, ch, blobPipe, null, cw, ch, 1, true);
+
+  // ── Layer 3: mask the GL output and composite onto display ────────────────
+  // Draw GL output onto comp canvas, punch out non-blob areas with destination-in
+  // (keeps only pixels where the mask is non-transparent), then source-over display.
+  if (!_compCanvas) {
+    _compCanvas = document.createElement('canvas');
+    _compCtx    = _compCanvas.getContext('2d', { alpha: true });
+  }
+  if (_compCanvas.width !== cw || _compCanvas.height !== ch) {
+    _compCanvas.width  = cw;
+    _compCanvas.height = ch;
+  } else {
+    _compCtx.clearRect(0, 0, cw, ch);
+  }
+  _compCtx.drawImage(_canvas, 0, 0);
+  _compCtx.globalCompositeOperation = 'destination-in';
+  _compCtx.drawImage(_maskCanvas, 0, 0);
+  _compCtx.globalCompositeOperation = 'source-over';
+
   displayCtx.save();
-  displayCtx.globalCompositeOperation = composite || 'source-over';
-  displayCtx.globalAlpha = Math.max(0, Math.min(1, presence));
-  displayCtx.drawImage(_canvas, 0, 0, bw, bh, bx, by, bw, bh);
+  displayCtx.globalCompositeOperation = blobPipe.composite || 'source-over';
+  displayCtx.drawImage(_compCanvas, 0, 0);
   displayCtx.restore();
 }
 
@@ -561,5 +753,7 @@ export function disposeBlobPipeline() {
   // Programs, VAO, and video texture stay alive for reuse until page unload.
   if (_prevBlobFB)  { _gl.deleteFramebuffer(_prevBlobFB);  _prevBlobFB = null; }
   if (_prevBlobTex) { _gl.deleteTexture(_prevBlobTex);     _prevBlobTex = null; }
+  _maskCanvas = null; _maskCtx = null;
+  _compCanvas = null; _compCtx = null;
   _prevBlobW = 0; _prevBlobH = 0; _motionCounter = 0;
 }

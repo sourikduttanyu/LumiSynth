@@ -5,11 +5,10 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 const SHADER_LIB_ENABLED = false;
 import { zipSync, strToU8 } from 'fflate';
 import { detectBlobs, resetFrameHistory, setColorKeyTarget, clearColorKeyTarget } from './blobDetector.js';
-import { applyFilterToSubregion } from './filters.js';
 import { drawTrackOverlay, resetTrackOverlay } from './overlays.js';
 import { trackBlobs, resetTracker } from './kalman.js';
 import { applyASCII } from './ascii.js';
-import { applyGLFilter, applyStructureMode } from './glFilters.js';
+import { applyGLFilter, applyStructureMode, applySourceOutputMode } from './glFilters.js';
 import { applyFxEffect, resetFxFeedback } from './glFx.js';
 import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs, captureFrameHistory, resetMotionHistory } from './glContext.js';
 import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas, getShaderSourceParams, setShaderSourceParam } from './shaderSource.js';
@@ -27,7 +26,7 @@ import {
   BLOB_STRUCTURE_PARAM_SCHEMAS, BLOB_STRUCTURE_SECTIONS, BLOB_FX_SECTIONS,
   makeBlobFxRack, sanitizeBlobFxRack, sanitizeBlobStructureParams, makeBlobStructureParams,
 } from './schemas.js';
-import { runBlobFrame, disposeBlobPipeline, resetBlobFeedback } from './glBlobPipeline.js';
+import { runBlobsFrame, disposeBlobPipeline, resetBlobFeedback } from './glBlobPipeline.js';
 
 // GL error surface — GL modules call this to fire a user-visible toast on
 // shader compile failure (avoids importing showToast into GL modules).
@@ -493,7 +492,6 @@ function resolveTimelineLook(time) {
 function timelineRuntimeSignature(look) {
   return JSON.stringify({
     trackBackend: look.trackBackend,
-    perBlob: look.perBlob,
     trackComposite: look.trackComposite,
     trackChannel: look.trackChannel,
     threshold: look.threshold,
@@ -1371,7 +1369,6 @@ function runFxEffect(name, params, opts = {}, key) {
 const TOGGLE_CONFIG = [
   ['structure-group',       'structure',      String,     onStructureChange],
   ['structure-output-group', 'structureOutputMode', String, null],
-  ['perblob-group',         'perBlob',        String,     onPerBlobChange],
   ['erode-mode-group',      'erodeMode',      parseInt,   null],
   // ============ TRACK-mode toggle groups ============
   ['mode-group',            'mode',           String,     onModeChange],
@@ -1395,7 +1392,7 @@ const TOGGLE_CONFIG = [
 // of whatever the main chain produced; not part of this resolver.
 
 // Resolve the blob synth pipeline descriptor from a look snapshot.
-// Returns a blobPipe object consumed by runBlobFrame() in glBlobPipeline.js.
+// Returns a blobPipe object consumed by runBlobsFrame() in glBlobPipeline.js.
 function resolveBlobPipeline(look) {
   const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, ink: 2, invert: 3 };
   const structureName = look.blobStructure !== 'none' ? look.blobStructure : null;
@@ -1506,12 +1503,6 @@ function onStructureChange(v) {
     }
   }
 }
-
-// Per-blob (Inv / Thermal) has no associated effect-card and doesn't
-// participate in the main-chain dispatch — it just toggles the per-blob
-// CPU pass in renderFrame. Persistence is handled by the toggle wiring;
-// this hook intentionally has no side effects beyond that.
-function onPerBlobChange(_v) { /* intentionally empty */ }
 
 function refreshColorKeyControls(channel) {
   const el = document.getElementById('color-key-controls');
@@ -2471,6 +2462,7 @@ function buildBlobColorKnobs(container, type, idPrefix) {
   if (schema.toggles && schema.toggles.length) {
     for (const t of schema.toggles) {
       if (type === 'chroma' && t.key === 'driver') continue;
+      if (type === 'okdrift' && t.key === 'relType') continue;
       const wrap = document.createElement('div');
       wrap.className = 'color-rack-slot-toggle';
       const lbl = document.createElement('span');
@@ -3972,7 +3964,6 @@ function loadPersistedState() {
       const f = parsed.filter;
       if      (STRUCTURE_SECTIONS.includes(f)) { parsed.structure = f; }
       else if (COLOR_SECTIONS.includes(f))     { parsed.color     = f; }
-      else if (f === 'inv' || f === 'thermal') { parsed.perBlob   = f; }
       delete parsed.filter;
     }
     // lastPicked retired — was a vestigial recency hint; rendering never
@@ -4209,7 +4200,10 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
   if (pipe.grade) chained.push({ type: 'grade',         run: (opts) => runGradeEffect(pipe.grade, opts) });
   chained.push(...pipe.fx.map((f) => ({ type: f.type, run: (opts) => runFxEffect(f.type, f.params, opts, f.key) })));
 
-  const totalStages = (pipe.structure ? 1 : 0) + chained.length;
+  const structModeVal = structureOutputModeValue(look);
+  const inkColors = inkColorUniforms(look);
+  const hasOutputMode = structModeVal !== 1; // not source-passthrough
+  const totalStages = (hasOutputMode && !pipe.structure ? 1 : 0) + (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
     uploadVideoFrame(srcEl);
@@ -4219,10 +4213,11 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
       if (pipe.structure) {
         const chain = getChainFBOs();
         runEffect(pipe.structure, { outputFBO: chain.a.fb });
-        const structModeVal = structureOutputModeValue(look);
-        const inkColors = inkColorUniforms(look);
         applyStructureMode(cw, ch, chain.a.tex, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
+      } else if (hasOutputMode) {
+        applySourceOutputMode(cw, ch, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
+        compositeToCanvas2D(ctx, cw, ch, 'source-over');
       } else {
         const stage = chained[0];
         stage.run({});
@@ -4238,14 +4233,15 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
       if (pipe.structure) {
         runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
         currentTex = readTexs[writeIdx]; writeIdx ^= 1;
-        const structModeVal = structureOutputModeValue(look);
-        const inkColors = inkColorUniforms(look);
         applyStructureMode(cw, ch, currentTex, structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
         currentTex = readTexs[writeIdx]; writeIdx ^= 1;
         if (BLEND_MODES[pipe.structure] === 'screen') {
           applyCompose(cw, ch, currentTex, writeFBOs[writeIdx]);
           currentTex = readTexs[writeIdx]; writeIdx ^= 1;
         }
+      } else if (hasOutputMode) {
+        applySourceOutputMode(cw, ch, structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
+        currentTex = readTexs[writeIdx]; writeIdx ^= 1;
       }
 
       for (let i = 0; i < chained.length; i++) {
@@ -4276,14 +4272,14 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
       drawTrackOverlay(ctx, blobs, cw, ch, {
         shape: {
           type:       look.trackShape,
-          hueColor:   look.trackShapeColor,
+          hueColor:   0,
           thickness:  look.trackShapeThickness,
           padding:    look.trackShapePadding,
           styleParam: look.trackShapeStyle,
         },
         lines: {
           type:      look.trackLines,
-          hueColor:  look.trackLinesColor,
+          hueColor:  0,
           thickness: look.trackLinesThickness,
           param:     look.trackLinesParam,
           taper:     look.trackLinesTaper,
@@ -4297,10 +4293,11 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
   // Blob LumiSynth — uses pre-detected blobs, same gating as renderFrame.
   if (blobs.length > 0) {
     const blobPipe = resolveBlobPipeline(look);
-    const blobHasWork = blobPipe.structure || blobPipe.color || blobPipe.grade || blobPipe.fx.length > 0;
+    const blobHasWork = blobPipe.structure || blobPipe.color || blobPipe.grade || blobPipe.fx.length > 0
+      || (blobPipe.structureOutputMode ?? 0) !== 1;
     if (blobHasWork) {
-      const MAX_BLOBS = 6;
-      for (let i = 0; i < Math.min(blobs.length, MAX_BLOBS); i++) {
+      const eligible = [];
+      for (let i = 0; i < blobs.length; i++) {
         const blob = blobs[i];
         if ((blob.presence ?? 1) < 0.02) continue;
         const bx = Math.max(0, Math.floor(blob.cx - blob.w / 2));
@@ -4308,8 +4305,9 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
         const bw = Math.min(cw - bx, Math.ceil(blob.w));
         const bh = Math.min(ch - by, Math.ceil(blob.h));
         if (bw < 8 || bh < 8) continue;
-        runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, ctx, cw, ch, blob.presence ?? 1);
+        eligible.push(blob);
       }
+      if (eligible.length > 0) runBlobsFrame(srcEl, eligible, blobPipe, ctx, cw, ch);
     }
   }
 
@@ -4371,13 +4369,64 @@ function _exportBitrate(resKey, w, h) {
   return Math.round(Math.max(2_000_000, Math.min(15_000_000, (px / (1920 * 1080)) * 15_000_000)));
 }
 
+// Decode the audio track of a video URL into a Web Audio AudioBuffer.
+// Returns null if the video has no audio or decoding fails.
+async function _extractAudioBuffer(srcUrl, maxDuration) {
+  if (!srcUrl) return null;
+  try {
+    const resp = await fetch(srcUrl);
+    const arrayBuffer = await resp.arrayBuffer();
+    const audioCtx = new AudioContext();
+    let buf;
+    try { buf = await audioCtx.decodeAudioData(arrayBuffer); } finally { audioCtx.close(); }
+    if (maxDuration < buf.duration) {
+      const trimCtx = new OfflineAudioContext(buf.numberOfChannels, Math.ceil(maxDuration * buf.sampleRate), buf.sampleRate);
+      const src = trimCtx.createBufferSource();
+      src.buffer = buf; src.connect(trimCtx.destination); src.start(0);
+      buf = await trimCtx.startRendering();
+    }
+    return buf;
+  } catch { return null; }
+}
+
+// Encode an AudioBuffer to AAC and feed chunks into the muxer.
+async function _encodeAudioToMuxer(audioBuffer, muxer) {
+  const { sampleRate, numberOfChannels, length } = audioBuffer;
+  const CHUNK_FRAMES = 1024;
+  const audioEncoder = new AudioEncoder({
+    output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+    error: (e) => console.warn('Audio encoder:', e),
+  });
+  audioEncoder.configure({ codec: 'mp4a.40.2', numberOfChannels, sampleRate, bitrate: 192_000 });
+  for (let offset = 0; offset < length; offset += CHUNK_FRAMES) {
+    const frames = Math.min(CHUNK_FRAMES, length - offset);
+    const data = new Float32Array(frames * numberOfChannels);
+    for (let ch = 0; ch < numberOfChannels; ch++) {
+      data.set(audioBuffer.getChannelData(ch).subarray(offset, offset + frames), ch * frames);
+    }
+    const audioData = new AudioData({
+      format: 'f32-planar', sampleRate, numberOfFrames: frames, numberOfChannels,
+      timestamp: Math.round((offset / sampleRate) * 1_000_000), data,
+    });
+    audioEncoder.encode(audioData);
+    audioData.close();
+  }
+  await audioEncoder.flush();
+  audioEncoder.close();
+}
+
 // Main offline render: WebCodecs path — produces a real MP4.
 async function _exportWebCodecs(fps, totalFrames, cw, ch, bitrate, ts, blobsPerFrame) {
-  const muxer = new Muxer({
+  const audioBuffer = await _extractAudioBuffer(video.src, totalFrames / fps);
+  const muxerConfig = {
     target: new ArrayBufferTarget(),
     video: { codec: 'avc', width: cw, height: ch },
     fastStart: 'in-memory',
-  });
+  };
+  if (audioBuffer) {
+    muxerConfig.audio = { codec: 'aac', numberOfChannels: audioBuffer.numberOfChannels, sampleRate: audioBuffer.sampleRate };
+  }
+  const muxer = new Muxer(muxerConfig);
 
   const encoder = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
@@ -4427,6 +4476,7 @@ async function _exportWebCodecs(fps, totalFrames, cw, ch, bitrate, ts, blobsPerF
 
   if (!_exportAborted) {
     await encoder.flush();
+    if (audioBuffer) await _encodeAudioToMuxer(audioBuffer, muxer);
     muxer.finalize();
     const { buffer } = muxer.target;
     const blob = new Blob([buffer], { type: 'video/mp4' });
@@ -5877,8 +5927,7 @@ function applyPresenceSmoother(blobs) {
 }
 
 function needsBlobPipeline() {
-  const look = currentLook();
-  return look.trackBackend !== 'off' || look.perBlob !== 'none';
+  return currentLook().trackBackend !== 'off';
 }
 
 function resolveDetectScale(cw, ch) {
@@ -6045,7 +6094,10 @@ function renderFrame(nowDOMHi) {
   if (pipe.color) chained.push({ type: pipe.color.type, run: (opts) => runColorEffect(pipe.color.type, pipe.color.params, opts) });
   if (pipe.grade) chained.push({ type: 'grade',         run: (opts) => runGradeEffect(pipe.grade, opts) });
   chained.push(...pipe.fx.map((f) => ({ type: f.type, run: (opts) => runFxEffect(f.type, f.params, opts, f.key) })));
-  const totalStages = (pipe.structure ? 1 : 0) + chained.length;
+  const structModeVal2 = structureOutputModeValue(look);
+  const inkColors2 = inkColorUniforms(look);
+  const hasOutputMode2 = structModeVal2 !== 1;
+  const totalStages = (hasOutputMode2 && !pipe.structure ? 1 : 0) + (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
     uploadVideoFrame(srcEl);
@@ -6056,68 +6108,47 @@ function renderFrame(nowDOMHi) {
     }
 
     if (totalStages === 1) {
-      // Standalone single-stage fast path. No chain FBO allocation, no
-      // ping-pong. Identical pixel output to the pre-rack standalone path.
       if (pipe.structure) {
         const chain = getChainFBOs();
-        // Run structure shader to chain.a (raw mono output)
         runEffect(pipe.structure, { outputFBO: chain.a.fb });
-        // Structure output-mode conversion: raw mono → Source/Mono/Ink/Invert
-        const structModeVal = structureOutputModeValue(look);
-        const inkColors = inkColorUniforms(look);
-        applyStructureMode(cw, ch, chain.a.tex, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
+        applyStructureMode(cw, ch, chain.a.tex, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, null);
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
+      } else if (hasOutputMode2) {
+        applySourceOutputMode(cw, ch, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, null);
+        compositeToCanvas2D(ctx, cw, ch, 'source-over');
       } else {
         const stage = chained[0];
         stage.run({});
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[stage.type] || 'source-over');
       }
     } else {
-      // Multi-stage chain. Ping-pong through chain.a ↔ chain.b.
       const chain = getChainFBOs();
-      let currentTex = null;       // Texture the next stage reads from. null = read raw video.
-      let writeIdx   = 0;          // 0 = next write goes to chain.a, 1 = chain.b.
+      let currentTex = null;
+      let writeIdx   = 0;
       const writeFBOs = [chain.a.fb, chain.b.fb];
       const readTexs  = [chain.a.tex, chain.b.tex];
 
-      // STRUCTURE (if present) — always reads raw video; writes to chain.
       if (pipe.structure) {
         runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
         currentTex = readTexs[writeIdx];
         writeIdx ^= 1;
-
-        // Structure output-mode conversion: raw mono → Source/Mono/Ink/Invert
-        const structModeVal = structureOutputModeValue(look);
-        const inkColors = inkColorUniforms(look);
-        applyStructureMode(cw, ch, currentTex, structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
+        applyStructureMode(cw, ch, currentTex, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, writeFBOs[writeIdx]);
         currentTex = readTexs[writeIdx];
         writeIdx ^= 1;
-
-        // Compose pass: screen-blend STRUCTURE's output back over raw
-        // video so the next stage sees the structure-as-it-would-look-
-        // standalone. Only needed when STRUCTURE's identity blend is
-        // 'screen' (voronoi/wave/cellular). Source-over STRUCTUREs
-        // (ascii/shatter/erode) already replace the video — skip the
-        // pass entirely.
         if (BLEND_MODES[pipe.structure] === 'screen') {
           applyCompose(cw, ch, currentTex, writeFBOs[writeIdx]);
           currentTex = readTexs[writeIdx];
           writeIdx ^= 1;
         }
+      } else if (hasOutputMode2) {
+        applySourceOutputMode(cw, ch, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, writeFBOs[writeIdx]);
+        currentTex = readTexs[writeIdx];
+        writeIdx ^= 1;
       }
 
-      // COLOR + FX — chained. Each reads currentTex (or raw video if
-      // STRUCTURE was None and this is the first stage), writes to the next
-      // slot in the ping-pong, then becomes the source for the next
-      // iteration. The last stage writes to the default framebuffer instead
-      // of a chain FBO so its output ends up on the shared GL canvas for
-      // compositing.
       for (let i = 0; i < chained.length; i++) {
         const isLast = (i === chained.length - 1);
         const outFB  = isLast ? null : writeFBOs[writeIdx];
-        // currentTex is null when no STRUCTURE and this is the first stage
-        // → effect module's `inputTex || getVideoTex()` defaults to the
-        // shared video texture. Don't pass inputTex in that case.
         const opts = currentTex ? { inputTex: currentTex, outputFBO: outFB }
                                 : { outputFBO: outFB };
         chained[i].run(opts);
@@ -6127,38 +6158,11 @@ function renderFrame(nowDOMHi) {
         }
       }
 
-      // Terminal-stage rule: composite blend mode is whatever the LAST
-      // stage in the chain naturally wants. Last chained stage (color or
-      // fx) when any exist, otherwise STRUCTURE (which means we got here
-      // only when STRUCTURE is the only stage — already handled by the
-      // totalStages===1 branch above, so this is just the chained case).
       const terminal = chained[chained.length - 1].type;
       compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[terminal] || 'source-over');
     }
   }
 
-  // Per-blob CPU filter pass (Inv / Thermal — legacy, SYNTH-mode only).
-  // Hidden in TRACK mode to keep the BlobTracking visualization clean
-  // (the spec's TRACK mode is "BlobTracking on top of LumiSynth output";
-  // per-blob recoloring belongs to the LumiSynth chain, not the tracking
-  // overlay). The blob-size + shape knobs that used to drive this pass
-  // were retired with the rest of the legacy overlay UI; we hard-code
-  // 1× scale + rect clipping so the legacy behavior survives untouched
-  // under whatever blob extents Kalman tracks naturally.
-  if (look.perBlob !== 'none' && blobs.length > 0) {
-    const full = ctx.getImageData(0, 0, cw, ch);
-    let touched = false;
-    for (const blob of blobs) {
-      const bx = Math.max(0, Math.floor(blob.cx - blob.w / 2));
-      const by = Math.max(0, Math.floor(blob.cy - blob.h / 2));
-      const bw = Math.min(cw - bx, Math.ceil(blob.w));
-      const bh = Math.min(ch - by, Math.ceil(blob.h));
-      if (bw <= 0 || bh <= 0) continue;
-      applyFilterToSubregion(full.data, cw, bx, by, bw, bh, look.perBlob, 'rect');
-      touched = true;
-    }
-    if (touched) ctx.putImageData(full, 0, 0);
-  }
 
   // ============ BlobTracking overlay (runs whenever trackBackend is active) ============
   // ISOLATED composite: clear the canvas to black, then paint overlays —
@@ -6198,16 +6202,15 @@ function renderFrame(nowDOMHi) {
     });
   }
 
-  // Blob LumiSynth — composited AFTER the track overlay so it sits on top.
-  // Crops each blob's region from the original video (srcEl), runs it through
-  // an independent STRUCTURE → COLOR → GRADE → FX chain, then blends the result
-  // onto the display canvas using the chosen composite mode.
+  // Blob LumiSynth — all eligible blob regions collected onto one canvas,
+  // processed by a SINGLE pipeline run, composited once onto the display.
   if (blobs.length > 0) {
     const blobPipe = resolveBlobPipeline(look);
-    const blobHasWork = blobPipe.structure || blobPipe.color || blobPipe.grade || blobPipe.fx.length > 0;
+    const blobHasWork = blobPipe.structure || blobPipe.color || blobPipe.grade || blobPipe.fx.length > 0
+      || (blobPipe.structureOutputMode ?? 0) !== 1;
     if (blobHasWork) {
-      const MAX_BLOBS = 6;
-      for (let i = 0; i < Math.min(blobs.length, MAX_BLOBS); i++) {
+      const eligible = [];
+      for (let i = 0; i < blobs.length; i++) {
         const blob = blobs[i];
         if ((blob.presence ?? 1) < 0.02) continue;
         const bx = Math.max(0, Math.floor(blob.cx - blob.w / 2));
@@ -6215,8 +6218,9 @@ function renderFrame(nowDOMHi) {
         const bw = Math.min(cw - bx, Math.ceil(blob.w));
         const bh = Math.min(ch - by, Math.ceil(blob.h));
         if (bw < 8 || bh < 8) continue;
-        runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, ctx, cw, ch, blob.presence ?? 1);
+        eligible.push(blob);
       }
+      if (eligible.length > 0) runBlobsFrame(srcEl, eligible, blobPipe, ctx, cw, ch);
     }
   }
 

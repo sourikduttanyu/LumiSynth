@@ -52,13 +52,12 @@ export const DEFAULTS = Object.freeze({
   // - colorHue / colorSat: always-on GRADE pass applied after the selected
   //   color (and even with color='none'). colorHue 0..1 → 0..360° rotation;
   //   colorSat 0..1 with 0.5 = neutral → 0..2× saturation.
-  // - perBlob: 'none' | 'inv' | 'thermal' (legacy holding pen)
-  structure: 'none', structureOutputMode: 'mono', perBlob: 'none',
+  structure: 'none', structureOutputMode: 'mono',
   color: 'none', colorHue: 0, colorSat: 0.5, colorHueRange: 0, colorHueRate: 0,
   inkBlackHex: '#0a0908', inkCreamHex: '#ebe0c7',
   asciiCellSize: 0.33, asciiContrast: 0.3, asciiBlackThresh: 0.63, asciiGlyphStrength: 0.9, asciiEdgeThreshold: 0.5,
-  erodeMode: 0,       erodeRadius: 0.3,    erodeStrength: 0.7,    erodeEdge: 0.0,
-  pixelsortThresh: 0.4, pixelsortLength: 0.3, pixelsortOpacity: 0.8, pixelsortDir: 0.5,
+  erodeMode: 0,       erodeRadius: 1.0,    erodeStrength: 0.7,    erodeEdge: 1.0,
+  pixelsortThresh: 0.4, pixelsortLength: 0.5, pixelsortOpacity: 1.0, pixelsortDir: 0.5,
   meltAmount: 0.5,     meltDrip: 0.4,         meltViscosity: 0.5,   meltDir: 0.0,
   motionedgeEdge: 0.5, motionedgeMotion: 0.6, motionedgeThresh: 0.15, motionedgeBoost: 0.5,
   edgedetThresh: 0.3,  edgedetGlow: 0.5,      edgedetHue: 0.15,     edgedetBlend: 0.1,
@@ -94,9 +93,9 @@ export const DEFAULTS = Object.freeze({
   trackChannel: 'motion',
   threshold: 30,
   trackMinSize: 8,
-  trackStability: 0,
-  trackAttack: 0.5,
-  trackRelease: 0.1,
+  trackStability: 1,
+  trackAttack: 1,
+  trackRelease: 1,
   trackMaxBlobs: 12,
   updateInterval: 1,
   // Color-key mode: hex string '#rrggbb'. Only active when trackChannel='color'.
@@ -442,7 +441,7 @@ export const COLOR_PARAM_SCHEMAS = {
   blacklight: {
     knobs: [
       { key: 'depth', label: 'Depth', min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'How deep the purple-black room is. 0 = dim violet wash everywhere. 1 = crushed black with isolated glow.' },
-      { key: 'fluor', label: 'Fluor', min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'How much of the image fluoresces. 0 = only the very brightest. 1 = everything mid-and-up glows.' },
+      { key: 'fluor', label: 'Fluor', min: 0, max: 1, step: 0.01, default: 1.0,  tip: 'How much of the image fluoresces. 0 = only the very brightest. 1 = everything mid-and-up glows.' },
       { key: 'paint', label: 'Paint', min: 0, max: 1, step: 0.01, default: 0.3,  tip: 'Neon paint hue. Sweeps electric violet → hot pink → red-orange → acid green.' },
       { key: 'glow',  label: 'Glow',  min: 0, max: 1, step: 0.01, default: 0.5,  tip: 'Paint brightness boost. 1 = blinding UV-reactive ink.' },
     ],
@@ -1095,17 +1094,17 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
       { value: 1, label: 'Dilate', tip: 'Morphological dilation.' },
     ]}],
     knobs: [
-      { key: 'radius',   label: 'Radius',   min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Kernel radius (1–6 px). Higher = more erosion.' },
+      { key: 'radius',   label: 'Radius',   min: 0, max: 1, step: 0.01, default: 1.0, tip: 'Kernel radius (1–6 px). Higher = more erosion.' },
       { key: 'strength', label: 'Strength', min: 0, max: 1, step: 0.01, default: 0.7, tip: 'Blend between original and morphed (0=original, 1=full morph).' },
-      { key: 'edge',     label: 'Edge',     min: 0, max: 1, step: 0.01, default: 0,   tip: 'Edge ring overlay weight. 0=none, 1=pure ring.' },
+      { key: 'edge',     label: 'Edge',     min: 0, max: 1, step: 0.01, default: 1.0, tip: 'Edge ring overlay weight. 0=none, 1=pure ring.' },
     ],
   },
   pixelsort: {
     toggles: [],
     knobs: [
       { key: 'thresh',  label: 'Thresh',  min: 0, max: 1, step: 0.01, default: 0.4, control: 'slider', tip: 'Luminance threshold — pixels above sort.' },
-      { key: 'length',  label: 'Length',  min: 0, max: 1, step: 0.01, default: 0.3, control: 'slider', tip: 'Sort run length.' },
-      { key: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.01, default: 0.8, control: 'slider', tip: 'Blend with original.' },
+      { key: 'length',  label: 'Length',  min: 0, max: 1, step: 0.01, default: 0.5, control: 'slider', tip: 'Sort run length.' },
+      { key: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.01, default: 1.0, control: 'slider', tip: 'Blend with original.' },
       { key: 'dir',     label: 'Dir',     min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Sort direction (0=horizontal, 1=vertical).' },
     ],
   },

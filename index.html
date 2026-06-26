@@ -388,9 +388,9 @@
 
           <section class="control-section">
             <div class="slider-stack">
-              <div class="knob" id="track-stability" data-knob data-control="slider" data-state="trackStability" data-min="0" data-max="1" data-step="0.01" data-default="0"   aria-label="Smooth"   data-tip="Position jitter smoothing (One Euro minCutoff). 0 = raw Kalman output. Dial up to stabilise fidgety blob positions without affecting appear/disappear speed."><span class="knob-label">Smooth</span><span class="knob-val" id="track-stability-val">0</span></div>
-              <div class="knob" id="track-attack"    data-knob data-control="slider" data-state="trackAttack"    data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Attack"   data-tip="How fast a newly detected blob rises to full presence. 0 = very slow fade-in. 1 = instant snap. Low values make blobs materialise gradually."><span class="knob-label">Attack</span><span class="knob-val" id="track-attack-val">0.5</span></div>
-              <div class="knob" id="track-release"   data-knob data-control="slider" data-state="trackRelease"   data-min="0" data-max="1" data-step="0.01" data-default="0.1" aria-label="Release"  data-tip="How long a blob lingers after it stops being detected. 0 = very long ghost trail. 1 = fast fade. Dial down for persistent ghosting of fast-moving subjects."><span class="knob-label">Release</span><span class="knob-val" id="track-release-val">0.1</span></div>
+              <div class="knob" id="track-stability" data-knob data-control="slider" data-state="trackStability" data-min="0" data-max="1" data-step="0.01" data-default="1"   aria-label="Smooth"   data-tip="Position jitter smoothing (One Euro minCutoff). 0 = raw Kalman output. Dial up to stabilise fidgety blob positions without affecting appear/disappear speed."><span class="knob-label">Smooth</span><span class="knob-val" id="track-stability-val">1</span></div>
+              <div class="knob" id="track-attack"    data-knob data-control="slider" data-state="trackAttack"    data-min="0" data-max="1" data-step="0.01" data-default="1"   aria-label="Attack"   data-tip="How fast a newly detected blob rises to full presence. 0 = very slow fade-in. 1 = instant snap. Low values make blobs materialise gradually."><span class="knob-label">Attack</span><span class="knob-val" id="track-attack-val">1</span></div>
+              <div class="knob" id="track-release"   data-knob data-control="slider" data-state="trackRelease"   data-min="0" data-max="1" data-step="0.01" data-default="1"   aria-label="Release"  data-tip="How long a blob lingers after it stops being detected. 0 = very long ghost trail. 1 = fast fade. Dial down for persistent ghosting of fast-moving subjects."><span class="knob-label">Release</span><span class="knob-val" id="track-release-val">1</span></div>
             </div>
           </section>
 
@@ -409,9 +409,6 @@
 
           <section class="control-section">
             <div class="control-stack">
-              <div class="knob-cluster knob-cluster-center">
-                <div class="knob" id="track-shape-color"     data-knob data-state="trackShapeColor"     data-min="0"   data-max="1" data-step="0.01" data-default="0"   aria-label="Shape color (hue)"       data-tip="Hue rotation. At 0 white; scrolls through full hue range to 1." tabindex="0"><span class="knob-label">Color</span><span class="knob-val" id="track-shape-color-val">0</span></div>
-              </div>
               <div class="slider-stack">
                 <div class="knob" id="track-shape-thickness" data-knob data-control="slider" data-state="trackShapeThickness" data-min="1"   data-max="8" data-step="1"    data-default="2"   aria-label="Shape thickness (px)"    data-tip="Line/dot weight in pixels (1–8)." tabindex="0"><span class="knob-label">Thick</span><span class="knob-val" id="track-shape-thickness-val">2</span></div>
                 <div class="knob" id="track-shape-padding"   data-knob data-control="slider" data-state="trackShapePadding"   data-min="-20" data-max="20" data-step="1"   data-default="0"   aria-label="Shape padding (px)"      data-tip="Padding around bbox. 0 = tight to bbox. Negative = shrinks inside. Positive = breathing room." tabindex="0"><span class="knob-label">Pad</span><span class="knob-val" id="track-shape-padding-val">0</span></div>
@@ -439,9 +436,6 @@
 
           <section class="control-section">
             <div class="control-stack">
-              <div class="knob-cluster knob-cluster-center">
-                <div class="knob" id="track-lines-color"     data-knob data-state="trackLinesColor"     data-min="0" data-max="1" data-step="0.01" data-default="0"   aria-label="Lines color (hue)"     data-tip="Hue rotation, same scheme as Shape Color. At 0 white; scrolls through full hue range to 1." tabindex="0"><span class="knob-label">Color</span><span class="knob-val" id="track-lines-color-val">0</span></div>
-              </div>
               <div class="slider-stack">
                 <div class="knob" id="track-lines-thickness" data-knob data-control="slider" data-state="trackLinesThickness" data-min="1" data-max="6" data-step="1"    data-default="1"   aria-label="Lines thickness (px)"  data-tip="Line weight in pixels (1–6)." tabindex="0"><span class="knob-label">Thick</span><span class="knob-val" id="track-lines-thickness-val">1</span></div>
                 <div class="knob" id="track-lines-param"     data-knob data-control="slider" data-state="trackLinesParam"     data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Lines param (type-specific)" data-tip="Type-specific. Dist = max connect distance (50–500 px). Velocity = trail length. Pulse = pulse speed. Constellation = falloff curve." tabindex="0"><span class="knob-label">Param</span><span class="knob-val" id="track-lines-param-val">0.5</span></div>
@@ -566,9 +560,13 @@
             </div>
           </section>
 
-          <div class="color-picker-popover hidden" id="blob-fx-picker-popover" role="listbox" aria-label="Pick a blob FX effect for this slot"></div>
         </div><!-- /.track-panel-inner -->
       </aside>
+
+      <!-- Blob FX picker — must live OUTSIDE #track-panel to avoid being
+           trapped in its CSS transform containing block (transform breaks
+           position:fixed relative-to-viewport positioning). -->
+      <div class="color-picker-popover hidden" id="blob-fx-picker-popover" role="listbox" aria-label="Pick a blob FX effect for this slot"></div>
 
       </aside>
 

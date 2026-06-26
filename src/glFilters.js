@@ -2489,21 +2489,17 @@ uniform vec3 uInkHigh;
 out vec4 fragColor;
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 void main() {
-  float s   = clamp(texture(u_struct, vUV).r, 0.0, 1.0);
-  vec3  src = texture(u_video,  vUV).rgb;
+  float s      = clamp(texture(u_struct, vUV).r, 0.0, 1.0);
+  vec3  src    = texture(u_video, vUV).rgb;
+  float srcLum = max(luma(src), 0.001);
+  float tgt    = mix(srcLum, s, 0.55);
+  vec3  blended = clamp(src * (tgt / srcLum), 0.0, 1.0);
+  float bLum   = luma(blended);
   vec3  col;
-  if (uOutputMode < 0.5) {
-    col = vec3(s);
-  } else if (uOutputMode < 1.5) {
-    float srcLum = max(luma(src), 0.001);
-    float tgt    = mix(srcLum, s, 0.55);
-    col = clamp(src * (tgt / srcLum), 0.0, 1.0);
-  } else if (uOutputMode < 2.5) {
-    float poster = smoothstep(0.42, 0.58, s);
-    col = mix(uInkLow, uInkHigh, poster);
-  } else {
-    col = vec3(1.0 - s);
-  }
+  if      (uOutputMode < 0.5) col = vec3(bLum);
+  else if (uOutputMode < 1.5) col = blended;
+  else if (uOutputMode < 2.5) col = mix(uInkLow, uInkHigh, smoothstep(0.42, 0.58, bLum));
+  else                        col = 1.0 - blended;
   fragColor = vec4(col, 1.0);
 }`;
 
@@ -2876,6 +2872,49 @@ export function applyGLFilter(name, cw, ch, params = [0.5, 0.5, 0.5, 0.5], opts 
     }
   }
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+const FRAG_SOURCE_OUTPUT_MODE = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform float uOutputMode;
+uniform vec3 uInkLow;
+uniform vec3 uInkHigh;
+out vec4 fragColor;
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  vec4 src = texture(u_video, vUV);
+  float l = luma(src.rgb);
+  vec3 col;
+  if      (uOutputMode < 0.5) col = vec3(l);
+  else if (uOutputMode < 1.5) col = src.rgb;
+  else if (uOutputMode < 2.5) col = mix(uInkLow, uInkHigh, smoothstep(0.42, 0.58, l));
+  else                        col = 1.0 - src.rgb;
+  fragColor = vec4(col, src.a);
+}`;
+
+let _sourceOutputModeProgram = null;
+
+export function applySourceOutputMode(cw, ch, outputMode, inkLow, inkHigh, outputFBO) {
+  const { gl, vao } = ensureContext(cw, ch);
+  if (!_sourceOutputModeProgram) {
+    _sourceOutputModeProgram = createProgram(gl, VERT, FRAG_SOURCE_OUTPUT_MODE);
+  }
+  const prog = _sourceOutputModeProgram;
+  gl.useProgram(prog);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, getVideoTex());
+  gl.uniform1i(gl.getUniformLocation(prog, 'u_video'), 0);
+  gl.uniform1f(gl.getUniformLocation(prog, 'uOutputMode'), outputMode);
+  if (inkLow)  gl.uniform3fv(gl.getUniformLocation(prog, 'uInkLow'),  inkLow);
+  if (inkHigh) gl.uniform3fv(gl.getUniformLocation(prog, 'uInkHigh'), inkHigh);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, outputFBO ?? null);
+  gl.viewport(0, 0, cw, ch);
+  gl.bindVertexArray(vao);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindVertexArray(null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
 
 export function applyStructureMode(cw, ch, structTex, outputMode, inkLow, inkHigh, outputFBO) {

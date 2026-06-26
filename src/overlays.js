@@ -173,6 +173,7 @@ function drawShapes(ctx, blobs, S) {
   ctx.strokeStyle = stroke;
   ctx.fillStyle   = stroke;
   for (const b of blobs) {
+    if ((b.presence ?? 1) < 0.02) continue;
     const prevAlpha = ctx.globalAlpha;
     ctx.globalAlpha = prevAlpha * (b.presence ?? 1);
     drawOneShape(ctx, b, S);
@@ -528,6 +529,7 @@ function drawLabelsAndMarkers(ctx, blobs, L) {
   ctx.textAlign = 'left';
 
   for (const b of blobs) {
+    if ((b.presence ?? 1) < 0.02) continue;
     const cx = b.cx, cy = b.cy;
 
     // XY text label — drawn slightly above-right of the centroid, inside
