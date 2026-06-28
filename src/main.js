@@ -1402,7 +1402,7 @@ const TOGGLE_CONFIG = [
 // Resolve the blob synth pipeline descriptor from a look snapshot.
 // Returns a blobPipe object consumed by runBlobsFrame() in glBlobPipeline.js.
 function resolveBlobPipeline(look) {
-  const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, ink: 2, invert: 3 };
+  const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, ink: 2, invert: 3, colorisolation: 4 };
   const structureName = look.blobStructure !== 'none' ? look.blobStructure : null;
   let structureParams = [];
   if (structureName) {
@@ -1415,7 +1415,6 @@ function resolveBlobPipeline(look) {
       case 'motionedge':structureParams = [p.edge ?? 0.5, p.motion ?? 0.6, p.thresh ?? 0.15, p.boost ?? 0.5, p.rate ?? 0]; break;
       case 'edgedet':   structureParams = [p.thresh ?? 0.3, p.glow ?? 0.5, p.hue ?? 0.15, p.blend ?? 0.1]; break;
       case 'dither':    structureParams = [p.scale ?? 0.4, p.levels ?? 0.3, p.contrast ?? 0.5, p.bias ?? 0.5]; break;
-      case 'colorisolation': structureParams = [p.hue ?? 0.0, p.overlap ?? 0.3, p.steep ?? 0.5, p.mode ?? 0]; break;
       case 'kuwahara':       structureParams = [p.radius ?? 0.4, p.sharp ?? 0.5, 0, 0]; break;
       case 'moddiff':   structureParams = [p.freq ?? 0.25, p.mod ?? 0.45, p.black ?? 0.08, p.axis ?? 0, p.drift ?? 0]; break;
       case 'sketch':    structureParams = [p.ink ?? 0.5, p.stroke ?? 0.45, p.wobble ?? 1.0, p.speed ?? 1.0, p.bg ?? 0.0]; break;
@@ -1433,6 +1432,9 @@ function resolveBlobPipeline(look) {
     structure: structureName,
     structureParams,
     structureOutputMode: STRUCTURE_OUTPUT_MODE_VALUE[look.blobStructureOutputMode] ?? 0,
+    colorIsoParams: look.blobStructureOutputMode === 'colorisolation'
+      ? [look.blobColorisolationHue ?? 0.5, look.blobColorisolationOverlap ?? 0.5, look.blobColorisolationSteep ?? 0.9, look.blobColorisolationMode ?? 0]
+      : null,
     inkLow:  hexToRgb01(look.blobInkBlackHex, DEFAULTS.blobInkBlackHex),
     inkHigh: hexToRgb01(look.blobInkCreamHex, DEFAULTS.blobInkCreamHex),
     color: colorActive
@@ -2675,6 +2677,8 @@ function onBlobStructureChange(v) {
 function onBlobStructureOutputChange(v) {
   const inkSec = document.getElementById('blob-ink-controls');
   if (inkSec) inkSec.style.display = v === 'ink' ? '' : 'none';
+  const colorIsoCard = document.getElementById('blob-colorisolation-controls');
+  if (colorIsoCard) colorIsoCard.classList.toggle('hidden', v !== 'colorisolation');
 }
 
 function refreshBlobStructureCardVisibility(effectName) {

@@ -131,6 +131,7 @@ export const DEFAULTS = Object.freeze({
   // blobStructureParams and blobColorParams are object-valued (not in DEFAULTS).
   blobSynthEnabled: false,
   blobStructure: 'none', blobStructureOutputMode: 'mono',
+  blobColorisolationHue: 0.5, blobColorisolationOverlap: 0.5, blobColorisolationSteep: 0.9, blobColorisolationMode: 0.0,
   blobColor: 'none', blobColorHue: 0, blobColorSat: 0.5, blobColorHueRange: 0, blobColorHueRate: 0,
   blobComposite: 'screen',
   blobInkBlackHex: '#0a0908', blobInkCreamHex: '#ebe0c7',
@@ -1228,15 +1229,6 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
       { key: 'sharp',  label: 'Sharp',  min: 0, max: 1, step: 0.01, default: 1, tip: 'Quadrant selection sharpness. Low = blended soft paint. High = hard region-locked strokes.' },
     ],
     order: ['radius', 'sharp'],
-  },
-  colorisolation: {
-    toggles: [],
-    knobs: [
-      { key: 'hue',     label: 'Hue',   min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Target hue to isolate or reject (0–1 maps 0–360°). Red=0, Yellow=0.17, Green=0.33, Cyan=0.5, Blue=0.67, Magenta=0.83.' },
-      { key: 'overlap', label: 'Width', min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Width of the hue acceptance window. Low = narrow colour slice.' },
-      { key: 'steep',   label: 'Steep', min: 0, max: 1, step: 0.01, default: 0.9, tip: 'Gaussian falloff steepness outside the window. High = hard cutoff.' },
-      { key: 'mode',    label: 'Mode',  min: 0, max: 1, step: 1,    default: 0.0, tip: '0 = Isolate (matching hue bright, others dark). 1 = Reject (matching hue dark).' },
-    ],
   },
   sketch: {
     toggles: [],

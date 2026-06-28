@@ -463,7 +463,18 @@
               <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="mono"   data-tip="Greyscale.">Mono</button>
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="source" data-tip="Mask source video with the structure.">Source</button>
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ink"    data-tip="Black/cream poster.">Ink</button>
-              <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="invert" data-tip="Negative of mono.">Invert</button>
+              <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="invert"          data-tip="Negative of mono.">Invert</button>
+              <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="colorisolation" data-tip="ColorIso preprocessing. Runs a hue-window filter on the source before the structure pass — structure operates on the isolated hue mask.">ColorIso</button>
+            </div>
+          </section>
+
+          <section class="effect-card hidden" id="blob-colorisolation-controls" data-card-effect="colorisolation" data-mode-section="blob">
+            <div class="effect-card-header"><div class="effect-card-title">Color Isolation</div><button class="card-reset-btn" type="button" data-reset-card="blob-colorisolation">×</button></div>
+            <div class="knob-grid">
+              <div class="knob" id="blob-colorisolation-hue"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5">Hue</div>
+              <div class="knob" id="blob-colorisolation-overlap" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5">Width</div>
+              <div class="knob" id="blob-colorisolation-steep"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.9">Steep</div>
+              <div class="knob" id="blob-colorisolation-mode"    data-knob data-control="slider" data-min="0" data-max="1" data-step="1" data-default="0.0">Mode</div>
             </div>
           </section>
 
@@ -496,7 +507,6 @@
 
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="kuwahara"         data-tip="BLOB STRUCT. Kuwahara painterly filter inside blob region.">Kuwahara</button>
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"          data-tip="BLOB STRUCT. Modulated Diffuse sine-wave dithering inside blob region.">ModDiff</button>
-              <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="colorisolation"   data-tip="BLOB STRUCT. Gaussian hue-window mask — outputs bright where pixels match the target hue. Isolate or reject a specific colour inside the blob region.">ColorIso</button>
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="sketch"           data-tip="BLOB STRUCT. Notebook-drawings sketch (sofiene71). 3 angles × 9 samples. Bg=0: grayscale strokes. Bg=1: warm sepia ink.">Sketch</button>
             </div>
           </section>

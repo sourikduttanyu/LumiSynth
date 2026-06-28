@@ -19,7 +19,8 @@
  * blobPipe = {
  *   structure: string|null,          // effect name or null
  *   structureParams: number[],       // [p0..p3] ordered params
- *   structureOutputMode: number,     // 0=mono 1=source 2=ink 3=invert
+ *   structureOutputMode: number,     // 0=mono 1=source 2=ink 3=invert 4=colorisolation
+ *   colorIsoParams: number[]|null,   // [hue, overlap, steep, mode] — present when structureOutputMode===4
  *   inkLow: [r,g,b],
  *   inkHigh: [r,g,b],
  *   color: { type: string, params: object } | null,
@@ -495,8 +496,8 @@ export function runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx, displa
   const chain = ensureChain(bw, bh);
 
   // Resolve pipeline into chained stages
-  const { structure, structureParams, structureOutputMode, inkLow, inkHigh,
-          color, grade, fx, composite } = blobPipe;
+  const { structure, structureParams, structureOutputMode, colorIsoParams,
+          inkLow, inkHigh, color, grade, fx, composite } = blobPipe;
 
   // Compute prev texture for motionedge rate knob (structureParams[4] = frame gap).
   // On first use or size change, seed prev with current frame (diff=0). After each
@@ -577,10 +578,14 @@ export function runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx, displa
   // When structure is set: output mode is applied POST-structure via runBlobStructBlend
   // (which mirrors the synth's applyStructureMode). When structure is absent: output mode
   // runs as a pre-pass on the raw source.
-  const hasOutputMode = (structureOutputMode ?? 0) !== 1;
-  const hasOutputModeNoStruct = hasOutputMode && !structure;
-  // structure contributes 2 stages: the structure effect + the source-blend/output-mode pass.
-  const totalStages = (hasOutputModeNoStruct ? 1 : 0) + (structure ? 2 : 0) + chained.length;
+  // Mode 4 (colorisolation): coloriso filter runs first, then structure reads its output as inputTex.
+  const isColorIso = (structureOutputMode ?? 0) === 4;
+  const hasOutputMode = isColorIso || ((structureOutputMode ?? 0) !== 1);
+  // coloriso never uses the single-stage path — it always needs at least 2 FBO ops.
+  const hasOutputModeNoStruct = !isColorIso && hasOutputMode && !structure;
+  // coloriso with structure: +1 for the pre-pass.  coloriso without structure: +2 (pre-pass + blend).
+  const colorIsoExtra = isColorIso ? (structure ? 1 : 2) : 0;
+  const totalStages = (hasOutputModeNoStruct ? 1 : 0) + (structure ? 2 : 0) + colorIsoExtra + chained.length;
   if (totalStages === 0) return;
 
   const gl = _gl;
@@ -606,17 +611,40 @@ export function runBlobFrame(srcEl, bx, by, bw, bh, blobPipe, displayCtx, displa
       writeIdx ^= 1;
     }
 
+    // ColorIso pre-pass: filter source by hue before structure runs.
+    let colorIsoTex = null;
+    if (isColorIso) {
+      const params = colorIsoParams || [0.5, 0.5, 0.9, 0];
+      runEffect('colorisolation', bw, bh, params, { outputFBO: writeFBOs[writeIdx] });
+      colorIsoTex = readTexs[writeIdx];
+      writeIdx ^= 1;
+    }
+
     if (structure) {
-      // Stage 1: run structure effect (reads _tex — raw source)
-      runEffect(structure, bw, bh, structureParams, { ...structOpts, outputFBO: writeFBOs[writeIdx] });
+      // Stage 1: run structure effect. If coloriso, feed coloriso output as inputTex.
+      const structRunOpts = colorIsoTex
+        ? { ...structOpts, inputTex: colorIsoTex, outputFBO: writeFBOs[writeIdx] }
+        : { ...structOpts, outputFBO: writeFBOs[writeIdx] };
+      runEffect(structure, bw, bh, structureParams, structRunOpts);
       const structTex = readTexs[writeIdx];
       writeIdx ^= 1;
 
-      // Stage 2: source-blend + output mode (mirrors synth's applyStructureMode)
+      // Stage 2: source-blend + output mode (mirrors synth's applyStructureMode).
+      // ColorIso forces mono (0) — structure already ran on the isolated hue.
+      const blendMode = isColorIso ? 0 : structureOutputMode;
       const isStructLast = chained.length === 0;
-      runBlobStructBlend(bw, bh, structTex, structureOutputMode, inkLow, inkHigh,
+      runBlobStructBlend(bw, bh, structTex, blendMode, inkLow, inkHigh,
         isStructLast ? null : writeFBOs[writeIdx]);
       if (!isStructLast) {
+        currentTex = readTexs[writeIdx];
+        writeIdx ^= 1;
+      }
+    } else if (isColorIso && colorIsoTex) {
+      // ColorIso with no structure: blend the coloriso mask as mono output.
+      const isLast = chained.length === 0;
+      runBlobStructBlend(bw, bh, colorIsoTex, 0, inkLow, inkHigh,
+        isLast ? null : writeFBOs[writeIdx]);
+      if (!isLast) {
         currentTex = readTexs[writeIdx];
         writeIdx ^= 1;
       }
