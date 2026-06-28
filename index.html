@@ -84,18 +84,17 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="source" data-tip="Source output. The structure mask modulates the original source RGB before the COLOR rack.">Source</button>
             <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="mono"   data-tip="Mono output. Grayscale geometry on black feeds the COLOR rack.">Mono</button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="invert" data-tip="Invert output. Negative of Mono — dark traces on a light field (inverts R/G/B).">Invert</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="ink"    data-tip="Ink output. High-contrast black/cream hardware-poster rendering before the COLOR rack.">Ink</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="colorisolation" data-tip="ColorIso preprocessing. Runs a hue-window filter on the source before the structure pass — structure operates on the isolated hue mask.">ColorIso</button>
           </div>
-          <div class="color-picker-row ink-color-row" aria-label="Ink output colors">
-            <label class="color-picker-control">
-              <input type="color" id="ink-low-input" class="color-picker-input" value="#0a0908" data-tip="Ink low color. Used for dark structure values when Output is Ink.">
-              <span class="color-picker-label">INK LOW</span>
-            </label>
-            <label class="color-picker-control">
-              <input type="color" id="ink-high-input" class="color-picker-input" value="#ebe0c7" data-tip="Ink high color. Used for bright structure values when Output is Ink.">
-              <span class="color-picker-label">INK HIGH</span>
-            </label>
-          </div>
+          <section class="effect-card hidden" id="colorisolation-controls" data-card-effect="colorisolation" data-mode-section="synth" aria-label="Color Isolation parameters">
+            <div class="effect-card-header"><div class="effect-card-title">Color Isolation</div><button class="card-reset-btn" type="button" data-reset-card="colorisolation" title="Reset Color Isolation knobs" aria-label="Reset Color Isolation knobs">×</button></div>
+            <div class="knob-grid">
+              <div class="knob" id="colorisolation-hue"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Target Hue"    data-tip="Target hue to isolate or reject (0–1 maps 0–360°). Red=0, Yellow=0.17, Green=0.33, Cyan=0.5, Blue=0.67, Magenta=0.83." tabindex="0"><span class="knob-label">Hue</span><span class="knob-val" id="colorisolation-hue-val">0.5</span></div>
+              <div class="knob" id="colorisolation-overlap" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Hue Width"      data-tip="Width of the hue acceptance window. Low = narrow color slice. High = broad range of accepted hues." tabindex="0"><span class="knob-label">Width</span><span class="knob-val" id="colorisolation-overlap-val">0.5</span></div>
+              <div class="knob" id="colorisolation-steep"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.9" aria-label="Falloff Steep"  data-tip="Gaussian falloff steepness outside the window. High = hard cutoff at hue edge. Low = gradual fade out." tabindex="0"><span class="knob-label">Steep</span><span class="knob-val" id="colorisolation-steep-val">0.9</span></div>
+              <div class="knob" id="colorisolation-mode"    data-knob data-control="slider" data-min="0" data-max="1" data-step="1" data-default="0.0" aria-label="Isolation Mode" data-tip="0 = Isolate (matching hue bright, others dark). 1 = Reject (matching hue dark, others bright)." tabindex="0"><span class="knob-label">Mode</span><span class="knob-val" id="colorisolation-mode-val">0</span></div>
+            </div>
+          </section>
           <div class="section-label" id="lbl-structure">Pick one</div>
           <div class="toggle-group filter-swatch-group" id="structure-group" role="radiogroup" aria-labelledby="lbl-structure">
             <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="none"  aria-label="No structure" data-tip="No structure stage. Video passes through to the COLOR stage unchanged."><span>None</span></button>
@@ -106,8 +105,7 @@
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" aria-label="Motion Edge"   data-tip="STRUCTURE. Spatial edges + temporal motion (current frame vs ~4 frames back). Still scenes show outlines; anything moving lights up hard."><span>MotionEdge</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    aria-label="Edge Detect"    data-tip="STRUCTURE. Sobel edge detection. Thresh controls edge sensitivity; Glow sets line hardness; Hue colors the edges; Blend fades from neon-on-source to wireframe."><span>EdgeDet</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"          aria-label="Bayer Dither"      data-tip="STRUCTURE. Bayer 4×4 ordered dithering — quantizes luma to N gray levels via a halftone matrix. Classic print and retro-game aesthetics."><span>Dither</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="colorisolation"   aria-label="Color Isolation"   data-tip="STRUCTURE. Hue isolation mask — isolates or rejects a target hue band. Matching pixels become bright structure; others go dark. Use Reject mode to knock out a color key."><span>ColorIso</span></button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="cartoon"          aria-label="Cartoon Edges"     data-tip="STRUCTURE. Diagonal Sobel edge detector — outputs edge strength as raw structure. Ink output mode gives classic cartoon dark-line-on-source look."><span>Cartoon</span></button>
+
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="kuwahara"         aria-label="Kuwahara Paint"    data-tip="STRUCTURE. Kuwahara painterly filter — 7×7 quadrant sampling outputs luma only. Drives the color stage with soft painted regions rather than sharp video."><span>Kuwahara</span></button>
             <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"          aria-label="Modulated Diffuse" data-tip="STRUCTURE. Modulated Diffuse — sine-wave dithering where luminance phase-shifts the threshold. Dense lines in bright areas, sparse in dark. The Marathon / Bungie art-style. Use Ink output with black + mint green for the full look."><span>ModDiff</span></button>
           </div>
@@ -118,7 +116,9 @@
           <div class="section-label" id="lbl-ascii-palette">Palette</div>
           <div class="toggle-group" id="ascii-palette-group" role="radiogroup" aria-labelledby="lbl-ascii-palette">
             <button class="toggle-btn active" type="button" role="radio" aria-checked="true"  data-value="0" data-tip="Classic ASCII — letter and symbol density ramp.">Classic</button>
-            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="1" data-tip="Matrix — digits and bracket symbols.">Matrix</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="1" data-tip="Digits — pure 0-9 cycling across luminance.">Digits</button>
+            <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="2" data-tip="Mines — Minesweeper-colored digits 1-7 on dark cell grid.">Mines</button>
+
           </div>
           <div class="control-stack">
             <div class="slider-stack" aria-label="ASCII range controls">
@@ -206,40 +206,22 @@
           </div>
         </section>
 
-        <section class="effect-card hidden" id="colorisolation-controls" data-card-effect="colorisolation" data-mode-section="synth" aria-label="Color Isolation parameters">
-          <div class="effect-card-header"><div class="effect-card-title">Color Isolation</div><button class="card-reset-btn" type="button" data-reset-card="colorisolation" title="Reset Color Isolation knobs" aria-label="Reset Color Isolation knobs">×</button></div>
-          <div class="knob-grid">
-            <div class="knob" id="colorisolation-hue"     data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.0" aria-label="Target Hue"    data-tip="Target hue to isolate or reject (0–1 maps 0–360°). Red=0, Yellow=0.17, Green=0.33, Cyan=0.5, Blue=0.67, Magenta=0.83." tabindex="0"><span class="knob-label">Hue</span><span class="knob-val" id="colorisolation-hue-val">0.0</span></div>
-            <div class="knob" id="colorisolation-overlap" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Hue Width"      data-tip="Width of the hue acceptance window. Low = narrow color slice. High = broad range of accepted hues." tabindex="0"><span class="knob-label">Width</span><span class="knob-val" id="colorisolation-overlap-val">0.3</span></div>
-            <div class="knob" id="colorisolation-steep"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Falloff Steep"  data-tip="Gaussian falloff steepness outside the window. High = hard cutoff at hue edge. Low = gradual fade out." tabindex="0"><span class="knob-label">Steep</span><span class="knob-val" id="colorisolation-steep-val">0.5</span></div>
-            <div class="knob" id="colorisolation-mode"    data-knob data-control="slider" data-min="0" data-max="1" data-step="1" data-default="0.0" aria-label="Isolation Mode" data-tip="0 = Isolate (matching hue bright, others dark). 1 = Reject (matching hue dark, others bright)." tabindex="0"><span class="knob-label">Mode</span><span class="knob-val" id="colorisolation-mode-val">0</span></div>
-          </div>
-        </section>
-
-        <section class="effect-card hidden" id="cartoon-controls" data-card-effect="cartoon" data-mode-section="synth" aria-label="Cartoon parameters">
-          <div class="effect-card-header"><div class="effect-card-title">Cartoon</div><button class="card-reset-btn" type="button" data-reset-card="cartoon" title="Reset Cartoon knobs" aria-label="Reset Cartoon knobs">×</button></div>
-          <div class="knob-grid">
-            <div class="knob" id="cartoon-power" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.3" aria-label="Edge Power" data-tip="Edge intensity multiplier. Higher = darker, more prominent outlines." tabindex="0"><span class="knob-label">Power</span><span class="knob-val" id="cartoon-power-val">0.3</span></div>
-            <div class="knob" id="cartoon-slope" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Edge Slope" data-tip="Edge threshold slope. Higher filters out faint edges, leaving only strong contours." tabindex="0"><span class="knob-label">Slope</span><span class="knob-val" id="cartoon-slope-val">0.4</span></div>
-          </div>
-        </section>
-
         <section class="effect-card hidden" id="kuwahara-controls" data-card-effect="kuwahara" data-mode-section="synth" aria-label="Kuwahara parameters">
           <div class="effect-card-header"><div class="effect-card-title">Kuwahara</div><button class="card-reset-btn" type="button" data-reset-card="kuwahara" title="Reset Kuwahara knobs" aria-label="Reset Kuwahara knobs">×</button></div>
           <div class="knob-grid">
-            <div class="knob" id="kuwahara-radius" data-knob data-state="kuwaharaStructRadius" data-min="0" data-max="1" data-step="0.01" data-default="0.4" aria-label="Kuwahara Radius" data-tip="Filter radius 1–5px. Larger = more painterly stroke-like blurring." tabindex="0"><span class="knob-label">Radius</span><span class="knob-val" id="kuwahara-radius-val">0.4</span></div>
-            <div class="knob" id="kuwahara-sharp"  data-knob data-state="kuwaharaStructSharp"  data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="Kuwahara Sharp"  data-tip="Quadrant selection sharpness. Low = blended soft paint. High = hard region-locked strokes." tabindex="0"><span class="knob-label">Sharp</span><span class="knob-val" id="kuwahara-sharp-val">0.5</span></div>
+            <div class="knob" id="kuwahara-radius" data-knob data-state="kuwaharaStructRadius" data-min="0" data-max="1" data-step="0.01" data-default="1" aria-label="Kuwahara Radius" data-tip="Filter radius 1–5px. Larger = more painterly stroke-like blurring." tabindex="0"><span class="knob-label">Radius</span><span class="knob-val" id="kuwahara-radius-val">1</span></div>
+            <div class="knob" id="kuwahara-sharp"  data-knob data-state="kuwaharaStructSharp"  data-min="0" data-max="1" data-step="0.01" data-default="1" aria-label="Kuwahara Sharp"  data-tip="Quadrant selection sharpness. Low = blended soft paint. High = hard region-locked strokes." tabindex="0"><span class="knob-label">Sharp</span><span class="knob-val" id="kuwahara-sharp-val">1</span></div>
           </div>
         </section>
 
         <section class="effect-card hidden" id="moddiff-controls" data-card-effect="moddiff" data-mode-section="synth" aria-label="ModDiff parameters">
           <div class="effect-card-header"><div class="effect-card-title">Modulated Diffuse</div><button class="card-reset-btn" type="button" data-reset-card="moddiff" title="Reset ModDiff knobs" aria-label="Reset ModDiff knobs">×</button></div>
           <div class="knob-grid">
-            <div class="knob" id="moddiff-freq"  data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.25" aria-label="ModDiff Freq"  data-tip="Line density — sine cycles across the frame (2–50). Low = wide spaced bands, high = fine lines." tabindex="0"><span class="knob-label">Freq</span><span class="knob-val" id="moddiff-freq-val">0.25</span></div>
-            <div class="knob" id="moddiff-mod"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.45" aria-label="ModDiff Mod"   data-tip="Modulation depth — how much luminance phase-shifts the lines. High = lines drift and flow at content edges." tabindex="0"><span class="knob-label">Mod</span><span class="knob-val" id="moddiff-mod-val">0.45</span></div>
+            <div class="knob" id="moddiff-freq"  data-knob data-min="0" data-max="3" data-step="0.01" data-default="1" aria-label="ModDiff Freq"  data-tip="Line density — sine cycles across the frame (2–50 at 1.0, up to ~150 at 3.0). Low = wide spaced bands, high = fine lines." tabindex="0"><span class="knob-label">Freq</span><span class="knob-val" id="moddiff-freq-val">1</span></div>
+            <div class="knob" id="moddiff-mod"   data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.5" aria-label="ModDiff Mod"   data-tip="Modulation depth — how much luminance phase-shifts the lines. High = lines drift and flow at content edges." tabindex="0"><span class="knob-label">Mod</span><span class="knob-val" id="moddiff-mod-val">0.5</span></div>
             <div class="knob" id="moddiff-black" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.08" aria-label="ModDiff Black" data-tip="Black level — luma below this outputs solid black, keeping dark backgrounds clean." tabindex="0"><span class="knob-label">Black</span><span class="knob-val" id="moddiff-black-val">0.08</span></div>
             <div class="knob" id="moddiff-axis"  data-knob data-min="0" data-max="1" data-step="1"    data-default="0"    aria-label="ModDiff Axis"  data-tip="0 = Y axis (horizontal lines, Marathon default). 1 = X axis (vertical lines)." tabindex="0"><span class="knob-label">Axis</span><span class="knob-val" id="moddiff-axis-val">0</span></div>
-            <div class="knob" id="moddiff-drift" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0"    aria-label="ModDiff Drift" data-tip="Scroll speed — animates the line pattern over time. 0 = static." tabindex="0"><span class="knob-label">Drift</span><span class="knob-val" id="moddiff-drift-val">0</span></div>
+            <div class="knob" id="moddiff-drift" data-knob data-min="0" data-max="1" data-step="0.01" data-default="0.01" aria-label="ModDiff Drift" data-tip="Scroll speed — animates the line pattern over time. 0 = static." tabindex="0"><span class="knob-label">Drift</span><span class="knob-val" id="moddiff-drift-val">0.01</span></div>
           </div>
         </section>
 
@@ -499,8 +481,7 @@
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="motionedge" data-tip="BLOB STRUCT. Spatial edge extraction inside blob region. (Motion component unavailable in blob mode.)">Edges</button>
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="edgedet"    data-tip="BLOB STRUCT. Sobel edge detection with color hue inside blob region.">EdgeDet</button>
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="dither"          data-tip="BLOB STRUCT. Bayer dithering inside blob region.">Dither</button>
-              <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="colorisolation"   data-tip="BLOB STRUCT. Hue isolation mask inside blob region.">ColorIso</button>
-              <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="cartoon"          data-tip="BLOB STRUCT. Cartoon edge detection inside blob region.">Cartoon</button>
+
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="kuwahara"         data-tip="BLOB STRUCT. Kuwahara painterly filter inside blob region.">Kuwahara</button>
               <button class="toggle-btn"        type="button" role="radio" aria-checked="false" data-value="moddiff"          data-tip="BLOB STRUCT. Modulated Diffuse sine-wave dithering inside blob region.">ModDiff</button>
             </div>

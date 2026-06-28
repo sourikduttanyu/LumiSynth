@@ -207,7 +207,7 @@ const KNOB_DRAG_PX = 150;
 // notch / one trackpad line). Threshold-based accumulation prevents trackpad
 // runaway; deltaMode normalization handles devices that report lines or pages.
 const WHEEL_TICK_PX = 40;
-const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, ink: 2, invert: 3 };
+const STRUCTURE_OUTPUT_MODE_VALUE = { mono: 0, source: 1, colorisolation: 2, invert: 3 };
 
 function kebabToCamel(s) { return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase()); }
 function snapToStep(v, min, step) {
@@ -1282,10 +1282,6 @@ function runEffect(name, opts) {
       return applyGLFilter('edgedet', canvas.width, canvas.height, [look.edgedetThresh, look.edgedetGlow, look.edgedetHue, look.edgedetBlend], opts);
     case 'dither':
       return applyGLFilter('dither', canvas.width, canvas.height, [look.ditherScale, look.ditherLevels, look.ditherContrast, look.ditherBias], opts);
-    case 'colorisolation':
-      return applyGLFilter('colorisolation', canvas.width, canvas.height, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], opts);
-    case 'cartoon':
-      return applyGLFilter('cartoon', canvas.width, canvas.height, [look.cartoonPower, look.cartoonSlope, 0, 0], opts);
     case 'kuwahara':
       return applyGLFilter('kuwahara_struct', canvas.width, canvas.height, [look.kuwaharaStructRadius, look.kuwaharaStructSharp, 0, 0], opts);
     case 'moddiff':
@@ -1377,7 +1373,7 @@ function runFxEffect(name, params, opts = {}, key) {
 
 const TOGGLE_CONFIG = [
   ['structure-group',       'structure',      String,     onStructureChange],
-  ['structure-output-group', 'structureOutputMode', String, null],
+  ['structure-output-group', 'structureOutputMode', String, () => refreshEffectCardVisibility()],
   ['erode-mode-group',      'erodeMode',      parseInt,   null],
   ['ascii-palette-group',   'asciiPalette',   parseInt,   null],
   // ============ TRACK-mode toggle groups ============
@@ -1418,7 +1414,6 @@ function resolveBlobPipeline(look) {
       case 'edgedet':   structureParams = [p.thresh ?? 0.3, p.glow ?? 0.5, p.hue ?? 0.15, p.blend ?? 0.1]; break;
       case 'dither':    structureParams = [p.scale ?? 0.4, p.levels ?? 0.3, p.contrast ?? 0.5, p.bias ?? 0.5]; break;
       case 'colorisolation': structureParams = [p.hue ?? 0.0, p.overlap ?? 0.3, p.steep ?? 0.5, p.mode ?? 0]; break;
-      case 'cartoon':        structureParams = [p.power ?? 0.3, p.slope ?? 0.4, 0, 0]; break;
       case 'kuwahara':       structureParams = [p.radius ?? 0.4, p.sharp ?? 0.5, 0, 0]; break;
       case 'moddiff':   structureParams = [p.freq ?? 0.25, p.mod ?? 0.45, p.black ?? 0.08, p.axis ?? 0, p.drift ?? 0]; break;
       default:          structureParams = [0, 0, 0, 0]; break;
@@ -1486,10 +1481,12 @@ function refreshEffectCardVisibility() {
   for (const name of STRUCTURE_SECTIONS) {
     const el = document.getElementById(`${name}-controls`);
     if (!el) continue;
-    const isSelected = state.structure === name;
-    el.classList.toggle('hidden',     !isSelected);
+    el.classList.toggle('hidden',     state.structure !== name);
     el.classList.toggle('active-card', structure === name);
   }
+  // ColorIso output mode card lives outside STRUCTURE_SECTIONS — driven by output mode
+  const colorIsoCard = document.getElementById('colorisolation-controls');
+  if (colorIsoCard) colorIsoCard.classList.toggle('hidden', state.structureOutputMode !== 'colorisolation');
 }
 
 // True only while applyStateToUI is replaying loaded state into the UI.
@@ -4216,6 +4213,7 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
   ctx.drawImage(srcEl, 0, 0, cw, ch);
 
   const pipe = resolveActivePipeline(look);
+
   const chained = [];
   if (pipe.color) chained.push({ type: pipe.color.type, run: (opts) => runColorEffect(pipe.color.type, pipe.color.params, opts) });
   if (pipe.grade) chained.push({ type: 'grade',         run: (opts) => runGradeEffect(pipe.grade, opts) });
@@ -4223,7 +4221,7 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
 
   const structModeVal = structureOutputModeValue(look);
   const inkColors = inkColorUniforms(look);
-  const hasOutputMode = structModeVal !== 1; // not source-passthrough
+  const hasOutputMode = structModeVal !== 1 && structModeVal !== 2; // colorisolation(2) only applies as structure preprocessing
   const totalStages = (hasOutputMode && !pipe.structure ? 1 : 0) + (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
@@ -4233,8 +4231,14 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
     if (totalStages === 1) {
       if (pipe.structure) {
         const chain = getChainFBOs();
-        runEffect(pipe.structure, { outputFBO: chain.a.fb });
-        applyStructureMode(cw, ch, chain.a.tex, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
+        if (structModeVal === 2) {
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: chain.b.fb });
+          runEffect(pipe.structure, { inputTex: chain.b.tex, outputFBO: chain.a.fb });
+          applyStructureMode(cw, ch, chain.a.tex, 1, inkColors.inkLow, inkColors.inkHigh, null);
+        } else {
+          runEffect(pipe.structure, { outputFBO: chain.a.fb });
+          applyStructureMode(cw, ch, chain.a.tex, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
+        }
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
       } else if (hasOutputMode) {
         applySourceOutputMode(cw, ch, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
@@ -4252,9 +4256,15 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
       const readTexs  = [chain.a.tex, chain.b.tex];
 
       if (pipe.structure) {
-        runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
+        if (structModeVal === 2) {
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: writeFBOs[writeIdx] });
+          const colorIsoTex = readTexs[writeIdx]; writeIdx ^= 1;
+          runEffect(pipe.structure, { inputTex: colorIsoTex, outputFBO: writeFBOs[writeIdx] });
+        } else {
+          runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
+        }
         currentTex = readTexs[writeIdx]; writeIdx ^= 1;
-        applyStructureMode(cw, ch, currentTex, structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
+        applyStructureMode(cw, ch, currentTex, structModeVal === 2 ? 1 : structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
         currentTex = readTexs[writeIdx]; writeIdx ^= 1;
         if (BLEND_MODES[pipe.structure] === 'screen') {
           applyCompose(cw, ch, currentTex, writeFBOs[writeIdx]);
@@ -6110,6 +6120,7 @@ function renderFrame(nowDOMHi) {
   //
   // Per-blob (Inv / Thermal) layers on top of all of this — see block below.
   const pipe = resolveActivePipeline(look);
+
   // COLOR, GRADE, and FX stages have identical chain mechanics (read
   // inputTex, write outputFBO) — only the dispatcher differs. Normalize
   // them into one ordered list: color, then grade, then fx
@@ -6120,7 +6131,7 @@ function renderFrame(nowDOMHi) {
   chained.push(...pipe.fx.map((f) => ({ type: f.type, run: (opts) => runFxEffect(f.type, f.params, opts, f.key) })));
   const structModeVal2 = structureOutputModeValue(look);
   const inkColors2 = inkColorUniforms(look);
-  const hasOutputMode2 = structModeVal2 !== 1;
+  const hasOutputMode2 = structModeVal2 !== 1 && structModeVal2 !== 2; // colorisolation(2) only applies as structure preprocessing
   const totalStages = (hasOutputMode2 && !pipe.structure ? 1 : 0) + (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
@@ -6134,8 +6145,14 @@ function renderFrame(nowDOMHi) {
     if (totalStages === 1) {
       if (pipe.structure) {
         const chain = getChainFBOs();
-        runEffect(pipe.structure, { outputFBO: chain.a.fb });
-        applyStructureMode(cw, ch, chain.a.tex, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, null);
+        if (structModeVal2 === 2) {
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: chain.b.fb });
+          runEffect(pipe.structure, { inputTex: chain.b.tex, outputFBO: chain.a.fb });
+          applyStructureMode(cw, ch, chain.a.tex, 1, inkColors2.inkLow, inkColors2.inkHigh, null);
+        } else {
+          runEffect(pipe.structure, { outputFBO: chain.a.fb });
+          applyStructureMode(cw, ch, chain.a.tex, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, null);
+        }
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
       } else if (hasOutputMode2) {
         applySourceOutputMode(cw, ch, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, null);
@@ -6153,10 +6170,16 @@ function renderFrame(nowDOMHi) {
       const readTexs  = [chain.a.tex, chain.b.tex];
 
       if (pipe.structure) {
-        runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
+        if (structModeVal2 === 2) {
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: writeFBOs[writeIdx] });
+          const colorIsoTex = readTexs[writeIdx]; writeIdx ^= 1;
+          runEffect(pipe.structure, { inputTex: colorIsoTex, outputFBO: writeFBOs[writeIdx] });
+        } else {
+          runEffect(pipe.structure, { outputFBO: writeFBOs[writeIdx] });
+        }
         currentTex = readTexs[writeIdx];
         writeIdx ^= 1;
-        applyStructureMode(cw, ch, currentTex, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, writeFBOs[writeIdx]);
+        applyStructureMode(cw, ch, currentTex, structModeVal2 === 2 ? 1 : structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, writeFBOs[writeIdx]);
         currentTex = readTexs[writeIdx];
         writeIdx ^= 1;
         if (BLEND_MODES[pipe.structure] === 'screen') {

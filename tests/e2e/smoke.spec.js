@@ -120,7 +120,7 @@ test('global reset restores structure and output defaults', async ({ page }) => 
   await activatePipelinePanel(page);
 
   await page.locator(byValue('#structure-group', 'melt')).click();
-  await page.locator(byValue('#structure-output-group', 'ink')).click();
+  await page.locator(byValue('#structure-output-group', 'colorisolation')).click();
 
   await page.locator('#btn-reset').click();
   await expect(page.locator('#btn-reset')).toHaveText('Confirm?');

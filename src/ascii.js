@@ -105,15 +105,38 @@ bool pix(int c, int cx, int cy) {
 
 int remapGlyph(int g, int p) {
   if (p == 0) return g;
-  // Palette 1: Matrix — digits + bracket symbols, light→dense
-  if (g ==  0) return  0;  if (g ==  1) return  1;  if (g ==  2) return 30;
-  if (g ==  3) return 31;  if (g ==  4) return 32;  if (g ==  5) return 33;
-  if (g ==  6) return 34;  if (g ==  7) return 35;  if (g ==  8) return 36;
-  if (g ==  9) return 37;  if (g == 10) return 38;  if (g == 11) return 39;
-  if (g == 12) return 40;  if (g == 13) return 41;  if (g == 14) return 42;
-  if (g == 15) return 43;  if (g == 16) return 21;  if (g == 17) return 20;
-  if (g == 18) return 23;  if (g == 19) return 22;  if (g == 20) return 24;
-  return 25;
+
+  // Palette 1: Digits — pure 0-9 cycling
+  if (p == 1) {
+    if (g ==  0) return  0;   // .  (near-black cells)
+    if (g ==  1) return  1;   // :
+    if (g ==  2) return 30;   // 1
+    if (g ==  3) return 38;   // 2
+    if (g ==  4) return 39;   // 3
+    if (g ==  5) return 40;   // 4
+    if (g ==  6) return 41;   // 5
+    if (g ==  7) return 42;   // 6
+    if (g ==  8) return 31;   // 7
+    if (g ==  9) return 20;   // 8
+    if (g == 10) return 43;   // 9
+    if (g == 11) return 21;   // 0
+    if (g == 12) return 30;   // 1  (second cycle)
+    if (g == 13) return 38;   // 2
+    if (g == 14) return 39;   // 3
+    if (g == 15) return 40;   // 4
+    if (g == 16) return 41;   // 5
+    if (g == 17) return 42;   // 6
+    if (g == 18) return 31;   // 7
+    if (g == 19) return 20;   // 8
+    if (g == 20) return 43;   // 9
+    if (g == 21) return 21;   // 0
+    return 25;                // dense
+  }
+
+  // Palette 2: Mines — glyph overridden in main(); return g unchanged
+  if (p == 2) return g;
+
+  return g;
 }
 
 void main() {
@@ -152,7 +175,7 @@ void main() {
 
   float blackCutoff = uParams.z * 0.8;
   if (val < blackCutoff) {
-    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    fragColor = (uPalette == 2) ? vec4(0.10, 0.10, 0.10, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
 
@@ -191,6 +214,22 @@ void main() {
   float glyphBrite = glyph * mix(0.55, 1.0, clamp(val + detail * 1.5, 0.0, 1.0));
   float blockTone  = clamp(val + detail * 0.5, 0.0, 1.0);
   float result     = mix(blockTone, glyphBrite, uParams.w);
+
+  // Mines palette: Minesweeper-colored digits 1-7 on dark cell grid
+  if (uPalette == 2) {
+    int d = clamp(int(floor(adj * 6.99)), 0, 6); // 7 bins → digits 1-7
+    int mg;
+    vec3 mc;
+    if      (d == 0) { mg = 30; mc = vec3(0.20, 0.20, 1.00); } // 1  blue
+    else if (d == 1) { mg = 38; mc = vec3(0.00, 0.55, 0.00); } // 2  green
+    else if (d == 2) { mg = 39; mc = vec3(1.00, 0.08, 0.08); } // 3  red
+    else if (d == 3) { mg = 40; mc = vec3(0.05, 0.05, 0.62); } // 4  navy
+    else if (d == 4) { mg = 41; mc = vec3(0.62, 0.05, 0.05); } // 5  maroon
+    else if (d == 5) { mg = 42; mc = vec3(0.05, 0.55, 0.55); } // 6  teal
+    else             { mg = 31; mc = vec3(0.65, 0.65, 0.65); } // 7  gray
+    fragColor = vec4(pix(mg, gx, gy) ? mc : vec3(0.10, 0.10, 0.10), 1.0);
+    return;
+  }
 
   fragColor = vec4(vec3(result), 1.0);
 }`;

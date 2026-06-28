@@ -76,7 +76,7 @@
 
   /* Signal — pastel purple is the only saturated chrome accent.
      red-accent is reserved for danger and rare typographic emphasis. */
-  --orange-signal: oklch(80% 0.16 295);
+  --orange-signal: oklch(80% 0.11 295);
   --red-accent:    #e63946;
 
   /* Hardware caps for the SVG knob */
@@ -92,7 +92,7 @@
   /* Stage flow (signal-flow direction across OSC → FILTER → FX) — LOW chroma,
      lifted so the labels read as silkscreen print on the dark chassis. */
   --stage-osc:    oklch(68% 0.09 65);    /* muted amber: input, source */
-  --stage-filter: oklch(65% 0.12 295);   /* muted purple: transformation */
+  --stage-filter: oklch(65% 0.08 295);   /* muted purple: transformation */
   --stage-fx:     oklch(64% 0.08 220);   /* muted slate-teal: output */
 
   /* Motion */
@@ -687,7 +687,7 @@ label.section-label { cursor: pointer; }
   to   { opacity: 1; transform: none; }
 }
 .effect-card.active-card {
-  border-color: oklch(70% 0.18 295 / 0.55);
+  border-color: oklch(70% 0.12 295 / 0.55);
 }
 /* 2px Orange-Signal top accent (full edge, NOT a side-stripe). */
 .effect-card::before {
@@ -899,7 +899,7 @@ label.section-label { cursor: pointer; }
   inset: -10px;
 }
 .color-rack-toggle[aria-pressed="true"] {
-  background: oklch(70% 0.18 295 / 0.20);
+  background: oklch(70% 0.12 295 / 0.20);
   border-color: var(--orange-signal);
   color: var(--orange-signal);
 }
@@ -1074,7 +1074,7 @@ label.section-label { cursor: pointer; }
   border-color: var(--orange-signal);
 }
 .color-rack-slot-toggle-btn.active {
-  background: oklch(70% 0.18 295 / 0.22);
+  background: oklch(70% 0.12 295 / 0.22);
   border-color: var(--orange-signal);
   color: var(--text-key);
 }
@@ -1252,7 +1252,7 @@ label.section-label { cursor: pointer; }
   outline: none;
 }
 .text-field:focus {
-  border-color: oklch(70% 0.18 295 / 0.55);
+  border-color: oklch(70% 0.12 295 / 0.55);
 }
 .preset-list {
   display: flex;
@@ -1515,12 +1515,12 @@ label.section-label { cursor: pointer; }
   border-radius: 5px;
   transition: background var(--duration-base) var(--ease-out);
 }
-.knob:hover { background: oklch(70% 0.18 295 / 0.10); }
-.knob:focus-visible { background: oklch(70% 0.18 295 / 0.14); }
+.knob:hover { background: oklch(70% 0.12 295 / 0.10); }
+.knob:focus-visible { background: oklch(70% 0.12 295 / 0.14); }
 /* will-change promotes the knob to its own compositor layer while dragging,
    so the arc/pointer transform isn't repainted against the rest of the card.
    Active only during drag (released on pointerup). */
-.knob.dragging { background: oklch(70% 0.18 295 / 0.18); will-change: transform; }
+.knob.dragging { background: oklch(70% 0.12 295 / 0.18); will-change: transform; }
 
 .knob-svg {
   width: 40px;
@@ -1625,15 +1625,15 @@ label.section-label { cursor: pointer; }
   text-align: center;
   outline: none;
   z-index: 20;
-  box-shadow: 0 0 0 3px oklch(70% 0.18 295 / 0.18), 0 4px 12px oklch(0% 0 0 / 0.5);
+  box-shadow: 0 0 0 3px oklch(70% 0.12 295 / 0.18), 0 4px 12px oklch(0% 0 0 / 0.5);
   caret-color: var(--orange-signal);
 }
 .knob-entry-input::selection {
-  background: oklch(70% 0.18 295 / 0.35);
+  background: oklch(70% 0.12 295 / 0.35);
 }
 /* While text entry is open, show a subtle orange outline on the host knob */
 .knob.entering {
-  background: oklch(70% 0.18 295 / 0.22);
+  background: oklch(70% 0.12 295 / 0.22);
   outline: 1.5px solid var(--orange-signal);
   outline-offset: 1px;
 }
@@ -1681,7 +1681,7 @@ label.section-label { cursor: pointer; }
 .param-slider:hover,
 .param-slider:focus-within {
   background: var(--surface-hover);
-  border-color: oklch(70% 0.18 295 / 0.62);
+  border-color: oklch(70% 0.12 295 / 0.62);
 }
 .param-slider .knob-label {
   text-align: left;
@@ -1948,7 +1948,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
   inset: var(--space-md);
   border: 2px dashed var(--orange-signal);
   border-radius: 6px;
-  background: oklch(70% 0.18 295 / 0.10);
+  background: oklch(70% 0.12 295 / 0.10);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2707,8 +2707,8 @@ body[data-track-panel="closed"] .track-panel-toggle-arrow {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-xs) var(--space-xl);
-  background: oklch(80% 0.16 295 / 0.12);
-  border-bottom: 1px solid oklch(80% 0.16 295 / 0.35);
+  background: oklch(80% 0.11 295 / 0.12);
+  border-bottom: 1px solid oklch(80% 0.11 295 / 0.35);
   color: var(--orange-signal);
   font-size: 9px;
   font-weight: 700;

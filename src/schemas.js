@@ -42,7 +42,7 @@ export const DEFAULTS = Object.freeze({
 
   // SYNTH-mode pipeline.
   // - structure: 'none' | 'ascii' | 'erode' | 'watershed' | 'pixelsort' | 'melt'
-  // - structureOutputMode: 'mono' | 'source' | 'ink' | 'invert'
+  // - structureOutputMode: 'mono' | 'source' | 'colorisolation' | 'invert'
   // - color: 'none' | any COLOR_SECTIONS name — the single selected COLOR
   //   stage (the 3-slot rack was retired in v8; layering happens on the
   //   timeline, one look per segment).
@@ -62,10 +62,9 @@ export const DEFAULTS = Object.freeze({
   motionedgeEdge: 0.5, motionedgeMotion: 0.6, motionedgeThresh: 0.15, motionedgeBoost: 0.5,
   edgedetThresh: 0.3,  edgedetGlow: 0.5,      edgedetHue: 0.15,     edgedetBlend: 0.1,
   ditherScale: 0.5, ditherLevels: 0.25, ditherContrast: 0.5, ditherBias: 0.5,
-  colorisolationHue: 0.0, colorisolationOverlap: 0.3, colorisolationSteep: 0.5, colorisolationMode: 0.0,
-  cartoonPower: 0.3, cartoonSlope: 0.4,
-  kuwaharaStructRadius: 0.4, kuwaharaStructSharp: 0.5,
-  moddiffFreq: 0.25, moddiffMod: 0.45, moddiffBlack: 0.08, moddiffAxis: 0.0, moddiffDrift: 0.0,
+  colorisolationHue: 0.5, colorisolationOverlap: 0.5, colorisolationSteep: 0.9, colorisolationMode: 0.0,
+  kuwaharaStructRadius: 1, kuwaharaStructSharp: 1,
+  moddiffFreq: 1, moddiffMod: 0.5, moddiffBlack: 0.08, moddiffAxis: 0.0, moddiffDrift: 0.01,
 
   // ============ TRACK-mode state ============
   // Top-level mode + composite selector.
@@ -227,7 +226,7 @@ export const COLOR_PARAM_SCHEMAS = {
   prismatic: {
     knobs: [
       { key: 'disp',   label: 'Dispersion', min: 0, max: 1, step: 0.01, default: 0.5, tip: 'How wide the prismatic spread is. 0 = tight. 1 = wide chromatic separation.' },
-      { key: 'warmth', label: 'Warmth',     min: 0, max: 1, step: 0.01, default: 0.7, tip: '0 = neutral white split. 1 = full warm yellow-pink prismatic spectrum.' },
+      { key: 'warmth', label: 'Warmth',     min: 0, max: 1, step: 0.01, default: 1,   tip: '0 = neutral white split. 1 = full warm yellow-pink prismatic spectrum.' },
       { key: 'glow',   label: 'Glow',       min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Bloom boost on dispersed edges. 0 = sharp. 1 = soft atmospheric bleed.' },
       { key: 'angle',  label: 'Angle',      min: 0, max: 1, step: 0.01, default: 0,   tip: 'Direction of the prismatic dispersion (0–1 maps to 0–360°).' },
     ],
@@ -955,7 +954,7 @@ export const TRACK_FX_PARAM_SCHEMAS = {
   },
 };
 
-export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'colorisolation', 'cartoon', 'kuwahara', 'moddiff'];
+export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'kuwahara', 'moddiff'];
 // The MAPS tab of the COLOR picker — pure per-pixel color mapping (ramps,
 // grades, palette swaps; no neighbor sampling, no added elements). Adding a
 // map here (plus its schema/shader/label entries) is all the picker needs;
@@ -1005,8 +1004,7 @@ export const BLEND_MODES = {
   edgedet:      'source-over',
   dither:       'source-over',
   moddiff:      'source-over',
-  colorisolation: 'source-over',
-  cartoon:        'source-over',
+
   predator:     'source-over',
   rgbdelay:     'source-over',
   tunnel:       'source-over',
@@ -1172,7 +1170,8 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
       key: 'palette', label: 'Palette',
       options: [
         { value: 0, label: 'Classic', tip: 'Classic ASCII — letter and symbol density ramp.' },
-        { value: 1, label: 'Matrix',  tip: 'Matrix — digits and bracket symbols (1 7 ? < > [ ] ! 2 3 4 5 6 9 0 8 # @).' },
+        { value: 1, label: 'Digits',  tip: 'Digits — pure 0-9 cycling across luminance.' },
+        { value: 2, label: 'Mines',   tip: 'Mines — Minesweeper-colored digits 1-7 on a dark cell grid.' },
       ],
     }],
     knobs: [
@@ -1214,36 +1213,18 @@ export const BLOB_STRUCTURE_PARAM_SCHEMAS = {
   moddiff: {
     toggles: [],
     knobs: [
-      { key: 'freq',  label: 'Freq',  min: 0, max: 3, step: 0.01, default: 0.25, tip: 'Line density — sine cycles across the frame (2–50 at 1.0, up to ~150 at 3.0). Low = wide spaced bands, high = fine lines.' },
-      { key: 'mod',   label: 'Mod',   min: 0, max: 1, step: 0.01, default: 0.45, tip: 'Modulation depth — how much luminance phase-shifts the lines. High = lines drift and flow at content edges.' },
+      { key: 'freq',  label: 'Freq',  min: 0, max: 3, step: 0.01, default: 1, tip: 'Line density — sine cycles across the frame (2–50 at 1.0, up to ~150 at 3.0). Low = wide spaced bands, high = fine lines.' },
+      { key: 'mod',   label: 'Mod',   min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Modulation depth — how much luminance phase-shifts the lines. High = lines drift and flow at content edges.' },
       { key: 'black', label: 'Black', min: 0, max: 1, step: 0.01, default: 0.08, tip: 'Black level — luma below this outputs solid black, keeping dark backgrounds clean.' },
       { key: 'axis',  label: 'Axis',  min: 0, max: 1, step: 1,    default: 0.0,  tip: '0 = Y axis (horizontal lines, Marathon default). 1 = X axis (vertical lines).' },
-      { key: 'drift', label: 'Drift', min: 0, max: 1, step: 0.01, default: 0.0,  tip: 'Scroll speed — animates the line pattern over time. 0 = static.' },
+      { key: 'drift', label: 'Drift', min: 0, max: 1, step: 0.01, default: 0.01, tip: 'Scroll speed — animates the line pattern over time. 0 = static.' },
     ],
-  },
-  colorisolation: {
-    toggles: [],
-    knobs: [
-      { key: 'hue',    label: 'Hue',    min: 0, max: 1, step: 0.01, default: 0.0, tip: 'Target hue to isolate or reject (0–1 maps to 0–360°).' },
-      { key: 'overlap',label: 'Width',  min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Width of the hue acceptance window. Low = narrow slice. High = broad range.' },
-      { key: 'steep',  label: 'Steep',  min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Gaussian falloff steepness outside the window. High = hard edge at boundary.' },
-      { key: 'mode',   label: 'Mode',   min: 0, max: 1, step: 1,    default: 0.0, control: 'slider', tip: '0 = Isolate (target hue bright, rest dark). 1 = Reject (target hue dark, rest bright).' },
-    ],
-    order: ['hue', 'overlap', 'steep', 'mode'],
-  },
-  cartoon: {
-    toggles: [],
-    knobs: [
-      { key: 'power', label: 'Power', min: 0, max: 1, step: 0.01, default: 0.3, tip: 'Edge intensity multiplier. Higher = darker, more prominent outlines.' },
-      { key: 'slope', label: 'Slope', min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Edge threshold slope. Higher filters out faint edges, leaving only strong contours.' },
-    ],
-    order: ['power', 'slope'],
   },
   kuwahara: {
     toggles: [],
     knobs: [
-      { key: 'radius', label: 'Radius', min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Filter radius 1–5px. Larger = more painterly stroke-like blurring.' },
-      { key: 'sharp',  label: 'Sharp',  min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Quadrant selection sharpness. Low = blended soft paint. High = hard region-locked strokes.' },
+      { key: 'radius', label: 'Radius', min: 0, max: 1, step: 0.01, default: 1, tip: 'Filter radius 1–5px. Larger = more painterly stroke-like blurring.' },
+      { key: 'sharp',  label: 'Sharp',  min: 0, max: 1, step: 0.01, default: 1, tip: 'Quadrant selection sharpness. Low = blended soft paint. High = hard region-locked strokes.' },
     ],
     order: ['radius', 'sharp'],
   },

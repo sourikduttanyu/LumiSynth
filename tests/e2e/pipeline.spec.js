@@ -175,7 +175,7 @@ test.describe('Structure stage — happy paths', () => {
     await gotoDismissed(page);
     await activatePipelinePanel(page);
 
-    for (const mode of ['mono', 'source', 'ink', 'invert']) {
+    for (const mode of ['mono', 'source', 'colorisolation', 'invert']) {
       await page.locator(byValue('#structure-output-group', mode)).click();
       await expect(page.locator(byValue('#structure-output-group', mode))).toHaveAttribute('aria-checked', 'true');
     }
@@ -185,14 +185,14 @@ test.describe('Structure stage — happy paths', () => {
     await gotoDismissed(page);
     await activatePipelinePanel(page);
 
-    await page.locator(byValue('#structure-output-group', 'ink')).click();
+    await page.locator(byValue('#structure-output-group', 'colorisolation')).click();
     // Wait for the 200ms debounced persist to fire before reloading
     await expect.poll(() =>
       readLS(page, STORAGE_KEY).then((s) => s?.structureOutputMode)
-    ).toBe('ink');
+    ).toBe('colorisolation');
     await page.reload();
     await activatePipelinePanel(page);
-    await expect(page.locator(byValue('#structure-output-group', 'ink'))).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator(byValue('#structure-output-group', 'colorisolation'))).toHaveAttribute('aria-checked', 'true');
   });
 
   test('selecting none clears structure (aria-checked true on none)', async ({ page }) => {
@@ -593,7 +593,7 @@ test.describe('Global reset', () => {
     await activatePipelinePanel(page);
 
     await page.locator(byValue('#structure-group', 'melt')).click();
-    await page.locator(byValue('#structure-output-group', 'ink')).click();
+    await page.locator(byValue('#structure-output-group', 'colorisolation')).click();
 
     await page.locator('#btn-reset').click();
     await page.locator('#btn-reset').click();

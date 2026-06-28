@@ -2537,29 +2537,6 @@ void main() {
   fragColor = vec4(vec3(structure), 1.0);
 }`;
 
-// CARTOON_STRUCT — STRUCTURE. Diagonal 4-sample Sobel edge detection outputting
-// edge strength as raw structure float. Invert mode gives dark outlines on white.
-// uParams: x=power(0-1), y=slope(0-1)
-const FRAG_CARTOON_STRUCT = `#version 300 es
-precision highp float;
-in vec2 vUV;
-uniform sampler2D u_video;
-uniform vec4 uParams;
-out vec4 fragColor;
-void main() {
-  vec2 px = 1.0 / vec2(textureSize(u_video, 0));
-  const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
-  float power = mix(0.5, 8.0, uParams.x);
-  float slope = mix(0.5, 4.0, uParams.y);
-  float diff1 = dot(luma, texture(u_video, vUV + px).rgb)
-              - dot(luma, texture(u_video, vUV - px).rgb);
-  float diff2 = dot(luma, texture(u_video, vUV + px * vec2(1.0, -1.0)).rgb)
-              - dot(luma, texture(u_video, vUV + px * vec2(-1.0,  1.0)).rgb);
-  float edge = diff1 * diff1 + diff2 * diff2;
-  float structure = clamp(pow(edge, slope) * power, 0.0, 1.0);
-  fragColor = vec4(vec3(structure), 1.0);
-}`;
-
 // KUWAHARA_STRUCT — STRUCTURE variant of the Kuwahara painterly filter.
 // Same 7x7 quadrant sampling, but outputs luma of the painted result (no sat boost/blend).
 // uParams: x=radius(1-5px), y=sharpness(quadrant hardness)
@@ -2980,7 +2957,6 @@ export const FRAGS = {
   kuwahara:     FRAG_KUWAHARA,
   kuwahara_struct: FRAG_KUWAHARA_STRUCT,
   colorisolation:  FRAG_COLORISOLATION,
-  cartoon:         FRAG_CARTOON_STRUCT,
   colorfulposter:  FRAG_COLORFULPOSTER,
   cospalette:      FRAG_COSPALETTE,
   subtleaurora:    FRAG_SUBTLEAURORA,
