@@ -1728,15 +1728,105 @@ void main() {
   fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
-// SKETCH — hand-drawn pen/pencil crosshatch. Per pixel, marches several rays
-// at fixed angles and lays hatch strokes along the luminance gradient, so the
-// image is "drawn" with directional shading that thickens in the shadows.
-// Colored crosshatch is carried in col2; col.x is the stroke darkness. Ported
-// from flockaroo's "Notebook Drawings" (CC BY-NC-SA). The iChannel1 blue-noise
-// texture is replaced by procedural hash noise (paper grain + halftone break),
-// and iChannel0 maps to u_video. Heavy: ~hundreds of taps/pixel by design.
-// uParams: x=Ink (line boldness), y=Color (pencil↔colored), z=Stroke (length), w=Wobble
+// SKETCH — sofiene71 "notebook drawings" (CC BY-NC-SA 3.0) shadertoy.com/view/ldlcWs
+// Based on flockaroo XtVGD1. Single-sided ray march at 3 angles × 9 samples.
+// No noise texture, no wobble. Bg=0: grayscale structure. Bg=1: warm sepia ink.
+// uParams: x=Ink, y=Stroke | uParam4: Bg
 const FRAG_SKETCH = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+uniform float uParam4;
+uniform float uTime;
+out vec4 fragColor;
+
+#define AngleNum 3
+#define SampNum  9
+#define PI2      6.28318530717959
+
+vec2 R;
+
+vec4 getCol(vec2 pos) {
+  vec2 uv = pos / R;
+  vec4 c1  = texture(u_video, uv);
+  vec4 e   = smoothstep(vec4(-0.05), vec4(0.0), vec4(uv, vec2(1.0) - uv));
+  c1 = mix(vec4(1.0, 1.0, 1.0, 0.0), c1, e.x * e.y * e.z * e.w);
+  float d  = clamp(dot(c1.xyz, vec3(-0.5, 1.0, -0.5)), 0.0, 1.0);
+  return min(mix(c1, vec4(0.7), 1.8 * d), 0.7);
+}
+
+float getVal(vec2 pos) { return dot(getCol(pos).xyz, vec3(0.333)); }
+
+vec2 getGrad(vec2 pos, float eps) {
+  vec2 d = vec2(eps, 0.0);
+  return vec2(getVal(pos+d.xy)-getVal(pos-d.xy),
+              getVal(pos+d.yx)-getVal(pos-d.yx)) / eps / 2.0;
+}
+
+float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
+
+vec3 clipcolor(vec3 c) {
+  float l = lum(c), n = min(min(c.r,c.g),c.b), x = max(max(c.r,c.g),c.b);
+  if (n < 0.0)  c = l + (c - l) * l        / (l - n);
+  if (x > 1.25) c = l + (c - l) * (1.0-l)  / (x - l);
+  return c;
+}
+
+vec3 setlum(vec3 c, float l) {
+  return clipcolor(0.85 * (c + vec3(l - lum(c))));
+}
+
+void main() {
+  R = vec2(textureSize(u_video, 0));
+  float scS    = R.y / 920.0 * mix(0.5, 2.0, uParams.y);
+  float wobble = uParams.z;
+  float speed  = mix(0.3, 2.0, uParams.w);
+  vec2 pos     = vUV * R + wobble * 4.0 * sin(uTime * speed * vec2(1.0, 1.7)) * (R.y / 920.0);
+
+  vec3 col = vec3(0.0);
+  for (int i = 0; i < AngleNum; i++) {
+    float ang = PI2 / float(AngleNum) * (float(i) + 0.8);
+    vec2 v = vec2(cos(ang), sin(ang));
+    for (int j = 0; j < SampNum; j++) {
+      vec2 dpos  = v.yx * vec2(1.0,-1.0) * float(j) * scS;
+      vec2 dpos2 = 5.0 * v.xy * float(j*j) / float(SampNum) * 0.5 * scS;
+      vec2 g     = getGrad(pos + 3.5*dpos + dpos2, 0.08);
+      float fact = dot(g, v) - 0.5 * abs(dot(g, v.yx * vec2(1.0,-1.0)));
+      col += clamp(fact, 0.0, 0.05) * (1.0 - float(j) / float(SampNum));
+    }
+  }
+
+  col /= float(SampNum * AngleNum) * 0.65 / sqrt(R.y);
+  col.x *= mix(1.0, 2.5, uParams.x);
+  col.x  = 1.0 - col.x;
+  col.x *= col.x * col.x;
+
+  vec2 sv   = sin(pos.xy * 0.1 / sqrt(R.y / 720.0));
+  vec3 karo  = vec3(1.0) - 0.75755 * vec3(0.25, 0.1, 0.1) * dot(exp(-sv*sv*80.0), vec2(1.0));
+  float rv   = length(pos - R*0.5) / R.x;
+  float vign = 1.0 - rv*rv*rv;
+
+  vec3 sketch = vec3(col.x) * karo * vign;
+
+  // warm sepia ink — sofiene71 color pass
+  vec3 origCol = texture(u_video, vUV).rgb;
+  vec3 overlay = vec3(0.3755, 0.05, 0.0) * origCol;
+  vec3 sepia   = setlum(1.25 * overlay, lum(sketch))
+               - (0.75 - clamp(origCol.r + origCol.g + origCol.b, 0.0, 0.75));
+
+  // Bg=0: grayscale sketch  |  Bg=1: warm sepia ink on paper
+  fragColor = vec4(mix(sketch, sepia, uParam4), 1.0);
+}`;
+
+// HATCH — hlorenzi "Hand-drawn Sketch Effect" adapted for video as a COLOR
+// UNIQUE effect. Two families of sine-based hatch lines (crossing at different
+// angles) are driven by video luma: dark pixels receive dense cross-hatching,
+// bright regions stay as warm paper. Time is quantised to 16 fps so each tick
+// appears held, producing the characteristic hand-drawn jitter. Purely
+// procedural — no texture taps.
+// uParams: x=Density (line freq), y=Jitter (tremor), z=Paper (brightness), w=Blend (hatch↔src)
+const FRAG_HATCH = `#version 300 es
 precision highp float;
 in vec2 vUV;
 uniform sampler2D u_video;
@@ -1744,88 +1834,52 @@ uniform vec4 uParams;
 uniform float uTime;
 out vec4 fragColor;
 
-#define AngleNum 3
-#define SampNum 16
-#define PI2 6.28318530717959
-
-vec2 R;
-
-float hash21(vec2 p) {
-  p = fract(p * vec2(123.34, 345.45));
-  p += dot(p, p + 34.345);
-  return fract(p.x * p.y);
-}
-// procedural stand-in for flockaroo's blue-noise iChannel1
-vec4 getRand(vec2 pos) {
-  return vec4(hash21(pos), hash21(pos + 11.7), hash21(pos + 23.3), hash21(pos + 47.1));
-}
-vec4 getCol(vec2 pos) {
-  vec2 uv = pos / R;
-  vec4 c1 = texture(u_video, uv);
-  vec4 e = smoothstep(vec4(-0.05), vec4(0.0), vec4(uv, vec2(1.0) - uv));
-  c1 = mix(vec4(1.0, 1.0, 1.0, 0.0), c1, e.x * e.y * e.z * e.w);
-  float d = clamp(dot(c1.xyz, vec3(-0.5, 1.0, -0.5)), 0.0, 1.0);
-  vec4 c2 = vec4(0.7);
-  return min(mix(c1, c2, 1.8 * d), 0.7);
-}
-vec4 getColHT(vec2 pos) {
-  return smoothstep(0.95, 1.05, getCol(pos) * 0.8 + 0.2 + getRand(pos * 0.7));
-}
-float getVal(vec2 pos) {
-  return dot(getCol(pos).xyz, vec3(0.333));
-}
-vec2 getGrad(vec2 pos, float eps) {
-  vec2 d = vec2(eps, 0.0);
-  return vec2(
-    getVal(pos + d.xy) - getVal(pos - d.xy),
-    getVal(pos + d.yx) - getVal(pos - d.yx)
-  ) / eps / 2.0;
-}
+float rand(float x) { return fract(sin(x) * 43758.5453); }
+float tri(float x)  { return abs(1.0 - mod(abs(x), 2.0)) * 2.0 - 1.0; }
 
 void main() {
-  R = vec2(textureSize(u_video, 0));
-  float ink    = uParams.x;
-  float colorA = uParams.y;
-  float scS    = R.y / 400.0 * mix(0.5, 2.0, uParams.z);
-  float wobble = uParams.w;
+  float density = uParams.x;
+  float jitter  = uParams.y;
+  float paper   = uParams.z;
+  float blend   = uParams.w;
 
-  vec2 fragCoord = vUV * R;
-  vec2 pos = fragCoord + wobble * 4.0 * sin(uTime * vec2(1.0, 1.7)) * (R.y / 400.0);
-  vec3 col = vec3(0.0), col2 = vec3(0.0);
-  float sum = 0.0;
-  for (int i = 0; i < AngleNum; i++) {
-    float ang = PI2 / float(AngleNum) * (float(i) + 0.8);
-    vec2 v = vec2(cos(ang), sin(ang));
-    for (int j = 0; j < SampNum; j++) {
-      vec2 dpos  = v.yx * vec2(1.0, -1.0) * float(j) * scS;
-      vec2 dpos2 = v.xy * float(j * j) / float(SampNum) * 0.5 * scS;
-      for (float s = -1.0; s <= 1.0; s += 2.0) {
-        vec2 pos2 = pos + s * dpos + dpos2;
-        vec2 pos3 = pos + (s * dpos + dpos2).yx * vec2(1.0, -1.0) * 2.0;
-        vec2 g = getGrad(pos2, 0.4);
-        float fact  = dot(g, v) - 0.5 * abs(dot(g, v.yx * vec2(1.0, -1.0)));
-        float fact2 = dot(normalize(g + vec2(0.0001)), v.yx * vec2(1.0, -1.0));
-        fact = clamp(fact, 0.0, 0.05);
-        fact2 = abs(fact2);
-        fact *= 1.0 - float(j) / float(SampNum);
-        col += fact;
-        col2 += fact2 * getColHT(pos3).xyz;
-        sum += fact2;
-      }
-    }
-  }
-  col /= float(SampNum * AngleNum) * 0.75 / sqrt(R.y);
-  col2 /= max(sum, 1e-3);
-  col.x *= (0.6 + 0.8 * getRand(pos * 0.7).x);
-  col.x = clamp(1.0 - col.x, 0.0, 1.0);
-  col.x = pow(col.x, mix(1.5, 4.0, ink));               // Ink: higher = darker, bolder strokes
-  col2 = mix(vec3(dot(col2, vec3(0.333))), col2, colorA); // Color: pencil↔colored
+  // Quantise to 16 fps: produces the "held-frame" hand-drawn look
+  float t = floor(uTime * 16.0) / 16.0;
 
-  vec2 sg = sin(pos.xy * 0.1 / sqrt(R.y / 400.0));
-  vec3 karo = vec3(1.0) - 0.5 * vec3(0.25, 0.1, 0.1) * dot(exp(-sg * sg * 80.0), vec2(1.0));
-  float r = length(pos - R * 0.5) / R.x;
-  float vign = 1.0 - r * r * r;
-  fragColor = vec4(clamp(col.x * col2 * karo * vign, 0.0, 1.0), 1.0);
+  vec4 src  = texture(u_video, vUV);
+  float luma = dot(src.rgb, vec3(0.299, 0.587, 0.114));
+
+  // NDC coordinates for the hatch grid
+  vec2 p = vUV * 2.0 - 1.0;
+
+  // Per-frame hand-tremor on the hatch coordinates
+  vec2 jp = p;
+  jp += vec2(tri(p.y * rand(t) * 4.0) * rand(t * 1.9) * 0.015,
+             tri(p.x * rand(t * 3.4) * 4.0) * rand(t * 2.1) * 0.015) * jitter;
+  jp += vec2(rand(p.x * 3.1 + p.y * 8.7),
+             rand(p.x * 1.1 + p.y * 6.7)) * 0.01 * jitter;
+
+  // Per-frame line-scale wobble (lines never perfectly parallel)
+  float xs = rand(t * 6.6) * 0.1 + 0.9;
+  float ys = rand(t * 6.7) * 0.1 + 0.9;
+
+  // Line frequency: density knob 0→1 maps to coarse→dense
+  float f1 = mix(40.0, 240.0, density);
+  float f2 = f1 * 0.65;
+
+  // Family 1: primary hatching — thickens as luma drops
+  float h1 = clamp(sin(jp.x * xs * (f1 + rand(t)       * 30.0) +
+                       jp.y * ys * (f2 + rand(t * 1.91) * 30.0)) * 0.5 + 0.5
+                   - luma, 0.0, 1.0);
+  // Family 2: cross-hatching — only appears in the darkest zones (+0.4 offset)
+  float h2 = clamp(sin(jp.x * xs * (-f2 + rand(t * 4.74) * 30.0) +
+                       jp.y * ys * ( f1 + rand(t * 3.91) * 30.0)) * 0.5 + 0.5
+                   - luma - 0.4, 0.0, 1.0);
+
+  float hatching = max(h1, h2);
+  vec3 paperCol = vec3(1.0, 0.90, 0.80) * paper;
+  vec3 sketch   = mix(paperCol, paperCol * 0.45, hatching);
+  fragColor = vec4(mix(sketch, src.rgb, blend), 1.0);
 }`;
 
 // DOG — STRUCTURE. Difference of Gaussians edge detection: two Gaussian-
@@ -2322,42 +2376,6 @@ void main() {
   fragColor = vec4(clamp(linear_to_srgb(oklab_to_linear(vec3(L, C*cos(H), C*sin(H)))), 0.0, 1.0), 1.0);
 }`;
 
-// HALFTONE — CMYK 4-angle dot screens simulating offset-print reproduction.
-// uParams: x=scale(dot size), y=ink(hardness), z=angle(screen variation), w=blend(cmyk/src)
-const FRAG_HALFTONE = `#version 300 es
-precision highp float;
-in vec2 vUV;
-uniform sampler2D u_video;
-uniform vec4 uParams;
-out vec4 fragColor;
-float dot_screen(vec2 uv, float value, float angle, float freq) {
-  float s = sin(angle), c = cos(angle);
-  vec2 rot = vec2(c*uv.x - s*uv.y, s*uv.x + c*uv.y) * freq;
-  float r = length(fract(rot) - 0.5);
-  float dotR = sqrt(clamp(value, 0.0, 1.0)) * 0.7;
-  float hard = mix(0.08, 0.01, uParams.y);
-  return smoothstep(dotR - hard, dotR + hard, r);
-}
-void main() {
-  vec3 src = texture(u_video, vUV).rgb;
-  float freq = mix(60.0, 10.0, uParams.x);
-  float ang  = uParams.z * 1.5708;
-  float Kv = 1.0 - max(max(src.r, src.g), src.b);
-  float dK = max(1.0 - Kv, 0.001);
-  float Cv = (1.0 - src.r - Kv) / dK;
-  float Mv = (1.0 - src.g - Kv) / dK;
-  float Yv = (1.0 - src.b - Kv) / dK;
-  float cDot = dot_screen(vUV, Cv, 1.0472 + ang, freq);
-  float mDot = dot_screen(vUV, Mv, 2.2166 + ang, freq);
-  float yDot = dot_screen(vUV, Yv, 0.0    + ang, freq);
-  float kDot = dot_screen(vUV, Kv, 0.7854 + ang, freq);
-  vec3 cmyk = vec3(
-    cDot * (1.0 - kDot),
-    mDot * (1.0 - kDot),
-    yDot * (1.0 - kDot)
-  );
-  fragColor = vec4(clamp(mix(cmyk, src, uParams.w), 0.0, 1.0), 1.0);
-}`;
 
 // KUWAHARA — Painterly filter: pick lowest-variance quadrant mean via soft weighting.
 // uParams: x=radius(1–5px step), y=sharpness(quadrant hardness), z=saturation, w=blend(0=paint/1=src)
@@ -2953,7 +2971,8 @@ export const FRAGS = {
   // AcerolaFX-inspired COLOR
   palswap:      FRAG_PALSWAP,
   csadjust:     FRAG_CSADJUST,
-  halftone:     FRAG_HALFTONE,
+  sketch:       FRAG_SKETCH,
+  hatch:        FRAG_HATCH,
   kuwahara:     FRAG_KUWAHARA,
   kuwahara_struct: FRAG_KUWAHARA_STRUCT,
   colorisolation:  FRAG_COLORISOLATION,

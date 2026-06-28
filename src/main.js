@@ -1286,6 +1286,8 @@ function runEffect(name, opts) {
       return applyGLFilter('kuwahara_struct', canvas.width, canvas.height, [look.kuwaharaStructRadius, look.kuwaharaStructSharp, 0, 0], opts);
     case 'moddiff':
       return applyGLFilter('moddiff', canvas.width, canvas.height, [look.moddiffFreq, look.moddiffMod, look.moddiffBlack, look.moddiffAxis ?? 0, look.moddiffDrift ?? 0], opts);
+    case 'sketch':
+      return applyGLFilter('sketch', canvas.width, canvas.height, [look.sketchInk, look.sketchStroke, look.sketchWobble ?? 1.0, look.sketchSpeed ?? 1.0, look.sketchBg ?? 0.0], opts);
     case 'oxide':
     case 'synth':
     case 'biolum':
@@ -1677,7 +1679,7 @@ const COLOR_SWATCH_GRADIENTS = {
   hologram:   'linear-gradient(90deg, #01060c, #073a4a, #19c8e8, #9ff4ff)',
   surveil:    'linear-gradient(90deg, #020503, #2c3a2e, #7d9682, #e8f0e8 72%, #ff8400 78%, #e8f0e8 84%)',
   newsprint:  'linear-gradient(90deg, #f7f2e6, #e85d75, #f7f2e6, #5560c8, #f7f2e6)',
-  sketch:     'linear-gradient(135deg, #f2ece0, #d8cfc0 38%, #6b6358 70%, #2a2620)',
+  hatch:      'linear-gradient(135deg, #f2ece0, #d8cfc0 38%, #6b6358 70%, #2a2620)',
   polaroid:   'linear-gradient(90deg, #2e3b34, #6a7a6a, #c9bfa3, #f2e6c4)',
   blacklight: 'linear-gradient(90deg, #050008, #2a0a55, #7a1fd0, #ff3df0, #b6ff4d)',
   dreamstatic:'linear-gradient(90deg, #0a0a14, #8898d8, #e8a8c8, #b8a8e8, #f0e8ff)',
@@ -1685,7 +1687,6 @@ const COLOR_SWATCH_GRADIENTS = {
   okband:     'linear-gradient(90deg, #3050d0, #8030b0, #c03050, #889018, #187850)',
   palswap:    'linear-gradient(90deg, #1a0030, #8800cc, #cc4400, #aadd00, #00aaff)',
   csadjust:   'linear-gradient(90deg, #1a1a2a, #2a4470, #7080c8, #d8ddf8)',
-  halftone:   'linear-gradient(90deg, #f5f0e8, #c85a5a, #5050b0, #28a040, #f5f0e8)',
   colorfulposter: 'linear-gradient(90deg, #1a0030, #7a1060, #c85a20, #d4c030, #6ab040)',
   cospalette:     'linear-gradient(90deg, #00aaff, #aa00ff, #ff0088, #ff8800, #aaff00, #00ffcc)',
   subtleaurora:   'linear-gradient(90deg, #000804, #003820, #26c870, #7040b8, #0a0014)',
@@ -1702,11 +1703,11 @@ const COLOR_LABEL = {
   prismatic: 'Prismatic', heatbleed: 'HeatBleed', depthstack: 'DepthStack', abyss: 'Abyss',
   sequin: 'Sequin',
   risograph: 'Riso',
-  octopus: 'Octopus', hologram: 'Hologram', surveil: 'Surveil', newsprint: 'Newsprint', sketch: 'Sketch',
+  octopus: 'Octopus', hologram: 'Hologram', surveil: 'Surveil', newsprint: 'Newsprint', hatch: 'Hatch',
   polaroid: 'Polaroid', blacklight: 'Blacklight', dreamstatic: 'DreamStatic', predator: 'Predator',
   okband: 'OKBand',
   chroma: 'ChromaEngine',
-  palswap: 'PalSwap', csadjust: 'CSAdjust', halftone: 'Halftone', colorfulposter: 'Poster', cospalette: 'CosPal',
+  palswap: 'PalSwap', csadjust: 'CSAdjust', colorfulposter: 'Poster', cospalette: 'CosPal',
   subtleaurora: 'SubAurora', tokaplasma: 'Tokamak', irishell: 'IriShell', quantumstate: 'QuantumSt',
   okdrift: 'OKDrift',
 };
@@ -1739,7 +1740,7 @@ const COLOR_MAP_TIPS = {
   hologram:   'Sci-fi light projection. Translucent self-luminous cyan (or pink) with drifting interference bands, electric edge fringe, projector flicker.',
   surveil:    'Drone thermal targeting. Hard-quantized false-color bands; one luminance zone locks in a detection color. Sweep Target to scan.',
   newsprint:  'Pop-art halftone duotone. Two rotated dot screens — shadow ink + midtone ink — over warm paper. The TV Girl album-cover print.',
-  sketch:     'Hand-drawn pen/pencil crosshatch. The image is "drawn" with directional hatch strokes that follow the shading and thicken in the shadows, on faint notebook paper. Ink/Color/Stroke/Wobble knobs — go full graphite B&W or live colored sketch. After flockaroo.',
+  hatch:      'Cross-hatch on warm notebook paper. Two families of sine-based hatch lines drive darker areas into heavy cross-hatching; bright regions stay as cream paper. Density/Jitter/Paper/Blend knobs — full graphite sketch or blend back for a colored-pencil hybrid.',
   polaroid:   'Instant-film chemistry. Cyan-green shadows, yellowed highlights, milky lifted blacks, corner vignette. Found in a shoebox.',
   blacklight: 'UV poster room. Deep purple-black base; only bright regions fluoresce in hot neon paint. Sweep Paint from violet to acid green.',
   dreamstatic:'Shadows dissolve into slowly crawling pastel static while bright content stays solid. A signal coming through from a dream.',
@@ -1747,7 +1748,6 @@ const COLOR_MAP_TIPS = {
   okband:     'Luma-to-OKLCH hue banding. Posterizes the scene into N luma bands; each band maps to an equidistant OKLCH hue for auto-harmonious palettes. Hue rotates the whole set. Dither softens hard band edges with Bayer grain.',
   palswap:    'OKLCH Palette Swap. Maps scene luma to a hue gradient in perceptual OKLCH space. Hue + Spread sweeps the color arc; Chroma sets intensity; Lift lifts the dark floor.',
   csadjust:   'OKLCH Color Space Adjust. Direct lightness, chroma, hue-rotation, and warmth knobs in perceptual OKLCH space — for creative grading without hue collisions.',
-  halftone:   'CMYK halftone dot screens. Four angled dot-screen channels (C/M/Y/K) simulate offset-print reproduction. Scale controls dot size; Blend mixes with source.',
   colorfulposter: 'Luma posterization with CMYK color layer. Logistic curve quantizes the scene into flat tonal zones; a cyan-tinted hard-light blend adds graphic color. Levels/Slope/Continuity shape the posterization curve.',
   cospalette:     'Inigo Quilez cosine palette. Maps luminance through a + b·cos(2π(c·t+d)) across 5 color universes: oil slick iridescence, sunset fire, ocean bioluminescence, toxic neon, copper patina. Palette morphs continuously; Freq controls cycle density; Edge adds contour-driven color cycling.',
   subtleaurora:   'Quiet aurora borealis curtains. Companion to Aurora Storm — calmer and more atmospheric. Soft green or violet streaks appear only on bright structures; the night sky stays pure black. Stars option seeds cell-based sparkle at luminance peaks.',
@@ -4221,7 +4221,7 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
 
   const structModeVal = structureOutputModeValue(look);
   const inkColors = inkColorUniforms(look);
-  const hasOutputMode = structModeVal !== 1 && structModeVal !== 2; // colorisolation(2) only applies as structure preprocessing
+  const hasOutputMode = structModeVal !== 1;
   const totalStages = (hasOutputMode && !pipe.structure ? 1 : 0) + (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
@@ -4241,7 +4241,13 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
         }
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
       } else if (hasOutputMode) {
-        applySourceOutputMode(cw, ch, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
+        if (structModeVal === 2) {
+          const chain = getChainFBOs();
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: chain.a.fb });
+          applyStructureMode(cw, ch, chain.a.tex, 1, inkColors.inkLow, inkColors.inkHigh, null);
+        } else {
+          applySourceOutputMode(cw, ch, structModeVal, inkColors.inkLow, inkColors.inkHigh, null);
+        }
         compositeToCanvas2D(ctx, cw, ch, 'source-over');
       } else {
         const stage = chained[0];
@@ -4271,8 +4277,15 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
           currentTex = readTexs[writeIdx]; writeIdx ^= 1;
         }
       } else if (hasOutputMode) {
-        applySourceOutputMode(cw, ch, structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
-        currentTex = readTexs[writeIdx]; writeIdx ^= 1;
+        if (structModeVal === 2) {
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: writeFBOs[writeIdx] });
+          const colorIsoTex = readTexs[writeIdx]; writeIdx ^= 1;
+          applyStructureMode(cw, ch, colorIsoTex, 1, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
+          currentTex = readTexs[writeIdx]; writeIdx ^= 1;
+        } else {
+          applySourceOutputMode(cw, ch, structModeVal, inkColors.inkLow, inkColors.inkHigh, writeFBOs[writeIdx]);
+          currentTex = readTexs[writeIdx]; writeIdx ^= 1;
+        }
       }
 
       for (let i = 0; i < chained.length; i++) {
@@ -6131,7 +6144,7 @@ function renderFrame(nowDOMHi) {
   chained.push(...pipe.fx.map((f) => ({ type: f.type, run: (opts) => runFxEffect(f.type, f.params, opts, f.key) })));
   const structModeVal2 = structureOutputModeValue(look);
   const inkColors2 = inkColorUniforms(look);
-  const hasOutputMode2 = structModeVal2 !== 1 && structModeVal2 !== 2; // colorisolation(2) only applies as structure preprocessing
+  const hasOutputMode2 = structModeVal2 !== 1;
   const totalStages = (hasOutputMode2 && !pipe.structure ? 1 : 0) + (pipe.structure ? 1 : 0) + chained.length;
   if (totalStages > 0) {
     ensureContext(cw, ch);
@@ -6155,7 +6168,13 @@ function renderFrame(nowDOMHi) {
         }
         compositeToCanvas2D(ctx, cw, ch, BLEND_MODES[pipe.structure] || 'source-over');
       } else if (hasOutputMode2) {
-        applySourceOutputMode(cw, ch, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, null);
+        if (structModeVal2 === 2) {
+          const chain = getChainFBOs();
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: chain.a.fb });
+          applyStructureMode(cw, ch, chain.a.tex, 1, inkColors2.inkLow, inkColors2.inkHigh, null);
+        } else {
+          applySourceOutputMode(cw, ch, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, null);
+        }
         compositeToCanvas2D(ctx, cw, ch, 'source-over');
       } else {
         const stage = chained[0];
@@ -6188,9 +6207,17 @@ function renderFrame(nowDOMHi) {
           writeIdx ^= 1;
         }
       } else if (hasOutputMode2) {
-        applySourceOutputMode(cw, ch, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, writeFBOs[writeIdx]);
-        currentTex = readTexs[writeIdx];
-        writeIdx ^= 1;
+        if (structModeVal2 === 2) {
+          applyGLFilter('colorisolation', cw, ch, [look.colorisolationHue, look.colorisolationOverlap, look.colorisolationSteep, look.colorisolationMode ?? 0], { outputFBO: writeFBOs[writeIdx] });
+          const colorIsoTex = readTexs[writeIdx]; writeIdx ^= 1;
+          applyStructureMode(cw, ch, colorIsoTex, 1, inkColors2.inkLow, inkColors2.inkHigh, writeFBOs[writeIdx]);
+          currentTex = readTexs[writeIdx];
+          writeIdx ^= 1;
+        } else {
+          applySourceOutputMode(cw, ch, structModeVal2, inkColors2.inkLow, inkColors2.inkHigh, writeFBOs[writeIdx]);
+          currentTex = readTexs[writeIdx];
+          writeIdx ^= 1;
+        }
       }
 
       for (let i = 0; i < chained.length; i++) {

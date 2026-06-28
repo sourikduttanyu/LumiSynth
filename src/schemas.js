@@ -65,6 +65,7 @@ export const DEFAULTS = Object.freeze({
   colorisolationHue: 0.5, colorisolationOverlap: 0.5, colorisolationSteep: 0.9, colorisolationMode: 0.0,
   kuwaharaStructRadius: 1, kuwaharaStructSharp: 1,
   moddiffFreq: 1, moddiffMod: 0.5, moddiffBlack: 0.08, moddiffAxis: 0.0, moddiffDrift: 0.01,
+  sketchInk: 0.5, sketchStroke: 0.45, sketchWobble: 1.0, sketchSpeed: 1.0, sketchBg: 0.0,
 
   // ============ TRACK-mode state ============
   // Top-level mode + composite selector.
@@ -499,16 +500,16 @@ export const COLOR_PARAM_SCHEMAS = {
     toggles: [],
     order: ['light', 'chroma', 'hue', 'warmth'],
   },
-  // AcerolaFX-inspired COLOR UNIQUE effects
-  halftone: {
+  // Hand-drawn cross-hatch (hlorenzi adaptation) — COLOR UNIQUE effect
+  hatch: {
     knobs: [
-      { key: 'scale', label: 'Scale', min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Halftone dot size. 0 = fine dense screen. 1 = large coarse dots.' },
-      { key: 'ink',   label: 'Ink',   min: 0, max: 1, step: 0.01, default: 0.5, tip: 'Dot edge hardness. 0 = soft blended dots. 1 = sharp-edged print dots.' },
-      { key: 'angle', label: 'Angle', min: 0, max: 1, step: 0.01, default: 0.0, tip: 'Screen angle variation. Rotates all four CMYK screens together.' },
-      { key: 'blend', label: 'Blend', min: 0, max: 1, step: 0.01, default: 0.1, tip: '0 = full CMYK halftone print look. 1 = original source image. Blend for hybrid effect.' },
+      { key: 'density', label: 'Density', min: 0, max: 1, step: 0.01, default: 0.55, tip: 'Hatch line frequency. 0 = coarse loose strokes. 1 = fine dense weave.' },
+      { key: 'jitter',  label: 'Jitter',  min: 0, max: 1, step: 0.01, default: 0.70, tip: 'Hand-tremor amount. 0 = mechanical ruled lines. 1 = shaky hand-drawn wobble.' },
+      { key: 'paper',   label: 'Paper',   min: 0, max: 1, step: 0.01, default: 0.95, tip: 'Paper brightness. 0 = very dark paper. 1 = bright cream notebook.' },
+      { key: 'blend',   label: 'Blend',   min: 0, max: 1, step: 0.01, default: 0.0,  tip: '0 = full hatch on paper. 1 = original source. Mix for a colored-pencil hybrid.' },
     ],
     toggles: [],
-    order: ['scale', 'ink', 'angle', 'blend'],
+    order: ['density', 'jitter', 'paper', 'blend'],
   },
   colorfulposter: {
     knobs: [
@@ -954,7 +955,7 @@ export const TRACK_FX_PARAM_SCHEMAS = {
   },
 };
 
-export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'kuwahara', 'moddiff'];
+export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'kuwahara', 'moddiff', 'sketch'];
 // The MAPS tab of the COLOR picker — pure per-pixel color mapping (ramps,
 // grades, palette swaps; no neighbor sampling, no added elements). Adding a
 // map here (plus its schema/shader/label entries) is all the picker needs;
@@ -978,7 +979,7 @@ export const COLOR_UNIQUE_SECTIONS = [
   { key: 'light',      label: 'Light',      effects: ['neontube', 'prismatic', 'heatbleed', 'sequin', 'hologram', 'tokaplasma', 'irishell'] },
   { key: 'dimension',  label: 'Dimension',  effects: ['depthstack', 'abyss'] },
   { key: 'deepsea',    label: 'Deep Sea',   effects: ['octopus'] },
-  { key: 'print',      label: 'Print',      effects: ['risograph', 'newsprint', 'sketch', 'okband', 'halftone'] },
+  { key: 'print',      label: 'Print',      effects: ['risograph', 'newsprint', 'hatch', 'okband'] },
   { key: 'motion',     label: 'Motion',     effects: ['predator'] },
   { key: 'painterly',  label: 'Painterly',  effects: ['colorfulposter', 'cospalette'] },
 ];
@@ -1064,7 +1065,7 @@ export const BLEND_MODES = {
   fakehdr:      'source-over',
   palswap:      'source-over',
   csadjust:     'source-over',
-  halftone:     'source-over',
+  hatch:        'source-over',
   kuwahara:     'source-over',
   okdrift:      'source-over',
   // Internal GRADE pass (hue rotate + saturation) — auto-appended after the
