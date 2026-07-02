@@ -270,6 +270,16 @@ export const COLOR_PARAM_SCHEMAS = {
     toggles: [],
     order: ['bleed', 'radius', 'range', 'glowamt'],
   },
+  subsurface: {
+    knobs: [
+      { key: 'scatter',      label: 'Scatter',      min: 0, max: 1, step: 0.01, default: 0.4, tip: 'Scatter distance. 0 = tight skin scatter. 1 = deep wax/candle scatter.' },
+      { key: 'material',     label: 'Material',     min: 0, max: 1, step: 0.01, default: 0.0, tip: '0 = skin/flesh (warm red scatter). 0.5 = wax/candle (amber scatter). 1 = marble/jade (green scatter).' },
+      { key: 'translucency', label: 'Translucency', min: 0, max: 1, step: 0.01, default: 0.5, tip: '0 = opaque surface. 1 = fully translucent — the scattered glow dominates the surface.' },
+      { key: 'backlight',    label: 'Back Light',   min: 0, max: 1, step: 0.01, default: 0.0, tip: '0 = front lit. 1 = back lit, like holding a hand up to a lamp.' },
+    ],
+    toggles: [],
+    order: ['scatter', 'material', 'translucency', 'backlight'],
+  },
   sequin: {
     knobs: [
       { key: 'profile', label: 'Profile', min: 0, max: 1, step: 0.01, default: 0.5, tip: '0 = Cyan (teal→blue-cyan). 0.5 = Cyan-Magenta (blue→violet→magenta). 1 = Ember (red→gold). Snaps to three hue-bounded families.' },
@@ -980,6 +990,7 @@ export const COLOR_UNIQUE_SECTIONS = [
   { key: 'atmosphere', label: 'Atmosphere', effects: ['nebula', 'aurorastorm', 'subtleaurora', 'deepfield', 'dreamstatic', 'quantumstate'] },
   { key: 'light',      label: 'Light',      effects: ['neontube', 'prismatic', 'heatbleed', 'sequin', 'hologram', 'tokaplasma', 'irishell'] },
   { key: 'dimension',  label: 'Dimension',  effects: ['depthstack', 'abyss'] },
+  { key: 'material',   label: 'Material',   effects: ['subsurface'] },
   { key: 'deepsea',    label: 'Deep Sea',   effects: ['octopus'] },
   { key: 'print',      label: 'Print',      effects: ['risograph', 'newsprint', 'hatch', 'okband'] },
   { key: 'motion',     label: 'Motion',     effects: ['predator'] },
@@ -1025,6 +1036,7 @@ export const BLEND_MODES = {
   acidwash:     'source-over',
   xray:         'source-over',
   heatbleed:    'source-over',
+  subsurface:   'source-over',
   sequin:       'source-over',
   nebula:       'source-over',
   solarize:     'source-over',

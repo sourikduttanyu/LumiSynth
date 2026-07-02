@@ -29,6 +29,7 @@
  */
 
 import { ensureContext, getGL, getVideoTex } from './glContext.js';
+import { getShaderTimeSeconds } from './glUtil.js';
 
 const VERT = `#version 300 es
 in vec2 a_pos;
@@ -547,7 +548,7 @@ export function applyFxEffect(name, cw, ch, params = [0.5, 0.5, 0.5, 0.5], opts 
   gl.uniform1i(entry.feedback, 1);
   gl.uniform4f(entry.params, params[0], params[1], params[2], params[3]);
   if (entry.param4 != null && params[4] !== undefined) gl.uniform1f(entry.param4, params[4]);
-  if (entry.time != null) gl.uniform1f(entry.time, performance.now() / 1000);
+  if (entry.time != null) gl.uniform1f(entry.time, getShaderTimeSeconds());
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
   // Pass 2 — copy the new state to wherever the chain wants this stage's

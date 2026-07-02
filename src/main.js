@@ -11,6 +11,7 @@ import { applyASCII } from './ascii.js';
 import { applyGLFilter, applyStructureMode, applySourceOutputMode } from './glFilters.js';
 import { applyFxEffect, resetFxFeedback } from './glFx.js';
 import { ensureContext, uploadVideoFrame, compositeToCanvas2D, getChainFBOs, captureFrameHistory, resetMotionHistory } from './glContext.js';
+import { setShaderTimeOverride } from './glUtil.js';
 import { SHADER_SOURCES, SHADER_RES, setShaderSource, renderShaderSourceFrame, getShaderSourceCanvas, getShaderSourceParams, setShaderSourceParam } from './shaderSource.js';
 import { applyCompose } from './glCompose.js';
 import { BlobOneEuroFilter } from './oneEuroFilter.js';
@@ -1676,6 +1677,7 @@ const COLOR_SWATCH_GRADIENTS = {
   neontube:   'linear-gradient(90deg, #090010, #ff2fa3, #ffd2f0, #00e8ff)',
   prismatic:  'linear-gradient(90deg, #fff2bf, #ff9aa7, #a68cff, #9ffcff)',
   heatbleed:  'linear-gradient(90deg, #110006, #8a001f, #ff5500, #ffea00, #fff)',
+  subsurface: 'linear-gradient(90deg, #f2d3ba, #8a2510, #f5ecd0, #d98a2e, #d8ecdf, #234a34)',
   depthstack: 'linear-gradient(90deg, #050814, #23356f, #7354b8, #e8f3ff)',
   abyss:      'linear-gradient(90deg, #010010, #0a0050, #7a006e, #ff00aa, #ff8acd)',
   sequin:     'linear-gradient(90deg, #00aaff, #6600ff, #cc00ff, #ff0088, #ff5500, #ffcc00)',
@@ -1706,6 +1708,7 @@ const COLOR_LABEL = {
   blackbody: 'Blackbody', hubble: 'Hubble',
   nebula: 'Nebula', aurorastorm: 'Aurora', deepfield: 'DeepField', neontube: 'NeonTube',
   prismatic: 'Prismatic', heatbleed: 'HeatBleed', depthstack: 'DepthStack', abyss: 'Abyss',
+  subsurface: 'SubSurface',
   sequin: 'Sequin',
   risograph: 'Riso',
   octopus: 'Octopus', hologram: 'Hologram', surveil: 'Surveil', newsprint: 'Newsprint', hatch: 'Hatch',
@@ -1737,6 +1740,7 @@ const COLOR_MAP_TIPS = {
   neontube:   'Emissive neon line-art. Edges glow as bright neon cores with atmospheric halo.',
   prismatic:  'Warm spectral dispersion. Prismatic chromatic aberration with yellow-pink spectrum.',
   heatbleed:  'Thermal color that bleeds spatially based on intensity. Hot colors spread outward.',
+  subsurface: 'Subsurface light scattering. Bright areas bleed light downward through the material, shifting warm as it travels. Material picks skin, wax/candle, or marble/jade tint; Translucency blends the scatter into the surface; Back Light flips to a light-from-behind glow.',
   depthstack: 'Holographic spectral depth planes. Banded color zones shift with luminance gradients.',
   sequin:     'Three hue-bounded shimmer profiles: Cyan, Cyan-Magenta, or Ember. Sparkle dots twinkle at peaks; Speed oscillates the palette without ever bleeding into green.',
   abyss:      'Stereoscopic void. Real R/B chromatic displacement creates 3D depth. Hue sweeps electric blue → vivid magenta → warm rose.',
@@ -1787,6 +1791,13 @@ let _okdriftLastRand = 0;
 // Blob-side equivalents for the blob proc tab.
 let _blobOkdriftAnimId = null;
 let _blobOkdriftLastRand = 0;
+
+// Rate → auto-randomize interval in ms. Shared by the live OKDrift panel
+// loop (real-time, gated on performance.now()) and the export path (virtual
+// per-frame time, see _advanceOkdriftForExport) so both agree on pacing.
+function _okdriftRateIntervalMs(rate) {
+  return Math.pow(10, 4 - Math.max(0, Math.min(1, rate)) * 3);
+}
 
 function colorTabForSelection(color) {
   if (COLOR_UNIQUE_FLAT.includes(color)) return 'unique';
@@ -2128,9 +2139,13 @@ function buildOkdriftPanel(container) {
     const rate = params.rate ?? 0;
 
     // Auto-randomize: Rate > 0 fires a new random hue at a log-scaled interval.
-    // Rate=0 → off. Rate=0.5 → ~316ms. Rate=1 → 100ms (strobe).
-    if (rate > 0) {
-      const intervalMs = Math.pow(10, 4 - rate * 3);
+    // Rate=0 → off. Rate=0.5 → ~316ms. Rate=1 → 100ms (strobe). Skipped while
+    // exporting: the export loop advances this on its own virtual per-frame
+    // clock (see _advanceOkdriftForExport) since it doesn't render in real
+    // time — letting this real-time rAF loop run concurrently would fight it
+    // and desync the color cycling from the exported timeline.
+    if (rate > 0 && !_isExporting) {
+      const intervalMs = _okdriftRateIntervalMs(rate);
       const now = performance.now();
       if (now - _okdriftLastRand >= intervalMs) {
         _okdriftLastRand = now;
@@ -2221,8 +2236,8 @@ function buildBlobOkdriftPanel(container) {
     const blackStops = Math.max(0, Math.min(4,  Math.round(params.blackStops ?? 0)));
     const rate = params.rate ?? 0;
 
-    if (rate > 0) {
-      const intervalMs = Math.pow(10, 4 - rate * 3);
+    if (rate > 0 && !_isExporting) {
+      const intervalMs = _okdriftRateIntervalMs(rate);
       const now = performance.now();
       if (now - _blobOkdriftLastRand >= intervalMs) {
         _blobOkdriftLastRand = now;
@@ -4159,6 +4174,36 @@ btnSnapshot.addEventListener('click', () => { takeSnapshot(); });
 // shader) since those have no seekable timeline.
 
 let _exportAborted = false;
+// True for the duration of an offline export — silences the live OKDrift
+// panel's real-time auto-randomize (see buildOkdriftPanel/buildBlobOkdriftPanel)
+// so it doesn't race the export's own frame-accurate randomize below.
+let _isExporting = false;
+// Virtual (exported-frame) clock for OKDrift Rate-driven auto-randomize
+// during export, reset at the start of each export run.
+let _exportOkdriftLastRandMs = null;
+let _exportBlobOkdriftLastRandMs = null;
+
+// Advance OKDrift's Rate-driven hue auto-randomize using the exported
+// frame's own virtual timestamp rather than performance.now(). Export
+// renders frames as fast as seek/draw/encode allow — real wall-clock time
+// per exported second is uneven (slower at the start, e.g. first seeks and
+// shader compiles) — so pacing this off performance.now() (as the live
+// preview panel does) makes the color cycle rate wrong for exactly as long
+// as export runs off-pace from real time, then "correct itself" once the
+// loop settles into a steady per-frame rate. Keying off the frame's own
+// t*1000 virtual ms makes the exported cycle rate match the live rate
+// regardless of how long each frame actually took to render.
+function _advanceOkdriftForExport(params, virtualMs, which) {
+  const rate = params.rate ?? 0;
+  if (rate <= 0) return;
+  const last = which === 'blob' ? _exportBlobOkdriftLastRandMs : _exportOkdriftLastRandMs;
+  const intervalMs = _okdriftRateIntervalMs(rate);
+  if (last == null || virtualMs - last >= intervalMs) {
+    if (which === 'blob') _exportBlobOkdriftLastRandMs = virtualMs;
+    else _exportOkdriftLastRandMs = virtualMs;
+    params.hue = Math.random();
+  }
+}
 
 const exportOverlayBarGlow  = document.getElementById('export-overlay-bar-glow');
 const exportOverlayInner    = document.querySelector('.export-overlay-inner');
@@ -4217,11 +4262,17 @@ function _seekTo(t) {
 
 // Run the full render pipeline for the current video frame onto the canvas.
 // blobs[] comes from the pre-detection pass; empty array for synth-mode frames.
-function _renderOneFrame(look, cw, ch, blobs = []) {
+// exportTimeMs (export only) is the frame's virtual timeline time (t*1000) —
+// see _advanceOkdriftForExport for why OKDrift's Rate drift needs it instead
+// of performance.now().
+function _renderOneFrame(look, cw, ch, blobs = [], exportTimeMs = null) {
   const srcEl = activeSourceEl();
   ctx.drawImage(srcEl, 0, 0, cw, ch);
 
   const pipe = resolveActivePipeline(look);
+  if (exportTimeMs != null && pipe.color?.type === 'okdrift') {
+    _advanceOkdriftForExport(pipe.color.params, exportTimeMs, 'main');
+  }
 
   const chained = [];
   if (pipe.color) chained.push({ type: pipe.color.type, run: (opts) => runColorEffect(pipe.color.type, pipe.color.params, opts) });
@@ -4346,6 +4397,9 @@ function _renderOneFrame(look, cw, ch, blobs = []) {
   // Blob LumiSynth — uses pre-detected blobs, same gating as renderFrame.
   if (blobs.length > 0) {
     const blobPipe = resolveBlobPipeline(look);
+    if (exportTimeMs != null && blobPipe.color?.type === 'okdrift') {
+      _advanceOkdriftForExport(blobPipe.color.params, exportTimeMs, 'blob');
+    }
     const blobHasWork = blobPipe.structure || blobPipe.color || blobPipe.grade || blobPipe.fx.length > 0
       || (blobPipe.structureOutputMode ?? 0) !== 1;
     if (blobHasWork) {
@@ -4500,17 +4554,20 @@ async function _exportWebCodecs(fps, totalFrames, cw, ch, bitrate, ts, blobsPerF
   if (!wasPaused) video.pause();
 
   resetAllState();
+  _exportOkdriftLastRandMs = null;
+  _exportBlobOkdriftLastRandMs = null;
 
   for (let n = 0; n < totalFrames; n++) {
     if (_exportAborted) break;
 
     const t = n / fps;
     await _seekTo(t);
+    setShaderTimeOverride(t);
 
     const timelineResolved = resolveTimelineLook(t);
     _renderLook = timelineResolved.look;
     const look = currentLook();
-    _renderOneFrame(look, cw, ch, blobsPerFrame.get(n) ?? []);
+    _renderOneFrame(look, cw, ch, blobsPerFrame.get(n) ?? [], t * 1000);
     _renderLook = null;
 
     const frame = new VideoFrame(canvas, {
@@ -4559,17 +4616,20 @@ async function _exportPNGZip(fps, totalFrames, cw, ch, ts, blobsPerFrame) {
   const wasPaused = video.paused;
   if (!wasPaused) video.pause();
   resetAllState();
+  _exportOkdriftLastRandMs = null;
+  _exportBlobOkdriftLastRandMs = null;
 
   for (let n = 0; n < totalFrames; n++) {
     if (_exportAborted) break;
 
     const t = n / fps;
     await _seekTo(t);
+    setShaderTimeOverride(t);
 
     const timelineResolved = resolveTimelineLook(t);
     _renderLook = timelineResolved.look;
     const look = currentLook();
-    _renderOneFrame(look, cw, ch, blobsPerFrame.get(n) ?? []);
+    _renderOneFrame(look, cw, ch, blobsPerFrame.get(n) ?? [], t * 1000);
     _renderLook = null;
 
     const pngBuf = await new Promise((resolve) => {
@@ -4724,6 +4784,7 @@ async function startOfflineExport() {
   if (rafHandle) { cancelAnimationFrame(rafHandle); rafHandle = 0; }
 
   _exportAborted = false;
+  _isExporting = true;
   const useWebCodecs = await _canWebCodecs();
 
   // Determine if any part of the video requires blob detection.
@@ -4760,6 +4821,8 @@ async function startOfflineExport() {
   } catch (err) {
     showToast(`Export failed: ${err.message || err}`, 'error');
   } finally {
+    _isExporting = false;
+    setShaderTimeOverride(null);
     _exportHideOverlay();
     if (exportDims) resizeCanvas();
     if (state.hasSource && rafHandle === 0) rafHandle = requestAnimationFrame(renderFrame);

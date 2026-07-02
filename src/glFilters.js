@@ -9,6 +9,7 @@
 
 import { ensureContext, getGL, getVideoTex, getMotionTex } from './glContext.js';
 import { ASCII_FRAG } from './ascii.js';
+import { getShaderTimeSeconds } from './glUtil.js';
 
 export const VERT = `#version 300 es
 in vec2 a_pos;
@@ -641,6 +642,65 @@ void main() {
   vec3 col = thermalRamp(bleedVal);
   float heatExcess = max(0.0, bleedVal - val);
   col += vec3(1.0,0.6,0.2) * heatExcess * uParams.w * 3.0;
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// uParams: x=Scatter Distance (0=tight skin, 1=deep wax), y=Material
+// (0=skin/flesh, 0.5=wax/candle, 1=marble/jade), z=Translucency
+// (0=opaque surface, 1=fully translucent), w=Back Light (0=front lit,
+// 1=back lit like holding a hand to a lamp). Ported from a TouchDesigner
+// GLSL TOP (sTD2DInputs/TDOutputSwizzle -> u_video/fragColor).
+const FRAG_SUBSURFACE = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+void main() {
+  vec2 uv = vUV;
+  vec2 texel = 1.0 / vec2(textureSize(u_video, 0));
+  float val = texture(u_video, uv).r;
+
+  // Scatter: sample above (light enters from bright areas and scatters down)
+  float scatter = 0.0;
+  float scatterDist = mix(3.0, 15.0, uParams.x);
+  float tw = 0.0;
+  for (int i = 1; i <= 6; i++) {
+    float offset = float(i) * scatterDist;
+    float w = 1.0 / float(i);
+    float above = texture(u_video, clamp(uv + vec2(0.0, texel.y * offset), 0.0, 1.0)).r;
+    scatter += above * w;
+    tw += w;
+  }
+  scatter /= tw;
+
+  // Translucency blend
+  float surfaceVal = mix(val, scatter, uParams.z * 0.6);
+
+  // Back light: invert so dark areas glow (light from behind)
+  float backlit = mix(surfaceVal, 1.0 - val + scatter * 0.5, uParams.w);
+  float finalVal = clamp(backlit, 0.0, 1.0);
+
+  // Material palettes
+  vec3 col;
+  float mat = uParams.y;
+  if (mat < 0.33) {
+    // Skin: pale surface -> warm red scatter
+    vec3 surface = vec3(0.85, 0.7, 0.6) * finalVal;
+    vec3 deep = vec3(0.7, 0.15, 0.08) * scatter;
+    col = surface + deep * uParams.z;
+  } else if (mat < 0.66) {
+    // Wax: cream surface -> warm amber scatter
+    vec3 surface = vec3(0.9, 0.85, 0.7) * finalVal;
+    vec3 deep = vec3(0.9, 0.5, 0.1) * scatter;
+    col = surface + deep * uParams.z;
+  } else {
+    // Marble/jade: cool surface -> green scatter
+    vec3 surface = vec3(0.8, 0.85, 0.8) * finalVal;
+    vec3 deep = vec3(0.1, 0.5, 0.3) * scatter;
+    col = surface + deep * uParams.z;
+  }
+
   fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
@@ -3017,6 +3077,7 @@ export const FRAGS = {
   acidwash:     FRAG_ACIDWASH,
   xray:         FRAG_XRAY,
   heatbleed:    FRAG_HEATBLEED,
+  subsurface:   FRAG_SUBSURFACE,
   nebula:       FRAG_NEBULA,
   solarize:     FRAG_SOLARIZE,
   aurorastorm:  FRAG_AURORASTORM,
@@ -3178,7 +3239,7 @@ export function applyGLFilter(name, cw, ch, params = [0.5, 0.5, 0.5, 0.5], opts 
   }
   gl.uniform4f(entry.params, params[0], params[1], params[2], params[3]);
   if (entry.param4 != null && params[4] !== undefined) gl.uniform1f(entry.param4, params[4]);
-  if (entry.uTime != null) gl.uniform1f(entry.uTime, performance.now() / 1000);
+  if (entry.uTime != null) gl.uniform1f(entry.uTime, getShaderTimeSeconds());
   if (entry.outputMode) gl.uniform1f(entry.outputMode, opts.outputMode ?? 0);
   if (entry.inkLow && entry.inkHigh) {
     const inkLow = opts.inkLow ?? [0.04, 0.035, 0.03];

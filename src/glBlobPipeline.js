@@ -31,6 +31,7 @@
  */
 
 import { VERT, FRAGS, FRAG_EDGEDET_STRUCT } from './glFilters.js';
+import { getShaderTimeSeconds } from './glUtil.js';
 
 // Passthrough shader that applies the structure output mode (mono/source/ink/invert)
 // to the raw source video when no structure effect is selected.
@@ -366,7 +367,7 @@ function runEffect(name, w, h, params, opts = {}) {
   if (entry.param4 != null && params[4] !== undefined) gl.uniform1f(entry.param4, params[4]);
   if (entry.edgeThresh != null) gl.uniform1f(entry.edgeThresh, params[4] ?? 0);
   if (entry.uPalette != null && params[5] !== undefined) gl.uniform1i(entry.uPalette, Math.round(params[5]));
-  if (entry.uTime != null) gl.uniform1f(entry.uTime, performance.now() / 1000);
+  if (entry.uTime != null) gl.uniform1f(entry.uTime, getShaderTimeSeconds());
   if (entry.outputMode != null) gl.uniform1f(entry.outputMode, opts.outputMode ?? 0);
   if (entry.inkLow != null && entry.inkHigh != null) {
     const lo = opts.inkLow  ?? [0.04, 0.035, 0.03];
@@ -444,7 +445,7 @@ function runFeedbackEffect(name, slotKey, w, h, params, opts = {}) {
   gl.uniform1i(entry.feedback, 1);
   gl.uniform4f(entry.params, params[0] ?? 0, params[1] ?? 0, params[2] ?? 0, params[3] ?? 0);
   if (entry.param4 != null && params[4] !== undefined) gl.uniform1f(entry.param4, params[4]);
-  if (entry.time != null) gl.uniform1f(entry.time, performance.now() / 1000);
+  if (entry.time != null) gl.uniform1f(entry.time, getShaderTimeSeconds());
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
   // Pass 2 — copy new state to chain output

@@ -40,6 +40,36 @@
  */
 const _texDims = new WeakMap();
 
+// ---- Shared shader time source ----
+//
+// Effects that declare `uniform float uTime` (glFilters.js, glFx.js,
+// glBlobPipeline.js all auto-upload it when present) animate off real
+// wall-clock time during live playback. Offline export does NOT render in
+// real time — it seeks the video, draws, and encodes as fast as that allows
+// per frame (see _renderOneFrame / _exportWebCodecs in main.js) — so if a
+// uTime-driven effect (GRADE's Hue Rate/Range cycle, sequin twinkle,
+// wobbletape wobble, filmgrain, crtrolling, hologram flicker, etc.) keeps
+// reading performance.now(), its animation speed tracks how fast the export
+// happens to run rather than the exported video's own timeline: typically
+// slower/uneven at the start (cold shader compiles, first seeks) then
+// settling once the loop's per-frame rate stabilizes — the effect looks
+// sped up initially, then "catches up" to the intended pace.
+//
+// setShaderTimeOverride lets the export loop pin every uTime upload to the
+// frame's own virtual timestamp (t seconds) for that frame's render, making
+// exported animation speed match live-preview pacing frame-for-frame
+// regardless of how long the frame actually took to render. Passing null
+// reverts to real wall-clock time for live playback.
+let _shaderTimeOverrideS = null;
+
+export function setShaderTimeOverride(seconds) {
+  _shaderTimeOverrideS = seconds;
+}
+
+export function getShaderTimeSeconds() {
+  return _shaderTimeOverrideS != null ? _shaderTimeOverrideS : performance.now() / 1000;
+}
+
 export function uploadVideoTexture(gl, tex, source) {
   const w = (source.videoWidth || source.naturalWidth || source.width || 0) | 0;
   const h = (source.videoHeight || source.naturalHeight || source.height || 0) | 0;
