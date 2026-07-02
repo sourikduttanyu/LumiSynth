@@ -1961,6 +1961,98 @@ void main() {
   fragColor = vec4(vec3(structure), 1.0);
 }`;
 
+// VEINS — STRUCTURE. Gradient-following branching noise, adapted from Rune
+// Skovbo Johansen's "Phacelle Noise" terrain-erosion technique
+// (https://blog.runevision.com/2026/03/fast-and-gorgeous-erosion-filter.html).
+// The original grows river-like gullies down a heightmap by stacking octaves
+// of directional cell noise, where each octave's direction bends based on the
+// previous octave's own noise gradient. Here the "heightmap" is the source
+// video's luma: the first octave's stripe direction comes from the image's
+// own luma gradient (so veins seed along existing contours/edges), then each
+// subsequent octave nudges that direction using its own noise output, which
+// is what produces the organic branching (root / crack / marble-vein) look
+// rather than a uniform noise field. Simplified to 1-3 octaves with a fixed
+// max-3 loop (dynamic count via early break, matching the erode-kernel
+// convention in this file) — no raymarching / heightmap-specific code.
+// uParams: x=strength(vein contrast), y=scale(cell size), z=detail(octaves 1-3), w=bend(branch amount)
+const FRAG_VEINS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D u_video;
+uniform vec4 uParams;
+out vec4 fragColor;
+
+float veinsLuma(vec2 uv) { return dot(texture(u_video, uv).rgb, vec3(0.299, 0.587, 0.114)); }
+
+vec2 veinsHash2(vec2 p) {
+  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(p) * 43758.5453123) * 2.0 - 1.0;
+}
+
+// Directional cell noise: blends cosine/sine waves aligned with dir across a
+// 4x4 grid of jittered cells (Rune Skovbo Johansen's Phacelle Noise, simplified —
+// no analytic derivatives, no configurable normalization threshold).
+// Returns (cos wave, sin wave, coherence weight).
+vec3 veinsPhacelle(vec2 p, vec2 dir) {
+  vec2 side = vec2(-dir.y, dir.x) * 6.28318530718;
+  vec2 pi = floor(p);
+  vec2 pf = fract(p);
+  vec2 acc = vec2(0.0);
+  float wsum = 0.0;
+  for (int i = -1; i <= 2; i++) {
+    for (int j = -1; j <= 2; j++) {
+      vec2 go = vec2(float(i), float(j));
+      vec2 cellPoint = go + veinsHash2(pi + go) * 0.5;
+      vec2 rel = pf - cellPoint;
+      float w = max(0.0, exp(-dot(rel, rel) * 2.0) - 0.011);
+      wsum += w;
+      float phase = dot(rel, side);
+      acc += vec2(cos(phase), sin(phase)) * w;
+    }
+  }
+  vec2 v = acc / max(wsum, 1e-5);
+  float mag = length(v);
+  return vec3(v / max(mag, 0.35), mag);
+}
+
+void main() {
+  vec2 uv = vUV;
+  vec2 texel = 1.0 / vec2(textureSize(u_video, 0));
+
+  // Seed direction: the source's own local luma gradient, so veins grow
+  // along existing image contours instead of a fixed axis.
+  float gx = veinsLuma(uv + vec2(texel.x, 0.0)) - veinsLuma(uv - vec2(texel.x, 0.0));
+  float gy = veinsLuma(uv + vec2(0.0, texel.y)) - veinsLuma(uv - vec2(0.0, texel.y));
+  vec2 grad = vec2(gx, gy);
+  float gradLen = length(grad);
+  vec2 dir = gradLen > 1e-4 ? grad / gradLen : vec2(1.0, 0.0);
+
+  float cellPx  = mix(8.0, 80.0, uParams.y);
+  vec2  p       = (uv * vec2(textureSize(u_video, 0))) / cellPx;
+  int   octaves = int(clamp(floor(uParams.z * 3.0) + 1.0, 1.0, 3.0));
+  float bend    = uParams.w;
+
+  float height  = 0.0;
+  float amp     = mix(0.15, 1.5, uParams.x);
+  float mask    = smoothstep(0.0, 0.08, gradLen);
+  float freqMul = 1.0;
+  vec2  slopeDir = dir;
+
+  for (int i = 0; i < 3; i++) {
+    if (i >= octaves) break;
+    vec3 ph = veinsPhacelle(p * freqMul, slopeDir);
+    height += ph.x * amp * mask;
+    vec2 side = vec2(-slopeDir.y, slopeDir.x);
+    slopeDir = normalize(mix(slopeDir, side * sign(ph.y), bend * 0.5) + vec2(1e-6));
+    mask = mix(mask, ph.z, 0.3);
+    amp *= 0.55;
+    freqMul *= 2.1;
+  }
+
+  float structure = clamp(height * 0.5 + 0.5, 0.0, 1.0);
+  fragColor = vec4(vec3(structure), 1.0);
+}`;
+
 // MODDIFF — Modulated Diffuse. Sine-wave dithering where pixel luminance
 // phase-shifts the threshold: bright areas shift the sine further →
 // more crossings per unit distance → denser lines; dark areas → sparse.
@@ -2916,6 +3008,7 @@ export const FRAGS = {
   motionedge:   FRAG_MOTIONEDGE,
   dog:          FRAG_DOG,
   dither:       FRAG_DITHER,
+  veins:        FRAG_VEINS,
   predator:     FRAG_PREDATOR,
   // COLOR additions
   depthstack:   FRAG_DEPTHSTACK,

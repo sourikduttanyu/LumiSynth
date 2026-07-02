@@ -1282,6 +1282,8 @@ function runEffect(name, opts) {
       return applyGLFilter('edgedet', canvas.width, canvas.height, [look.edgedetThresh, look.edgedetGlow, look.edgedetHue, look.edgedetBlend], opts);
     case 'dither':
       return applyGLFilter('dither', canvas.width, canvas.height, [look.ditherScale, look.ditherLevels, look.ditherContrast, look.ditherBias], opts);
+    case 'veins':
+      return applyGLFilter('veins', canvas.width, canvas.height, [look.veinsStrength, look.veinsScale, look.veinsDetail, look.veinsBend], opts);
     case 'kuwahara':
       return applyGLFilter('kuwahara_struct', canvas.width, canvas.height, [look.kuwaharaStructRadius, look.kuwaharaStructSharp, 0, 0], opts);
     case 'moddiff':

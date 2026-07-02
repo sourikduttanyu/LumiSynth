@@ -62,6 +62,7 @@ export const DEFAULTS = Object.freeze({
   motionedgeEdge: 0.5, motionedgeMotion: 0.6, motionedgeThresh: 0.15, motionedgeBoost: 0.5,
   edgedetThresh: 0.3,  edgedetGlow: 0.5,      edgedetHue: 0.15,     edgedetBlend: 0.1,
   ditherScale: 0.5, ditherLevels: 0.25, ditherContrast: 0.5, ditherBias: 0.5,
+  veinsStrength: 0.5, veinsScale: 0.4, veinsDetail: 0.6, veinsBend: 0.5,
   colorisolationHue: 0.5, colorisolationOverlap: 0.5, colorisolationSteep: 0.9, colorisolationMode: 0.0,
   kuwaharaStructRadius: 1, kuwaharaStructSharp: 1,
   moddiffFreq: 1, moddiffMod: 0.5, moddiffBlack: 0.08, moddiffAxis: 0.0, moddiffDrift: 0.01,
@@ -956,7 +957,7 @@ export const TRACK_FX_PARAM_SCHEMAS = {
   },
 };
 
-export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'kuwahara', 'moddiff', 'sketch'];
+export const STRUCTURE_SECTIONS = ['ascii', 'erode', 'pixelsort', 'melt', 'motionedge', 'edgedet', 'dither', 'veins', 'kuwahara', 'moddiff', 'sketch'];
 // The MAPS tab of the COLOR picker — pure per-pixel color mapping (ramps,
 // grades, palette swaps; no neighbor sampling, no added elements). Adding a
 // map here (plus its schema/shader/label entries) is all the picker needs;
@@ -1005,6 +1006,7 @@ export const BLEND_MODES = {
   motionedge:   'source-over',
   edgedet:      'source-over',
   dither:       'source-over',
+  veins:        'source-over',
   moddiff:      'source-over',
 
   predator:     'source-over',
